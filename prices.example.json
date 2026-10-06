@@ -1,0 +1,4 @@
+{
+  "_note": "Copy to ~/.arcade/prices.json. Prices in US dollars per 1 million tokens, copied from each provider's pricing page. Keys are Switchboard model names (from config.yaml). Local models are always $0.",
+  "my-cloud-model": { "input": 0, "output": 0 }
+}

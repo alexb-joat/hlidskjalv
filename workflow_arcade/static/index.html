@@ -1,0 +1,1109 @@
+<title>Workflow Arcade</title>
+<meta name="description" content="A game-like live map of your coding workflow.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&family=JetBrains+Mono:wght@400;600&family=Nunito:wght@400;600;700;800&display=swap">
+<style>
+/* Layout: an archipelago sea chart. Folders are islands, files are tiles,
+   the quest log is the captain's journal on the right. Single deliberate dark look. */
+:root {
+  --abyss: #061820;      /* page */
+  --deep: #0b2630;       /* panels */
+  --reef: #113845;       /* raised */
+  --line: #1d4f5c;       /* hairlines */
+  --foam: #e6f2ef;       /* text */
+  --mist: #93b7b8;       /* muted text */
+  --sand: #f2dcaa;       /* island headers, docs */
+  --sun: #ffcc4d;        /* xp, config, caution */
+  --kelp: #5fd6ae;       /* code, success, local */
+  --lagoon: #45c2e6;     /* tests, commands */
+  --orchid: #c6a2ff;     /* AI, data */
+  --coral: #ff7b5e;      /* secrets, danger */
+  --display: "Bungee", "Impact", "Arial Black", system-ui, sans-serif;
+  --body: "Nunito", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+  --r: 14px;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--abyss); color: var(--foam);
+  font: 15px/1.5 var(--body);
+  background-image:
+    radial-gradient(1200px 600px at 15% -10%, color-mix(in srgb, var(--lagoon) 16%, transparent), transparent 60%),
+    radial-gradient(900px 500px at 110% 20%, color-mix(in srgb, var(--orchid) 10%, transparent), transparent 60%),
+    repeating-linear-gradient(0deg, color-mix(in srgb, var(--line) 35%, transparent) 0 1px, transparent 1px 64px),
+    repeating-linear-gradient(90deg, color-mix(in srgb, var(--line) 35%, transparent) 0 1px, transparent 1px 64px);
+  background-attachment: fixed;
+}
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--sun); outline-offset: 2px; }
+.wrap { max-width: 1320px; margin: 0 auto; padding-inline: 16px; padding-block: 0 48px; }
+
+/* ---------- HUD */
+.hud {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
+  background: color-mix(in srgb, var(--abyss) 86%, transparent); backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.hud-in { max-width: 1320px; margin: 0 auto; padding: 10px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; }
+.logo { font-family: var(--display); font-size: 20px; letter-spacing: .02em; line-height: 1; display: flex; align-items: center; gap: 10px; white-space: nowrap; }
+.logo svg { width: 30px; height: 30px; }
+.logo small { display: block; font: 700 11px/1.2 var(--body); color: var(--mist); letter-spacing: .08em; text-transform: uppercase; margin-top: 4px; }
+.mode { font: 800 11px/1 var(--body); letter-spacing: .12em; text-transform: uppercase; padding: 6px 10px; border-radius: 99px; border: 1px solid currentColor; display: inline-flex; align-items: center; gap: 7px; }
+.mode::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.mode.live { color: var(--kelp); } .mode.live::before { animation: blink 1.6s infinite; }
+.mode.demo { color: var(--sun); } .mode.off { color: var(--coral); }
+.level { display: flex; align-items: center; gap: 10px; min-width: 210px; flex: 1 1 210px; max-width: 340px; }
+.lvl-badge { font-family: var(--display); font-size: 18px; width: 42px; height: 42px; display: grid; place-items: center; border-radius: 12px; background: var(--sun); color: var(--abyss); box-shadow: 0 0 0 3px color-mix(in srgb, var(--sun) 30%, transparent); flex: none; }
+.lvl-text { flex: 1; min-width: 0; }
+.lvl-text b { font-weight: 800; }
+.lvl-text span { color: var(--mist); font-size: 12px; font-variant-numeric: tabular-nums; }
+.bar { height: 8px; border-radius: 99px; background: var(--reef); overflow: hidden; margin-top: 4px; }
+.bar i { display: block; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, var(--sun), var(--kelp)); transition: width .6s cubic-bezier(.2,.8,.2,1); }
+.tabs { display: flex; gap: 4px; margin-left: auto; background: var(--deep); padding: 4px; border-radius: 12px; border: 1px solid var(--line); }
+.tabs button { border: 0; background: transparent; padding: 7px 14px; border-radius: 9px; cursor: pointer; font-weight: 800; color: var(--mist); }
+.tabs button[aria-selected="true"] { background: var(--reef); color: var(--foam); box-shadow: inset 0 -2px 0 var(--sun); }
+.tabs button:hover { color: var(--foam); }
+
+/* ---------- generic */
+.panel { background: color-mix(in srgb, var(--deep) 92%, transparent); border: 1px solid var(--line); border-radius: var(--r); }
+.eyebrow { font: 800 11px/1.2 var(--body); letter-spacing: .14em; text-transform: uppercase; color: var(--mist); }
+h2 { font-family: var(--display); font-weight: 400; font-size: 22px; margin: 0; letter-spacing: .01em; text-wrap: balance; }
+h3 { font-size: 17px; margin: 0; font-weight: 800; text-wrap: balance; }
+.muted { color: var(--mist); }
+.btn { border: 1px solid var(--line); background: var(--reef); padding: 8px 14px; border-radius: 10px; cursor: pointer; font-weight: 800; }
+.btn:hover { border-color: var(--mist); }
+.btn.primary { background: var(--sun); color: var(--abyss); border-color: var(--sun); }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 99px; font-size: 12px; font-weight: 700; background: var(--reef); border: 1px solid var(--line); white-space: nowrap; }
+.chip.ok { color: var(--kelp); } .chip.no { color: var(--mist); } .chip.warn { color: var(--sun); } .chip.bad { color: var(--coral); } .chip.ai { color: var(--orchid); }
+[data-tip] { cursor: help; }
+.view[hidden] { display: none !important; }
+
+/* ---------- world layout */
+.intro { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 18px 0 14px; }
+.intro .title { flex: 1 1 320px; min-width: 0; }
+.intro .title p { margin: 4px 0 0; color: var(--mist); max-width: 70ch; }
+.sources { display: flex; flex-wrap: wrap; gap: 6px; }
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; align-items: start; }
+@media (max-width: 980px) { .grid { grid-template-columns: minmax(0,1fr); } }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.stat { padding: 10px 12px; border-radius: 12px; background: var(--deep); border: 1px solid var(--line); min-width: 0; }
+.stat b { display: block; font-family: var(--display); font-weight: 400; font-size: 22px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 12px; color: var(--mist); font-weight: 700; }
+.ratio { height: 6px; border-radius: 99px; background: color-mix(in srgb, var(--orchid) 55%, var(--reef)); margin-top: 6px; overflow: hidden; }
+.ratio i { display: block; height: 100%; background: var(--kelp); width: 0; transition: width .5s; }
+
+.ribbon { display: flex; align-items: center; gap: 12px; padding: 10px 14px; margin-bottom: 14px; border-radius: 12px; background: var(--deep); border: 1px solid var(--line); position: relative; overflow: hidden; min-height: 48px; }
+.ribbon .beam { position: absolute; inset: 0; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--orchid) 30%, transparent), transparent); transform: translateX(-100%); pointer-events: none; }
+.ribbon.cast .beam { animation: beam 1.1s ease-out; }
+.ribbon .txt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ribbon svg { width: 22px; height: 22px; color: var(--orchid); flex: none; }
+
+.map { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
+.island {
+  border-radius: 18px; padding: 12px 12px 14px; position: relative;
+  background: radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--sand) 9%, var(--deep)), var(--deep) 70%);
+  border: 1px solid color-mix(in srgb, var(--sand) 22%, var(--line));
+  box-shadow: 0 10px 30px -18px #000, inset 0 1px 0 color-mix(in srgb, var(--sand) 12%, transparent);
+}
+.island header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; min-width: 0; }
+.island header b { font-family: var(--mono); font-size: 13px; color: var(--sand); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.island header span { margin-left: auto; font-size: 12px; color: var(--mist); flex: none; }
+.tiles { display: flex; flex-wrap: wrap; gap: 8px; }
+.tile {
+  --c: var(--mist);
+  width: 68px; display: grid; justify-items: center; gap: 4px; padding: 7px 4px 6px; border-radius: 12px;
+  background: color-mix(in srgb, var(--c) 9%, var(--reef)); border: 1px solid color-mix(in srgb, var(--c) 35%, transparent);
+  position: relative; transition: transform .15s, box-shadow .3s; outline-offset: 1px;
+}
+.tile:hover, .tile:focus-visible { transform: translateY(-2px); box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--c) 70%, transparent); }
+.tile .g { font: 800 12px/1 var(--mono); color: var(--c); width: 34px; height: 30px; display: grid; place-items: center; border-radius: 8px; background: color-mix(in srgb, var(--c) 16%, transparent); }
+.tile .n { font: 11px/1.2 var(--mono); color: var(--foam); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile .heat { position: absolute; top: 4px; right: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--sun); box-shadow: 0 0 8px var(--sun); opacity: 0; }
+.tile.hot .heat { opacity: 1; }
+.tile.gone { opacity: .35; filter: grayscale(1); }
+.tile.gone .n { text-decoration: line-through; }
+.tile.secret .g::after { content: ""; }
+.tile.pulse { animation: pulse 1.4s ease-out; }
+.tile.spawn { animation: spawn .6s cubic-bezier(.2,1.4,.4,1); }
+.pop { position: absolute; left: 50%; top: -6px; transform: translate(-50%, 0); font: 800 12px/1 var(--mono); padding: 3px 6px; border-radius: 6px; background: var(--abyss); border: 1px solid var(--line); white-space: nowrap; pointer-events: none; animation: rise 1.8s ease-out forwards; z-index: 3; }
+.pop .a { color: var(--kelp); } .pop .r { color: var(--coral); }
+.more { align-self: center; font-size: 12px; color: var(--mist); padding: 4px 8px; }
+.empty { padding: 28px; text-align: center; color: var(--mist); }
+
+.k-code { --c: var(--kelp); } .k-test { --c: var(--lagoon); } .k-config { --c: var(--sun); } .k-docs { --c: var(--sand); }
+.k-data { --c: var(--orchid); } .k-secret { --c: var(--coral); } .k-web { --c: #ff9fcf; } .k-script { --c: #9be36a; } .k-asset { --c: #8fb0ff; } .k-other { --c: var(--mist); }
+
+/* ---------- quest log */
+.log { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.log-head { display: flex; align-items: center; gap: 8px; }
+.log-head h2 { font-size: 18px; }
+.log-head .muted { margin-left: auto; font-size: 12px; }
+.entries { display: flex; flex-direction: column; gap: 8px; max-height: 72vh; overflow-y: auto; padding-right: 4px; scrollbar-width: thin; }
+.entry { display: grid; grid-template-columns: 34px minmax(0,1fr); gap: 10px; padding: 9px 10px; border-radius: 12px; background: var(--reef); border: 1px solid transparent; animation: slide .45s cubic-bezier(.2,.9,.2,1); }
+.entry:hover { border-color: var(--line); }
+.entry.now { border-color: var(--sun); box-shadow: 0 0 0 2px color-mix(in srgb, var(--sun) 25%, transparent); }
+.entry .ico { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: var(--c, var(--mist)); background: color-mix(in srgb, var(--c, var(--mist)) 16%, transparent); }
+.entry .ico svg { width: 18px; height: 18px; }
+.entry .t { font-weight: 800; line-height: 1.3; overflow-wrap: anywhere; }
+.entry .s { font-size: 13px; color: var(--mist); overflow-wrap: anywhere; }
+.entry .meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; align-items: center; }
+.entry time { font-size: 11px; color: var(--mist); font-variant-numeric: tabular-nums; }
+.cmd { font: 13px/1.6 var(--mono); background: var(--abyss); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; margin-top: 6px; overflow-x: auto; white-space: nowrap; }
+.cmd .p { color: var(--mist); margin-right: 6px; }
+.tok { border-radius: 4px; padding: 1px 2px; }
+.tok:hover, .tok:focus-visible { background: color-mix(in srgb, var(--sun) 22%, transparent); }
+.tok.prog { color: var(--lagoon); font-weight: 600; } .tok.sub { color: var(--kelp); } .tok.flag { color: var(--sun); }
+.tok.path { color: var(--sand); } .tok.str { color: #ffb4a2; } .tok.op { color: var(--orchid); } .tok.unk { color: var(--foam); }
+
+/* ---------- tooltip */
+#tip { position: fixed; z-index: 100; max-width: min(340px, calc(100vw - 24px)); padding: 12px 14px; border-radius: 12px; background: #04131a; border: 1px solid var(--line); box-shadow: 0 18px 40px -12px #000; pointer-events: none; opacity: 0; transform: translateY(4px); transition: opacity .12s, transform .12s; font-size: 13.5px; }
+#tip.on { opacity: 1; transform: none; }
+#tip .tt { font-weight: 800; font-size: 14.5px; margin-bottom: 4px; display: flex; gap: 8px; align-items: center; }
+#tip .tt .kind { margin-left: auto; font: 700 10px/1 var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--mist); }
+#tip p { margin: 4px 0 0; color: color-mix(in srgb, var(--foam) 88%, var(--mist)); }
+#tip .why { color: var(--kelp); }
+#tip .warn { color: var(--sun); }
+#tip .danger { color: var(--coral); }
+#tip .where { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); font: 12px/1.4 var(--mono); color: var(--sand); overflow-wrap: anywhere; }
+
+/* ---------- toast */
+.toasts { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); display: grid; gap: 8px; z-index: 50; }
+.toast { background: var(--sun); color: var(--abyss); font-weight: 800; padding: 10px 14px; border-radius: 12px; box-shadow: 0 10px 30px -10px #000; animation: slide .4s; }
+
+/* ---------- replay */
+.replay-bar { padding: 14px; display: grid; gap: 12px; margin-bottom: 14px; }
+.replay-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.replay-row select { background: var(--reef); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; max-width: 100%; min-width: 0; flex: 1 1 260px; }
+.seg { display: inline-flex; background: var(--reef); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
+.seg button { border: 0; background: transparent; padding: 5px 10px; border-radius: 7px; cursor: pointer; font-weight: 800; color: var(--mist); }
+.seg button[aria-pressed="true"] { background: var(--sun); color: var(--abyss); }
+.track { position: relative; height: 34px; }
+.track .marks { position: absolute; left: 8px; right: 8px; top: 4px; height: 10px; }
+.track .marks i { position: absolute; top: 0; width: 3px; height: 10px; border-radius: 2px; background: var(--c); transform: translateX(-1px); }
+.track input { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; accent-color: var(--sun); }
+.clock { font: 600 13px var(--mono); color: var(--mist); font-variant-numeric: tabular-nums; }
+
+/* ---------- academy */
+.decoder { padding: 16px; margin-bottom: 16px; display: grid; gap: 10px; }
+.decoder input { width: 100%; background: var(--abyss); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: 14px var(--mono); }
+.decoder .examples { display: flex; flex-wrap: wrap; gap: 6px; }
+.decoder .examples button { font: 12px var(--mono); }
+.decoded .summary { font-weight: 700; margin-top: 4px; }
+.risk { margin-top: 8px; padding: 8px 10px; border-radius: 10px; font-size: 13.5px; border: 1px solid; }
+.risk.danger { color: var(--coral); border-color: color-mix(in srgb, var(--coral) 50%, transparent); background: color-mix(in srgb, var(--coral) 10%, transparent); }
+.risk.caution { color: var(--sun); border-color: color-mix(in srgb, var(--sun) 50%, transparent); background: color-mix(in srgb, var(--sun) 8%, transparent); }
+.levels { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.lvl { text-align: left; padding: 16px; border-radius: 16px; cursor: pointer; background: var(--deep); border: 1px solid var(--line); display: grid; gap: 6px; position: relative; color: var(--foam); }
+.lvl:hover { border-color: var(--sand); }
+.lvl .num { font-family: var(--display); font-size: 30px; line-height: 1; color: var(--c); }
+.lvl .done { position: absolute; top: 14px; right: 14px; }
+.lesson { padding: 18px; margin-top: 16px; display: grid; gap: 14px; }
+.lesson .cmds { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); }
+.cmdcard { padding: 12px; border-radius: 12px; background: var(--reef); display: grid; gap: 4px; min-width: 0; }
+.cmdcard .os { display: flex; flex-wrap: wrap; gap: 8px; }
+.cmdcard .os .cmd { margin: 0; flex: 1 1 260px; min-width: 0; }
+.cmdcard .os small { color: var(--mist); font-weight: 700; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; display: block; margin-bottom: 2px; }
+.quiz { display: grid; gap: 12px; }
+.q p { margin: 0 0 6px; font-weight: 700; }
+.q .opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.q .opts button { border: 1px solid var(--line); background: var(--reef); border-radius: 10px; padding: 7px 12px; cursor: pointer; text-align: left; }
+.q .opts button.right { border-color: var(--kelp); color: var(--kelp); }
+.q .opts button.wrong { border-color: var(--coral); color: var(--coral); }
+.q .fb { font-size: 13px; margin-top: 4px; }
+.badges { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 16px; }
+.badge { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 12px; background: var(--deep); border: 1px dashed var(--line); color: var(--mist); }
+.badge.got { border-style: solid; border-color: var(--sun); color: var(--foam); }
+.badge .medal { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--reef); font-family: var(--display); flex: none; }
+.badge.got .medal { background: var(--sun); color: var(--abyss); }
+
+.hint { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 10px 14px; border-radius: 12px; border: 1px dashed color-mix(in srgb, var(--sun) 45%, transparent); color: var(--mist); font-size: 13.5px; margin-bottom: 14px; align-items: center; }
+.hint b { color: var(--sun); }
+.hint button { margin-left: auto; background: none; border: 0; color: var(--mist); cursor: pointer; text-decoration: underline; }
+
+@keyframes blink { 50% { opacity: .25; } }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--c) 80%, transparent); } 70% { box-shadow: 0 0 0 14px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+@keyframes spawn { from { transform: scale(.3); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes rise { 0% { opacity: 0; transform: translate(-50%, 6px); } 15% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -26px); } }
+@keyframes slide { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@keyframes beam { to { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+@media (max-width: 640px) {
+  .tabs { margin-left: 0; width: 100%; } .tabs button { flex: 1; padding: 7px 6px; }
+  .level { max-width: none; }
+  .tile { width: 62px; }
+  .stats { grid-template-columns: 1fr 1fr; }
+  .stat:last-child:nth-child(odd) { grid-column: 1 / -1; }
+}
+</style>
+
+<header class="hud">
+  <div class="hud-in">
+    <div class="logo" data-tip="logo">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill="var(--sun)"/><path d="M9 21l4-10 3 7 2-4 5 7" fill="none" stroke="var(--abyss)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div>Workflow Arcade<small id="project">loading…</small></div>
+    </div>
+    <span class="mode demo" id="mode">Demo</span>
+    <div class="level" data-tip="level">
+      <div class="lvl-badge" id="lvl">1</div>
+      <div class="lvl-text"><b id="rank">Deckhand</b> <span id="xp">0 XP</span><div class="bar"><i id="xpbar"></i></div></div>
+    </div>
+    <nav class="tabs" role="tablist" aria-label="Views">
+      <button role="tab" id="tab-world" aria-selected="true" aria-controls="view-world">World</button>
+      <button role="tab" id="tab-replay" aria-selected="false" aria-controls="view-replay">Replay</button>
+      <button role="tab" id="tab-academy" aria-selected="false" aria-controls="view-academy">Academy</button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="view" id="view-world" role="tabpanel" aria-labelledby="tab-world">
+    <div class="intro">
+      <div class="title">
+        <div class="eyebrow" id="world-eyebrow">Live map</div>
+        <h2 id="world-title">Your project, as a world</h2>
+        <p id="world-sub">Every folder is an island and every file is a tile. When you or your AI helper changes something, it lights up here and lands in the quest log. Hover over anything to see what it is.</p>
+      </div>
+      <div class="sources" id="sources"></div>
+    </div>
+    <div class="hint" id="hint">
+      <span><b>Hover</b> over a tile, command or log entry for an explanation.</span>
+      <span><b>Glowing dot</b> means changed this session.</span>
+      <span><b>Coral tiles</b> hold secrets. Never share them.</span>
+      <button type="button" id="hint-x">Got it</button>
+    </div>
+    <div id="world-slot"></div>
+  </section>
+
+  <section class="view" id="view-replay" role="tabpanel" aria-labelledby="tab-replay" hidden>
+    <div class="intro">
+      <div class="title">
+        <div class="eyebrow">Replay</div>
+        <h2>Watch a session again</h2>
+        <p>Every session is saved on your computer. Scrub through it to see what happened, in which order, and where.</p>
+      </div>
+    </div>
+    <div class="panel replay-bar">
+      <div class="replay-row">
+        <select id="rp-session" aria-label="Session to replay"></select>
+        <button class="btn primary" id="rp-play" type="button">Play</button>
+        <div class="seg" id="rp-speed" role="group" aria-label="Speed">
+          <button type="button" data-s="1" aria-pressed="true">1×</button>
+          <button type="button" data-s="3" aria-pressed="false">3×</button>
+          <button type="button" data-s="8" aria-pressed="false">8×</button>
+        </div>
+        <span class="clock" id="rp-clock">0 / 0</span>
+      </div>
+      <div class="track"><div class="marks" id="rp-marks"></div><input type="range" id="rp-range" min="0" max="0" value="0" aria-label="Position in session"></div>
+    </div>
+    <div id="replay-slot"></div>
+  </section>
+
+  <section class="view" id="view-academy" role="tabpanel" aria-labelledby="tab-academy" hidden>
+    <div class="intro">
+      <div class="title">
+        <div class="eyebrow">Academy</div>
+        <h2>Learn the moves</h2>
+        <p>Short levels on the commands you'll see most often. Each one ends with a three-question quiz worth 100 XP.</p>
+      </div>
+    </div>
+    <div class="panel decoder">
+      <label for="dec-in"><h3>Command decoder</h3><span class="muted">Paste any command, for example one your AI helper wants to run, and get it explained piece by piece before you approve it.</span></label>
+      <input id="dec-in" spellcheck="false" autocomplete="off" value="git commit -m &quot;Add weather lookup&quot;">
+      <div class="examples" id="dec-ex"></div>
+      <div class="decoded" id="dec-out"></div>
+    </div>
+    <div class="levels" id="levels"></div>
+    <div id="lesson-slot"></div>
+    <div class="eyebrow" style="margin-top:22px">Badges</div>
+    <div class="badges" id="badges"></div>
+  </section>
+</main>
+
+<div id="tip" role="tooltip"></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script>
+"use strict";
+/* =========================================================== helpers */
+const $ = (s, el = document) => el.querySelector(s);
+function h(tag, props, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (v == null || v === false) continue;
+    if (k === "class") el.className = v;
+    else if (k === "text") el.textContent = v;
+    else if (k === "tip") TIPS.set(el, v), el.setAttribute("data-tip", "");
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (k === "style") el.setAttribute("style", v);
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : String(kid));
+  return el;
+}
+const ICONS = {
+  file_created: '<path d="M12 5v14M5 12h14"/>',
+  file_changed: '<path d="M4 20l4-1 10-10-3-3L5 16l-1 4z"/>',
+  file_deleted: '<path d="M6 6l12 12M18 6L6 18"/>',
+  command: '<path d="M4 7l5 5-5 5M12 18h8"/>',
+  commit: '<circle cx="12" cy="12" r="3.5"/><path d="M2 12h6.5M15.5 12H22"/>',
+  branch: '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="7" r="2"/><path d="M6 7v10M18 9c0 5-12 3-12 8"/>',
+  ai_call: '<path d="M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z"/>',
+  shield: '<path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z"/>',
+};
+function icon(name) {
+  const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  s.setAttribute("viewBox", "0 0 24 24"); s.setAttribute("fill", "none"); s.setAttribute("stroke", "currentColor");
+  s.setAttribute("stroke-width", "2"); s.setAttribute("stroke-linecap", "round"); s.setAttribute("stroke-linejoin", "round");
+  s.innerHTML = ICONS[name] || ICONS.command;   // constant markup only
+  return s;
+}
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("arcade." + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("arcade." + k, JSON.stringify(v)); } catch {} },
+};
+const fmt = n => n == null ? "–" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e4 ? Math.round(n / 1e3) + "k" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n);
+const money = v => v == null ? "–" : v === 0 ? "$0" : v < 0.01 ? "$" + v.toFixed(4) : "$" + v.toFixed(2);
+const base = p => p.split("/").pop();
+const dirOf = p => p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
+function ago(ts) {
+  const s = Math.max(0, Math.round(Date.now() / 1000 - ts));
+  return s < 5 ? "just now" : s < 60 ? s + "s ago" : s < 3600 ? Math.round(s / 60) + "m ago" : Math.round(s / 3600) + "h ago";
+}
+
+/* =========================================================== knowledge: files */
+const KINDS = {
+  code: "Code", test: "Test", config: "Settings", docs: "Notes & docs", data: "Data",
+  secret: "Secret", web: "Web page", script: "Script", asset: "Image / asset", other: "Other",
+};
+const SENSITIVE = /(^\.env($|\.)|\.pem$|\.key$|\.p12$|\.pfx$|\.keystore$|^id_(rsa|dsa|ecdsa|ed25519)|credential|secret|\.kdbx$|^\.netrc$|^\.npmrc$|^\.pypirc$)/i;
+const NAMES = {
+  "readme.md": ["docs", "RD", "The project's front page", "The first thing people see on GitHub: what this is and how to use it."],
+  "license": ["docs", "©", "License", "Says what others are allowed to do with your code."],
+  ".gitignore": ["config", "GI", "Git's ignore list", "Files listed here never get saved to Git or GitHub. This is how .env and other secrets stay private."],
+  ".gitattributes": ["config", "GA", "Git file rules", "Tells Git how to treat files, for example line endings on Windows vs Linux."],
+  "requirements.txt": ["config", "RQ", "Python shopping list", "The exact libraries this project needs. pip installs from it."],
+  "requirements.in": ["config", "RQ", "Python wish list", "The libraries you asked for; the full pinned list is generated from it."],
+  "pyproject.toml": ["config", "PY", "Python project card", "Name, version and settings of a Python project, all in one place."],
+  "package.json": ["config", "JS", "JavaScript project card", "Name, scripts and libraries of a JavaScript project."],
+  "package-lock.json": ["config", "LK", "Locked library versions", "Generated automatically. Pins exact versions so installs are repeatable. Don't edit by hand."],
+  "dockerfile": ["config", "DK", "Container recipe", "Step-by-step instructions to build a Docker container that runs the app."],
+  "docker-compose.yml": ["config", "DK", "Container launcher", "Starts one or more containers with their settings."],
+  "makefile": ["script", "MK", "Shortcut commands", "Named shortcuts, run with make <name>."],
+  ".env": ["secret", "🔒", "Secret settings", "Holds API keys and passwords. Never share it, never paste it into a chat, never commit it."],
+  ".env.example": ["config", "EX", "Template for .env", "Shows which settings are needed, with no real secrets. Safe to share."],
+  "config.yaml": ["config", "CF", "Settings file", "Plain-text settings the program reads when it starts."],
+  "config.example.yaml": ["config", "CF", "Example settings", "A safe starting point to copy into your own config."],
+  "security.md": ["docs", "SC", "Security policy", "How the project protects users and how to report problems privately."],
+  "contributing.md": ["docs", "CT", "Guide for helpers", "How other people can propose changes."],
+  "changelog.md": ["docs", "CL", "Change history", "What changed in each version."],
+  "codeowners": ["config", "OW", "Reviewers list", "Who must approve changes to which files on GitHub."],
+  "funding.yml": ["config", "$", "Sponsor button", "Adds the Sponsor button to the GitHub page."],
+  "__init__.py": ["code", "PY", "Package marker", "Turns a folder into a Python package that other files can import."],
+  "__main__.py": ["code", "PY", "Start button", "Runs when you type python -m <package>."],
+  "main.py": ["code", "PY", "Main program", "Usually where the program starts."],
+  "app.py": ["code", "PY", "The app", "Usually the web app or server itself."],
+  "index.html": ["web", "</>", "Web page", "The page a browser shows first."],
+};
+const EXTS = {
+  py: ["code", "PY", "Python code"], js: ["code", "JS", "JavaScript code"], mjs: ["code", "JS", "JavaScript code"],
+  ts: ["code", "TS", "TypeScript code"], tsx: ["code", "TSX", "React component (TypeScript)"], jsx: ["code", "JSX", "React component"],
+  go: ["code", "GO", "Go code"], rs: ["code", "RS", "Rust code"], java: ["code", "JV", "Java code"], cs: ["code", "C#", "C# code"],
+  html: ["web", "</>", "Web page"], css: ["web", "CSS", "Styles: colors, fonts and layout"],
+  json: ["data", "{ }", "Data / settings (JSON)"], jsonl: ["data", "{ }", "Log of records, one per line"], csv: ["data", "CSV", "Table of data"],
+  yaml: ["config", "YML", "Settings (YAML)"], yml: ["config", "YML", "Settings (YAML)"], toml: ["config", "TML", "Settings (TOML)"],
+  ini: ["config", "INI", "Settings"], cfg: ["config", "CFG", "Settings"], lock: ["config", "LK", "Locked versions (generated)"],
+  md: ["docs", "MD", "Notes (Markdown)"], txt: ["docs", "TXT", "Plain text"], rst: ["docs", "RST", "Docs"],
+  sh: ["script", "SH", "Shell script (Linux/macOS)"], ps1: ["script", "PS", "PowerShell script (Windows)"], bat: ["script", "BAT", "Windows batch script"],
+  ipynb: ["data", "NB", "Jupyter notebook"], sql: ["data", "SQL", "Database query"],
+  png: ["asset", "IMG", "Image"], jpg: ["asset", "IMG", "Image"], jpeg: ["asset", "IMG", "Image"], gif: ["asset", "GIF", "Animation"],
+  svg: ["asset", "SVG", "Vector image"], ico: ["asset", "ICO", "Icon"], pdf: ["asset", "PDF", "PDF document"],
+  pem: ["secret", "🔒", "Certificate or private key"], key: ["secret", "🔒", "Private key"],
+};
+const FOLDERS = {
+  "": "The project's main folder.",
+  tests: "Automatic checks. Run them to prove nothing broke.", test: "Automatic checks.",
+  docs: "Documentation.", scripts: "Helper scripts for chores.", deploy: "Files for running the app on servers or at login.",
+  src: "The source code.", lib: "Shared code.", static: "Files sent to the browser as-is.", templates: "Page templates.",
+  ".github": "GitHub settings: automation, templates, reviewers.", ".github/workflows": "GitHub Actions: checks that run on every push.",
+  ".vscode": "VS Code settings for this project.", logs: "Log files written while the app runs.", data: "Data files.",
+  assets: "Images and other media.", public: "Files served publicly.", config: "Settings.",
+};
+function fileInfo(path) {
+  const name = base(path), lower = name.toLowerCase(), ext = lower.includes(".") ? lower.split(".").pop() : "";
+  let kind, glyph, title, what;
+  const known = NAMES[lower];
+  if (known) [kind, glyph, title, what] = known;
+  else if (EXTS[ext]) { [kind, glyph, title] = EXTS[ext]; what = ""; }
+  else { kind = "other"; glyph = ext ? ext.slice(0, 3).toUpperCase() : "•"; title = ext ? `.${ext} file` : "File"; what = ""; }
+  if (kind === "code" && (/(^|\/)tests?\//.test(path) || /^test_|_test\.|\.test\.|\.spec\./.test(lower))) {
+    kind = "test"; title = "Test"; what = "An automatic check. It runs your code and complains if something broke.";
+  }
+  if (SENSITIVE.test(name)) { kind = "secret"; glyph = "🔒"; what = what || "Probably holds a password or key. Keep it out of Git, chats and screenshots."; }
+  if (kind === "code" && !what) what = "Instructions the computer runs.";
+  if (kind === "config" && !what) what = "Settings: change behavior without changing code.";
+  if (kind === "docs" && !what) what = "Written for people, not computers.";
+  return { kind, glyph, title, what };
+}
+function folderHint(dir) {
+  return FOLDERS[dir] || FOLDERS[base(dir).toLowerCase()] || "A folder that groups related files.";
+}
+
+/* =========================================================== knowledge: commands */
+const C = (d, extra = {}) => ({ d, ...extra });
+const COMMANDS = {
+  git: C("Git: the save-point system for code.", {
+    sub: {
+      status: "Shows what changed since the last save point.", add: "Picks changes to include in the next save point (staging).",
+      commit: "Creates a save point with a message.", push: "Uploads your save points to GitHub.", pull: "Downloads new save points from GitHub.",
+      clone: "Copies a project from GitHub to your computer.", init: "Starts tracking this folder with Git.", log: "Lists past save points.",
+      diff: "Shows exactly which lines changed.", branch: "Lists or creates branches (parallel versions).", switch: "Moves to another branch.",
+      checkout: "Moves to another branch or restores files (older command).", restore: "Throws away unsaved changes to a file.",
+      stash: "Puts unsaved changes aside to get them back later.", reset: "Moves back to an earlier save point.", remote: "Manages the link to GitHub.",
+      tag: "Labels a save point, e.g. a release v1.0.", merge: "Combines another branch into this one.", fetch: "Checks GitHub for new save points without applying them.",
+      clean: "Deletes files Git isn't tracking.", show: "Shows one save point in detail.", config: "Changes Git settings (your name, email…).",
+    },
+    flags: { "-m": "The save point's message, in quotes.", "--oneline": "One short line per save point.", "-A": "Everything, including deletions.",
+      "--all": "Everything.", "-u": "Remember this link for next time.", "--force": "Overwrite, even if it destroys work on the other side.",
+      "-f": "Force: skip safety checks.", "--hard": "Also wipe unsaved changes.", "-b": "Create a new branch.", "-c": "Create a new branch.",
+      "--amend": "Change the last save point instead of making a new one.", "--staged": "Look at what's already picked for the next save point." },
+  }),
+  python: C("Runs Python.", { flags: { "-m": "Run a module (a built-in tool) by name.", "-V": "Show the version.", "--version": "Show the version.", "-c": "Run the next text as code." } }),
+  pip: C("Python's package installer.", {
+    sub: { install: "Downloads and installs libraries.", uninstall: "Removes a library.", list: "Lists installed libraries.", freeze: "Prints installed libraries with exact versions.", show: "Details about one library." },
+    flags: { "-r": "Install everything listed in the next file.", "--require-hashes": "Refuse any download whose fingerprint doesn't match the list. Blocks tampered packages.",
+      "--no-deps": "Install only what's listed, nothing extra.", "-U": "Upgrade to the newest version.", "--upgrade": "Upgrade to the newest version.", "-e": "Install this folder in editable mode." },
+  }),
+  cd: C("Change directory: walk into another folder."), ls: C("Lists the files in this folder.", { flags: { "-l": "Long list with sizes and dates.", "-a": "Include hidden files.", "-la": "Long list, including hidden files." } }),
+  dir: C("Lists the files in this folder (Windows)."), pwd: C("Prints the folder you're in."), mkdir: C("Makes a new folder.", { flags: { "-p": "Also make missing parent folders." } }),
+  rm: C("Deletes files. No recycle bin.", { flags: { "-r": "Including folders and everything inside.", "-f": "Without asking.", "-rf": "Folders and everything inside, without asking.", "-i": "Ask before each one." } }),
+  cp: C("Copies files.", { flags: { "-r": "Including folders." } }), mv: C("Moves or renames files."),
+  cat: C("Prints a file's contents."), type: C("Prints a file's contents (Windows)."), echo: C("Prints text."), touch: C("Creates an empty file or updates its date."),
+  code: C("Opens VS Code. code . opens this folder."), clear: C("Clears the terminal screen."), cls: C("Clears the terminal screen (Windows)."),
+  source: C("Runs a script inside this terminal, e.g. to switch on a virtual environment."), ".": C("Runs a script inside this terminal."),
+  sudo: C("Runs the rest as administrator. Use rarely."), apt: C("Ubuntu/Kubuntu's app installer.", { sub: { install: "Installs software.", update: "Refreshes the list of available software.", upgrade: "Updates installed software.", remove: "Uninstalls software." } }),
+  curl: C("Downloads or sends something over the internet.", { flags: { "-s": "Quietly.", "-d": "Send this data.", "-H": "Add a header.", "-o": "Save to a file.", "-L": "Follow redirects." } }),
+  wget: C("Downloads a file."), chmod: C("Changes who may read, write or run a file.", { flags: { "600": "Only you can read and write." } }),
+  ollama: C("Runs AI models on your own computer.", { sub: { pull: "Downloads a model.", list: "Lists downloaded models.", run: "Chats with a model in the terminal.", serve: "Starts Ollama's server.", rm: "Deletes a model." } }),
+  docker: C("Runs apps in containers.", { sub: { compose: "Starts several containers from docker-compose.yml.", build: "Builds a container image.", run: "Starts a container.", ps: "Lists running containers.", up: "Starts everything." } }),
+  npm: C("JavaScript's package manager.", { sub: { install: "Installs libraries from package.json.", i: "Installs libraries.", run: "Runs a script from package.json.", start: "Starts the app.", test: "Runs the tests." } }),
+  npx: C("Runs a JavaScript tool without installing it permanently."), node: C("Runs JavaScript."),
+  pytest: C("Runs the automatic tests.", { flags: { "-q": "Quiet: just the summary.", "-k": "Only tests matching a word.", "-x": "Stop at the first failure." } }),
+  uv: C("A fast Python package tool."), grep: C("Searches for text inside files."), find: C("Finds files by name."),
+  exit: C("Closes the terminal session."), deactivate: C("Switches off the virtual environment."), history: C("Lists your recent commands."),
+  "set-location": C("Change folder (PowerShell)."), "get-childitem": C("Lists files (PowerShell)."), "copy-item": C("Copies files (PowerShell)."),
+  "remove-item": C("Deletes files (PowerShell).", { flags: { "-Recurse": "Including folders.", "-Force": "Without asking." } }),
+  "invoke-restmethod": C("Sends a web request (PowerShell)."), "get-content": C("Prints a file (PowerShell)."),
+};
+COMMANDS.python3 = COMMANDS.python; COMMANDS.py = { ...COMMANDS.python, d: "Runs Python (Windows launcher)." };
+COMMANDS.pip3 = COMMANDS.pip;
+const MODULES = {
+  venv: "Creates a virtual environment: a private box of libraries for this project only.", pip: "Python's package installer.",
+  pytest: "Runs the automatic tests.", switchboard: "Your LLM router.", workflow_arcade: "This game.", "http.server": "A tiny web server for this folder.",
+  json: "Pretty-prints JSON.",
+};
+const SWITCHBOARD_SUB = { serve: "Starts the router at http://127.0.0.1:8787.", check: "Shows which models are ready.", explain: "Shows which model a prompt would go to, without calling any model." };
+const OPS = {
+  "&&": "Then: run the next command only if this one worked.", "||": "Or: run the next command only if this one failed.",
+  "|": "Pipe: hand this command's output to the next command.", ">": "Save the output to a file, replacing it.", ">>": "Add the output to the end of a file.",
+  ";": "Then: run the next command regardless.", "<": "Read input from a file.",
+};
+const RISKS = [
+  [/\brm\s+(-\w*r\w*f|-\w*f\w*r)\b|\brm\s+-r\b.*\s-f\b/i, "danger", "Deletes files and folders for good. There's no recycle bin."],
+  [/remove-item\b.*-recurse/i, "danger", "Deletes a folder and everything in it."],
+  [/\b(rd|rmdir)\s+\/s/i, "danger", "Deletes a folder and everything in it."],
+  [/\bsudo\b/, "danger", "Runs as administrator: it can change anything on the computer. Only approve it if you know why it's needed."],
+  [/\b(curl|wget|iwr|invoke-webrequest)\b[^|]*\|\s*(sudo\s+)?(ba|z)?sh\b|\|\s*iex\b/i, "danger", "Downloads a script and runs it straight away, unseen."],
+  [/\bgit\s+push\b.*(--force\b|\s-f\b)/, "danger", "Overwrites history on GitHub. Other people's work can be lost."],
+  [/\bgit\s+reset\s+--hard\b/, "danger", "Throws away every unsaved change."],
+  [/\bgit\s+clean\s+-\w*f/, "danger", "Deletes files Git isn't tracking, which may include your work."],
+  [/\bchmod\s+(-R\s+)?(777|a\+w)\b/, "danger", "Lets every user on the computer change these files."],
+  [/--privileged\b/, "danger", "Gives a container full control of your computer."],
+  [/\b(cat|type|get-content|more|less|echo)\b.*\.env\b(?!\.example)/i, "caution", "Prints secret values on screen, where they can end up in logs or AI chats."],
+  [/\bgit\s+add\s+(\.|-A|--all)(\s|$)/, "caution", "Adds everything. Check that .gitignore keeps .env and other secrets out."],
+  [/\b(pip3?|npm)\s+(install|i)\s+(?!-r\b)(?!-e\b)[a-z]/i, "caution", "Installs from the internet. Check the name is spelled exactly right: look-alike packages exist."],
+  [/\b(api[_-]?key|token|password|secret)\s*=/i, "caution", "Contains what looks like a secret. Keep keys in .env instead of typing them into commands."],
+];
+function tokenize(s) {
+  const out = []; let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (/\s/.test(c)) { i++; continue; }
+    const two = s.slice(i, i + 2);
+    if (["&&", "||", ">>"].includes(two)) { out.push({ t: two, op: true }); i += 2; continue; }
+    if ("|><;".includes(c)) { out.push({ t: c, op: true }); i++; continue; }
+    let j = i, q = null, t = "";
+    while (j < s.length) {
+      const d = s[j];
+      if (q) { if (d === q) q = null; t += d; j++; continue; }
+      if (d === '"' || d === "'") { q = d; t += d; j++; continue; }
+      if (/\s/.test(d) || "|><;".includes(d) || s.slice(j, j + 2) === "&&") break;
+      t += d; j++;
+    }
+    out.push({ t }); i = j;
+  }
+  return out;
+}
+function explainCommand(cmd) {
+  const toks = tokenize(cmd), parts = [], summaries = [];
+  let prog = null, spec = null, sawSub = false, afterM = false, module = null, idx = 0;
+  for (const tk of toks) {
+    const t = tk.t, low = t.toLowerCase();
+    if (tk.op) { parts.push({ t, cls: "op", tip: { title: t, body: OPS[t] || "Connects commands." } }); prog = null; spec = null; sawSub = false; continue; }
+    if (!prog) {
+      if (low === "sudo") { parts.push({ t, cls: "prog", tip: { title: "sudo", body: COMMANDS.sudo.d, tone: "danger" } }); continue; }
+      const p = /^(\.\/|\.\\)?\.?venv[\\/](bin|scripts)[\\/]activate(\.ps1)?$/i.test(t) ? "source"
+        : low.replace(/^.*[\\/]/, "").replace(/\.exe$/, "");
+      prog = p; spec = COMMANDS[p] || null;
+      if (/activate(\.ps1)?$/i.test(t)) {
+        parts.push({ t, cls: "prog", tip: { title: "Activate the virtual environment", body: "Switches this terminal to the project's private box of libraries. Your prompt shows (.venv) while it's on." } });
+        summaries.push("Switch on the project's virtual environment."); continue;
+      }
+      parts.push({ t, cls: spec ? "prog" : "unk", tip: { title: t, body: spec ? spec.d : "A program or script. It isn't in the dictionary yet." } });
+      if (spec) summaries.push(spec.d.replace(/\.$/, ""));
+      idx = 0; continue;
+    }
+    idx++;
+    if (afterM) {
+      afterM = false; module = low;
+      parts.push({ t, cls: "sub", tip: { title: `Module: ${t}`, body: MODULES[low] || "A Python module run as a program." } });
+      summaries[summaries.length - 1] = MODULES[low] ? MODULES[low].replace(/\.$/, "") : `Runs the Python module ${t}`; continue;
+    }
+    if (/^-/.test(t)) {
+      if ((prog === "python" || prog === "python3" || prog === "py") && t === "-m") afterM = true;
+      const fl = spec && spec.flags && (spec.flags[t] || spec.flags[low]);
+      parts.push({ t, cls: "flag", tip: { title: `Option ${t}`, body: fl || "An option that changes how the command behaves." } });
+      continue;
+    }
+    if (module === "switchboard" && SWITCHBOARD_SUB[low] && !sawSub) {
+      sawSub = true; parts.push({ t, cls: "sub", tip: { title: t, body: SWITCHBOARD_SUB[low] } }); summaries[summaries.length - 1] = SWITCHBOARD_SUB[low].replace(/\.$/, ""); continue;
+    }
+    if (spec && spec.sub && spec.sub[low] && !sawSub) {
+      sawSub = true; parts.push({ t, cls: "sub", tip: { title: `${prog} ${t}`, body: spec.sub[low] } });
+      summaries[summaries.length - 1] = spec.sub[low].replace(/\.$/, ""); continue;
+    }
+    if (/^["']/.test(t)) { parts.push({ t, cls: "str", tip: { title: "Text in quotes", body: "Passed as one piece, spaces included. Often a message or a search phrase." } }); continue; }
+    if (/^https?:\/\//.test(t)) { parts.push({ t, cls: "path", tip: { title: "Web address", body: "Where the command connects to." } }); continue; }
+    if (t === "." ) { parts.push({ t, cls: "path", tip: { title: ".", body: "This folder (everything in it)." } }); continue; }
+    if (t === "..") { parts.push({ t, cls: "path", tip: { title: "..", body: "The folder one level up." } }); continue; }
+    if (t === "~" || t.startsWith("~/")) { parts.push({ t, cls: "path", tip: { title: t, body: "~ is your home folder." } }); continue; }
+    if (/^\$/.test(t)) { parts.push({ t, cls: "flag", tip: { title: t, body: "A variable: replaced by its value when the command runs." } }); continue; }
+    if (/[\\/.]/.test(t)) { parts.push({ t, cls: "path", tip: { title: t, body: "A file or folder." } }); continue; }
+    parts.push({ t, cls: "unk", tip: { title: t, body: "A value given to the command, like a name or a number." } });
+  }
+  const risks = RISKS.filter(([re]) => re.test(cmd)).map(([, level, text]) => ({ level, text }));
+  const summary = summaries.length ? summaries.join(", then ") + "." : "A command.";
+  return { parts, summary: summary.charAt(0).toUpperCase() + summary.slice(1), risks };
+}
+function cmdLine(cmd, prompt = "$") {
+  const ex = explainCommand(cmd);
+  const line = h("div", { class: "cmd" }, h("span", { class: "p", text: prompt }));
+  ex.parts.forEach((p, i) => { if (i) line.append(" "); line.append(h("span", { class: "tok " + p.cls, tabindex: "0", tip: { ...p.tip, where: ex.summary } }, p.t)); });
+  return { line, ex };
+}
+
+/* =========================================================== tooltip */
+const TIPS = new WeakMap();
+const tipEl = $("#tip");
+let tipFor = null;
+function showTip(el) {
+  let t = TIPS.get(el);
+  if (typeof t === "function") t = t();
+  if (!t) return;
+  tipEl.replaceChildren();
+  const tt = h("div", { class: "tt" }, t.title || "");
+  if (t.kind) tt.append(h("span", { class: "kind", text: t.kind }));
+  tipEl.append(tt);
+  for (const line of [].concat(t.body || [])) if (line) tipEl.append(h("p", { class: t.tone || "", text: line }));
+  if (t.why) tipEl.append(h("p", { class: "why", text: t.why }));
+  if (t.warn) tipEl.append(h("p", { class: "warn", text: t.warn }));
+  if (t.where) tipEl.append(h("div", { class: "where", text: t.where }));
+  tipEl.classList.add("on"); tipFor = el;
+  const r = el.getBoundingClientRect(), w = tipEl.offsetWidth, hgt = tipEl.offsetHeight;
+  let x = Math.min(Math.max(12, r.left + r.width / 2 - w / 2), innerWidth - w - 12);
+  let y = r.bottom + 10; if (y + hgt > innerHeight - 12) y = Math.max(12, r.top - hgt - 10);
+  tipEl.style.left = x + "px"; tipEl.style.top = y + "px";
+}
+function hideTip() { tipEl.classList.remove("on"); tipFor = null; }
+document.addEventListener("mouseover", e => { const el = e.target.closest("[data-tip]"); if (el && el !== tipFor) showTip(el); else if (!el && tipFor) hideTip(); });
+document.addEventListener("focusin", e => { const el = e.target.closest("[data-tip]"); if (el) showTip(el); });
+document.addEventListener("focusout", hideTip);
+document.addEventListener("scroll", hideTip, true);
+document.addEventListener("click", e => { const el = e.target.closest("[data-tip]"); if (el && matchMedia("(hover: none)").matches) { tipFor === el ? hideTip() : showTip(el); } });
+
+/* =========================================================== explanations of events */
+const EV = {
+  file_created: { c: "var(--kelp)", why: "New files are where new features live. Check the AI put it in a sensible folder." },
+  file_changed: { c: "var(--sun)", why: "Green numbers are lines added, red are lines removed. Big red numbers deserve a look before you save a point." },
+  file_deleted: { c: "var(--coral)", why: "Deleted files can be brought back with Git, as long as they were in a save point." },
+  command: { c: "var(--lagoon)", why: "Commands act on your computer. Hover each piece to see what it does before approving the next one." },
+  commit: { c: "var(--sun)", why: "A save point. You can always come back to this exact state." },
+  branch: { c: "var(--orchid)", why: "A branch is a parallel version of the project, handy for trying ideas safely." },
+  ai_call: { c: "var(--orchid)", why: "Switchboard picked this model for this step. Local models are free and private; cloud models cost money per token." },
+};
+function eventView(ev) {
+  const name = ev.path ? base(ev.path) : "";
+  const folder = ev.path ? (dirOf(ev.path) || "project root") : "";
+  const info = ev.path ? fileInfo(ev.path) : null;
+  let title = "", sub = "", extra = null, chips = [], where = "", tone = null;
+  switch (ev.type) {
+    case "file_created": title = `Created ${name}`; sub = `${info.title}${ev.lines != null ? ` · ${ev.lines} lines` : ""}`; where = ev.path; break;
+    case "file_changed": title = `Edited ${name}`; sub = ev.added != null ? `+${ev.added}  −${ev.removed} lines` : "Changed (binary or private file)"; where = ev.path; break;
+    case "file_deleted": title = `Deleted ${name}`; sub = info.title; where = ev.path; break;
+    case "command": {
+      const { line, ex } = cmdLine(ev.cmd); title = "Ran a command"; sub = ex.summary; extra = line;
+      where = "in " + (ev.cwd === "." ? "project root" : ev.cwd);
+      for (const r of ex.risks) chips.push(h("span", { class: "chip " + (r.level === "danger" ? "bad" : "warn"), tip: { title: r.level === "danger" ? "Careful" : "Heads-up", body: r.text, tone: r.level === "danger" ? "danger" : "warn" } }, r.level === "danger" ? "Careful" : "Heads-up"));
+      break;
+    }
+    case "commit": title = `Save point: “${ev.message}”`; sub = `${ev.files_changed || 0} files · +${ev.insertions || 0} −${ev.deletions || 0}`; where = "commit " + ev.sha; break;
+    case "branch": title = `Switched to branch ${ev.branch}`; sub = `from ${ev.previous}`; break;
+    case "ai_call": {
+      title = `AI step: ${ev.route}`; sub = `${ev.model}`; where = `route ${ev.route} → ${ev.model}`;
+      chips.push(ev.local ? h("span", { class: "chip ok", tip: { title: "Local model", body: "Ran on your computer: free and private." } }, "local · free")
+        : h("span", { class: "chip ai", tip: { title: "Cloud model", body: "Ran at a provider and is billed per token.", why: ev.cost == null ? "Add prices in ~/.arcade/prices.json to see the cost." : null } }, "cloud · " + money(ev.cost)));
+      if (ev.tokens_in != null) chips.push(h("span", { class: "chip", tip: { title: "Tokens", body: `${ev.tokens_in} in (your request and context), ${ev.tokens_out} out (the answer). A token is about ¾ of a word.` } }, `${fmt(ev.tokens_in)} → ${fmt(ev.tokens_out)} tokens`));
+      if (ev.sensitive && ev.sensitive.length) chips.push(h("span", { class: "chip ok", tip: { title: "Kept private", body: `Switchboard spotted: ${ev.sensitive.join(", ")}. It kept this request on a local model so it never left your computer.` } }, icon("shield"), "kept local"));
+      if (ev.fallbacks) chips.push(h("span", { class: "chip warn", tip: { title: "Fallback", body: `${ev.fallbacks} model(s) were busy or down, so Switchboard tried the next one.` } }, `${ev.fallbacks} fallback`));
+      if (ev.status && ev.status >= 400) { chips.push(h("span", { class: "chip bad" }, "failed " + ev.status)); tone = "danger"; }
+      break;
+    }
+  }
+  if (info && info.kind === "secret") chips.push(h("span", { class: "chip bad", tip: { title: "Secret file", body: info.what, tone: "danger" } }, icon("shield"), "secret"));
+  return { title, sub, extra, chips, where, tone, info, folder };
+}
+
+/* =========================================================== world state */
+function newWorld(snapshot) {
+  const files = new Map();
+  for (const f of snapshot.files || []) files.set(f.path, { path: f.path, lines: f.lines, edits: 0, added: 0, removed: 0, created: false, gone: false, last: null });
+  return { snapshot, files, stats: { edits: 0, created: 0, deleted: 0, commands: 0, commits: 0, ai: 0, local: 0, tokens: 0, cost: 0, costKnown: false, risky: 0, keptLocal: 0, secrets: 0 } };
+}
+function applyEvent(w, ev) {
+  const s = w.stats;
+  if (ev.type.startsWith("file_")) {
+    let f = w.files.get(ev.path);
+    if (!f) { f = { path: ev.path, lines: ev.lines, edits: 0, added: 0, removed: 0, created: true, gone: false, last: null }; w.files.set(ev.path, f); }
+    f.last = ev.ts; f.gone = ev.type === "file_deleted"; if (ev.lines != null) f.lines = ev.lines;
+    f.added += ev.added || 0; f.removed += ev.removed || 0;
+    if (ev.type === "file_created") { s.created++; f.created = true; f.edits++; if (fileInfo(ev.path).kind === "secret") s.secrets++; }
+    if (ev.type === "file_changed") { s.edits++; f.edits++; }
+    if (ev.type === "file_deleted") s.deleted++;
+  } else if (ev.type === "command") { s.commands++; if (explainCommand(ev.cmd).risks.some(r => r.level === "danger")) s.risky++; }
+  else if (ev.type === "commit") s.commits++;
+  else if (ev.type === "ai_call") {
+    s.ai++; if (ev.local) s.local++;
+    s.tokens += (ev.tokens_in || 0) + (ev.tokens_out || 0);
+    if (ev.cost != null) { s.cost += ev.cost; s.costKnown = true; }
+    if (ev.sensitive && ev.sensitive.length && ev.local) s.keptLocal++;
+  }
+}
+const XP_RULES = { file_created: 10, file_changed: 5, file_deleted: 2, command: 3, commit: 50, branch: 10, ai_call: 2 };
+const xpOf = ev => (XP_RULES[ev.type] || 0) + (ev.type === "ai_call" && ev.local ? 3 : 0);
+
+/* =========================================================== world view */
+function makeWorldView(slot) {
+  const ribbon = h("div", { class: "ribbon", tip: { title: "Model ribbon", body: "Shows the last AI step: which route Switchboard chose and which model answered." } },
+    h("i", { class: "beam" }), icon("ai_call"), h("span", { class: "txt muted", text: "No AI steps yet. They appear here when your helper talks to a model through Switchboard." }));
+  const stats = h("div", { class: "stats" });
+  const map = h("div", { class: "map" });
+  const entries = h("div", { class: "entries" });
+  const count = h("span", { class: "muted", text: "0 events" });
+  const log = h("aside", { class: "panel log" }, h("div", { class: "log-head" }, h("h2", { text: "Quest log" }), count), entries);
+  slot.append(h("div", { class: "grid" }, h("div", { style: "min-width:0" }, ribbon, stats, map), log));
+  const tiles = new Map();
+  let shape = "";
+
+  function statBox(label, value, tip, extra) { return h("div", { class: "stat", tip }, h("b", { text: value }), h("span", { text: label }), extra || null); }
+  function renderStats(w) {
+    const s = w.stats, share = s.ai ? Math.round((s.local / s.ai) * 100) : 0;
+    stats.replaceChildren(
+      statBox("edits", s.edits, { title: "Edits", body: "Times an existing file changed." }),
+      statBox("new files", s.created, { title: "New files", body: "Files created this session." }),
+      statBox("commands", s.commands, { title: "Commands", body: "Terminal commands run in this project.", warn: s.risky ? `${s.risky} needed extra care.` : null }),
+      statBox("save points", s.commits, { title: "Save points", body: "Git commits. Each one is a state you can return to." }),
+      statBox("AI steps", s.ai, { title: "AI steps", body: `${s.local} local (free, private) and ${s.ai - s.local} cloud.` },
+        h("div", { class: "ratio" }, h("i", { style: `width:${share}%` }))),
+      statBox("tokens", fmt(s.tokens), { title: "Tokens", body: "Total words-ish sent to and received from models." }),
+      statBox("spend", s.costKnown ? money(s.cost) : "–", { title: "Spend", body: s.costKnown ? "Estimated from your prices file. Local models count as $0." : "Add model prices in ~/.arcade/prices.json to see spend." }),
+    );
+  }
+  function renderMap(w) {
+    const groups = new Map();
+    for (const f of w.files.values()) { const d = dirOf(f.path); if (!groups.has(d)) groups.set(d, []); groups.get(d).push(f); }
+    const dirs = [...groups.keys()].sort((a, b) => a === "" ? -1 : b === "" ? 1 : a.localeCompare(b));
+    tiles.clear(); map.replaceChildren();
+    if (!dirs.length) { map.append(h("div", { class: "empty panel", text: "No files yet. Create one and it will appear here." })); return; }
+    for (const d of dirs) {
+      const files = groups.get(d).sort((a, b) => a.path.localeCompare(b.path));
+      const isle = h("section", { class: "island" }, h("header", {},
+        h("b", { tip: { title: d ? d + "/" : "Project root", body: folderHint(d), where: `${files.length} file${files.length === 1 ? "" : "s"}` }, tabindex: "0" }, d ? d + "/" : "project root"),
+        h("span", { text: files.length })));
+      const row = h("div", { class: "tiles" });
+      const shown = files.slice(0, 48);
+      for (const f of shown) {
+        const info = fileInfo(f.path);
+        const tile = h("div", { class: `tile k-${info.kind}${f.gone ? " gone" : ""}${f.edits ? " hot" : ""}`, tabindex: "0", "aria-label": f.path,
+          tip: () => ({
+            title: base(f.path), kind: KINDS[info.kind], body: [info.title + (info.what ? ": " + info.what : "")],
+            why: f.gone ? "Deleted this session." : f.edits ? `Touched ${f.edits}× this session${f.added || f.removed ? `: +${f.added} −${f.removed} lines` : ""}${f.last ? `, last ${ago(f.last)}` : ""}.` : (f.lines != null ? `${f.lines} lines. Not touched yet this session.` : "Not touched yet this session."),
+            where: f.path,
+          }) },
+          h("span", { class: "g", text: info.glyph }), h("span", { class: "n", text: base(f.path) }), h("i", { class: "heat" }));
+        tiles.set(f.path, tile); row.append(tile);
+      }
+      if (files.length > shown.length) row.append(h("span", { class: "more", text: `+${files.length - shown.length} more` }));
+      isle.append(row); map.append(isle);
+    }
+  }
+  function render(w) {
+    const sig = [...w.files.values()].map(f => f.path + (f.gone ? "!" : "") + (f.edits ? "*" : "")).join("|");
+    if (sig !== shape) { shape = sig; renderMap(w); }
+    renderStats(w);
+  }
+  function flash(ev) {
+    if (ev.type === "ai_call") {
+      ribbon.classList.remove("cast"); void ribbon.offsetWidth; ribbon.classList.add("cast");
+      const txt = $(".txt", ribbon); txt.classList.remove("muted");
+      txt.textContent = `${ev.route} → ${ev.model} · ${ev.local ? "local, free" : "cloud" + (ev.cost != null ? ", " + money(ev.cost) : "")}${ev.sensitive && ev.sensitive.length ? " · kept private" : ""}`;
+      return;
+    }
+    const tile = ev.path && tiles.get(ev.path);
+    if (!tile) return;
+    tile.classList.remove("pulse", "spawn"); void tile.offsetWidth;
+    tile.classList.add(ev.type === "file_created" ? "spawn" : "pulse");
+    if (ev.added || ev.removed) {
+      const pop = h("span", { class: "pop" }, h("span", { class: "a", text: "+" + (ev.added || 0) }), " ", h("span", { class: "r", text: "−" + (ev.removed || 0) }));
+      tile.append(pop); setTimeout(() => pop.remove(), 1900);
+    }
+  }
+  function entry(ev) {
+    const v = eventView(ev), c = EV[ev.type] || EV.command;
+    const time = h("time", { "data-ts": ev.ts, text: ago(ev.ts) });
+    const el = h("article", { class: "entry", style: `--c:${c.c}`, "data-id": ev.id,
+      tip: { title: v.title, body: v.sub, why: c.why, where: v.where || null } },
+      h("div", { class: "ico" }, icon(ev.type)),
+      h("div", { style: "min-width:0" }, h("div", { class: "t", text: v.title }), h("div", { class: "s", text: v.sub }), v.extra, h("div", { class: "meta" }, ...v.chips, time)));
+    return el;
+  }
+  function add(ev, mark) {
+    const el = entry(ev);
+    entries.prepend(el);
+    while (entries.children.length > 300) entries.lastChild.remove();
+    count.textContent = `${entries.children.length} event${entries.children.length === 1 ? "" : "s"}`;
+    if (mark) { entries.querySelectorAll(".now").forEach(e => e.classList.remove("now")); el.classList.add("now"); }
+  }
+  function clear() { entries.replaceChildren(); count.textContent = "0 events"; shape = ""; $(".txt", ribbon).textContent = "No AI steps yet."; }
+  return { render, flash, add, clear, entries };
+}
+setInterval(() => document.querySelectorAll("time[data-ts]").forEach(t => t.textContent = ago(+t.dataset.ts)), 10000);
+
+/* =========================================================== XP & level */
+const RANKS = ["Deckhand", "Navigator", "Builder", "Tinkerer", "Engineer", "Architect", "Wizard", "Legend"];
+let workXp = 0;
+function academyXp() { return Object.values(store.get("academy", {})).filter(Boolean).length * 100; }
+let lastLevel = null;
+function levelOf(xp) { return Math.floor(Math.sqrt(xp / 60)) + 1; }
+function updateLevel() {
+  const xp = workXp + academyXp(), lv = levelOf(xp);
+  const lo = 60 * (lv - 1) ** 2, hi = 60 * lv ** 2;
+  $("#lvl").textContent = lv; $("#rank").textContent = RANKS[Math.min(lv - 1, RANKS.length - 1)];
+  $("#xp").textContent = `${xp} XP · ${hi - xp} to level ${lv + 1}`;
+  $("#xpbar").style.width = `${Math.round(((xp - lo) / (hi - lo)) * 100)}%`;
+  if (lastLevel != null && lv > lastLevel) toast(`Level up! You're now a ${RANKS[Math.min(lv - 1, RANKS.length - 1)]}.`);
+  lastLevel = lv; renderBadges();
+}
+function toast(text) { const t = h("div", { class: "toast", text }); $("#toasts").append(t); setTimeout(() => t.remove(), 3800); }
+TIPS.set($(".level"), () => ({ title: "Level and XP", body: ["Earn XP for real work: new files +10, edits +5, commands +3, save points +50, AI steps on local models +5, Academy levels +100."], why: "Save points are worth the most: they're what make experiments safe." }));
+TIPS.set($(".logo"), { title: "Workflow Arcade", body: "A live, game-like view of what you and your AI helper do in a project. It only watches; it never changes your files or runs anything.", where: "Runs on your computer at http://127.0.0.1:8788" });
+
+/* =========================================================== demo data */
+function demoSession() {
+  const t0 = Date.now() / 1000 - 30 * 60;
+  const files = ["README.md", "notes/ideas.md", ".gitignore"].map(p => ({ path: p, size: 300, lines: p === ".gitignore" ? 4 : 12, sensitive: false }));
+  const steps = [
+    [0, { type: "ai_call", route: "quick", model: "llama3.2:3b", local: true, status: 200, latency_ms: 900, tokens_in: 412, tokens_out: 96, cost: 0, sensitive: [], fallbacks: 0 }],
+    [40, { type: "command", cmd: "python3 -m venv .venv", cwd: "." }],
+    [55, { type: "command", cmd: "source .venv/bin/activate", cwd: "." }],
+    [70, { type: "ai_call", route: "code", model: "claude-sonnet", local: false, status: 200, latency_ms: 6200, tokens_in: 3120, tokens_out: 840, cost: 0.0219, sensitive: [], fallbacks: 0 }],
+    [90, { type: "file_created", path: "bot/weather.py", lines: 42, added: 42, removed: 0 }],
+    [95, { type: "file_created", path: "bot/__init__.py", lines: 1, added: 1, removed: 0 }],
+    [100, { type: "file_created", path: "requirements.txt", lines: 2, added: 2, removed: 0 }],
+    [130, { type: "command", cmd: "pip install -r requirements.txt", cwd: "." }],
+    [170, { type: "file_created", path: ".env", sensitive: true }],
+    [190, { type: "ai_call", route: "code", model: "qwen2.5-coder:7b", local: true, status: 200, latency_ms: 3100, tokens_in: 1980, tokens_out: 410, cost: 0, sensitive: ["api_key"], fallbacks: 0 }],
+    [215, { type: "file_changed", path: "bot/weather.py", lines: 56, added: 18, removed: 4 }],
+    [240, { type: "command", cmd: "python bot/weather.py Belgrade", cwd: "." }],
+    [270, { type: "ai_call", route: "code", model: "claude-sonnet", local: false, status: 200, latency_ms: 5400, tokens_in: 2650, tokens_out: 620, cost: 0.0173, sensitive: [], fallbacks: 1 }],
+    [290, { type: "file_created", path: "tests/test_weather.py", lines: 25, added: 25, removed: 0 }],
+    [310, { type: "command", cmd: "python -m pytest -q", cwd: "." }],
+    [330, { type: "file_changed", path: "bot/weather.py", lines: 58, added: 3, removed: 1 }],
+    [345, { type: "command", cmd: "python -m pytest -q", cwd: "." }],
+    [360, { type: "command", cmd: "cat .env", cwd: "." }],
+    [380, { type: "command", cmd: "git status", cwd: "." }],
+    [395, { type: "command", cmd: "git add .", cwd: "." }],
+    [410, { type: "command", cmd: "git commit -m \"First working weather bot\"", cwd: "." }],
+    [412, { type: "commit", sha: "a1b2c3d", message: "First working weather bot", files_changed: 6, insertions: 130, deletions: 0 }],
+    [440, { type: "ai_call", route: "writing", model: "llama3.2:3b", local: true, status: 200, latency_ms: 1500, tokens_in: 830, tokens_out: 360, cost: 0, sensitive: [], fallbacks: 0 }],
+    [455, { type: "file_changed", path: "README.md", lines: 24, added: 14, removed: 2 }],
+    [480, { type: "command", cmd: "git commit -am \"Explain setup in README\"", cwd: "." }],
+    [482, { type: "commit", sha: "d4e5f6a", message: "Explain setup in README", files_changed: 1, insertions: 14, deletions: 2 }],
+    [500, { type: "command", cmd: "git push", cwd: "." }],
+  ];
+  const snap = { type: "snapshot", ts: t0, project: "weather-bot (example)", files, git: true, branch: "main", commands_hook: true, switchboard: true };
+  return [snap, ...steps.map(([dt, e], i) => ({ id: i + 1, ts: t0 + dt, ...e }))];
+}
+
+/* =========================================================== live / demo world */
+const worldView = makeWorldView($("#world-slot"));
+let world = null, mode = "demo";
+function setMode(m) {
+  mode = m; const el = $("#mode");
+  el.className = "mode " + (m === "live" ? "live" : m === "off" ? "off" : "demo");
+  el.textContent = m === "live" ? "Live" : m === "off" ? "Reconnecting" : "Demo";
+  TIPS.set(el, m === "demo" ? { title: "Demo mode", body: "You're watching an example session (made-up project and numbers). Run the Arcade on your computer to see your own work.", where: "python -m workflow_arcade watch <project folder>" }
+    : m === "live" ? { title: "Live", body: "Connected to the Arcade on your computer. Changes appear within a second." }
+    : { title: "Reconnecting", body: "Lost the connection to the Arcade on your computer. Is it still running?" });
+  el.setAttribute("data-tip", "");
+}
+function sourceChips(snap) {
+  const chip = (ok, label, on, offTip) => h("span", { class: "chip " + (ok ? "ok" : "no"), tip: ok ? { title: label, body: on } : { title: label + " (off)", body: offTip.body, where: offTip.where } }, (ok ? "● " : "○ ") + label);
+  $("#sources").replaceChildren(
+    chip(true, "Files", "Watching every file in the project folder, except build and library folders."),
+    chip(snap.git, "Git", "Watching save points and branches.", { body: "This folder isn't a Git project yet. Run git init to start saving points.", where: "git init" }),
+    chip(snap.commands_hook, "Terminal", "Recording commands typed in this project's folder. Start a command with a space to keep it private.", { body: "Add the small shell hook to see commands here.", where: "python -m workflow_arcade hook bash >> ~/.bashrc" }),
+    chip(snap.switchboard, "AI", "Reading Switchboard's log: route, model, tokens. Never your prompts.", { body: "Start the Arcade with --switchboard-log to see AI steps.", where: "--switchboard-log ~/switchboard/logs/decisions.jsonl" }),
+  );
+}
+function startWorld(snap, events) {
+  world = newWorld(snap); worldView.clear();
+  $("#project").textContent = snap.project + (snap.branch ? ` · ${snap.branch}` : "");
+  sourceChips(snap);
+  workXp = 0;
+  events.forEach((ev, i) => { applyEvent(world, ev); workXp += xpOf(ev); if (i >= events.length - 300) worldView.add(ev); });
+  worldView.render(world); updateLevel();
+}
+function liveEvent(ev) {
+  applyEvent(world, ev); workXp += xpOf(ev);
+  worldView.render(world); worldView.add(ev, true); worldView.flash(ev); updateLevel();
+  if (ev.type === "commit" && world.stats.commits === 1) toast("First save point! +50 XP");
+}
+async function boot() {
+  try {
+    const r = await fetch("/api/state", { cache: "no-store" });
+    if (!r.ok) throw new Error();
+    const state = await r.json();
+    setMode("live");
+    $("#world-eyebrow").textContent = "Live map";
+    startWorld(state.snapshot, state.events);
+    let last = state.events.length ? state.events[state.events.length - 1].id : 0;
+    const es = new EventSource("/api/events?after=" + last);
+    es.onmessage = m => { const ev = JSON.parse(m.data); if (ev.id > last) { last = ev.id; liveEvent(ev); } setMode("live"); };
+    es.onerror = () => setMode("off");
+  } catch {
+    setMode("demo");
+    $("#world-eyebrow").textContent = "Example session";
+    runDemo();
+  }
+  loadSessions();
+}
+let demoTimer = null;
+function runDemo() {
+  const all = demoSession(), snap = all[0], evs = all.slice(1);
+  const now = Date.now() / 1000;
+  const shift = e => ({ ...e, ts: now - (evs.length - evs.indexOf(e)) * 2 });
+  startWorld(snap, []);
+  let i = 0;
+  clearInterval(demoTimer);
+  demoTimer = setInterval(() => {
+    if (i >= evs.length) { clearInterval(demoTimer); setTimeout(runDemo, 9000); return; }
+    liveEvent({ ...evs[i], ts: Date.now() / 1000 }); i++;
+  }, 2300);
+  // show the first few immediately so the page is complete at rest
+  for (; i < 6; i++) liveEvent(shift(evs[i]));
+}
+
+/* =========================================================== replay */
+const replayView = makeWorldView($("#replay-slot"));
+let rp = { events: [], idx: 0, timer: null, speed: 1 };
+async function loadSessions() {
+  const sel = $("#rp-session"); sel.replaceChildren();
+  if (mode === "demo") { sel.append(h("option", { value: "demo", text: "Example: weather-bot (demo)" })); return openSession("demo"); }
+  try {
+    const list = await (await fetch("/api/sessions")).json();
+    if (!list.length) { sel.append(h("option", { value: "", text: "No saved sessions yet" })); return; }
+    for (const s of list) {
+      const m = s.id.match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})\d{2}-(.*)\.jsonl$/);
+      sel.append(h("option", { value: s.id, text: m ? `${m[6]} · ${m[3]}.${m[2]}.${m[1]} ${m[4]}:${m[5]}` : s.id }));
+    }
+    openSession(list[0].id);
+  } catch { sel.append(h("option", { value: "", text: "Couldn't load sessions" })); }
+}
+async function openSession(id) {
+  stopReplay();
+  let evs;
+  if (id === "demo") evs = demoSession();
+  else { try { evs = await (await fetch("/api/session?id=" + encodeURIComponent(id))).json(); } catch { return; } }
+  if (!Array.isArray(evs) || !evs.length || evs[0].type !== "snapshot") return;
+  rp.snapshot = evs[0]; rp.events = evs.slice(1);
+  const range = $("#rp-range"); range.max = rp.events.length; range.value = 0;
+  const marks = $("#rp-marks"); marks.replaceChildren();
+  rp.events.forEach((e, i) => marks.append(h("i", { style: `left:${rp.events.length > 1 ? (i / (rp.events.length - 1)) * 100 : 0}%;--c:${(EV[e.type] || EV.command).c}` })));
+  seek(0);
+}
+function seek(n) {
+  rp.idx = n;
+  const w = newWorld(rp.snapshot); replayView.clear();
+  for (let i = 0; i < n; i++) { applyEvent(w, rp.events[i]); if (i >= n - 150) replayView.add(rp.events[i], i === n - 1); }
+  replayView.render(w);
+  const lastAi = rp.events.slice(0, n).reverse().find(e => e.type === "ai_call");
+  if (lastAi && lastAi !== rp.events[n - 1]) replayView.flash(lastAi);
+  if (n) replayView.flash(rp.events[n - 1]);
+  $("#rp-range").value = n;
+  const t = n ? rp.events[n - 1].ts - rp.snapshot.ts : 0;
+  $("#rp-clock").textContent = `${n} / ${rp.events.length} · +${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+}
+function stopReplay() { clearInterval(rp.timer); rp.timer = null; $("#rp-play").textContent = "Play"; }
+$("#rp-play").addEventListener("click", () => {
+  if (rp.timer) return stopReplay();
+  if (rp.idx >= rp.events.length) seek(0);
+  $("#rp-play").textContent = "Pause";
+  rp.timer = setInterval(() => { if (rp.idx >= rp.events.length) return stopReplay(); seek(rp.idx + 1); }, 1400 / rp.speed);
+});
+$("#rp-range").addEventListener("input", e => { stopReplay(); seek(+e.target.value); });
+$("#rp-session").addEventListener("change", e => openSession(e.target.value));
+$("#rp-speed").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  rp.speed = +b.dataset.s; $("#rp-speed").querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  if (rp.timer) { stopReplay(); $("#rp-play").click(); }
+});
+
+/* =========================================================== academy */
+const LESSONS = [
+  { id: "terminal", n: 1, c: "var(--lagoon)", title: "Find your way", tag: "The terminal: folders and files",
+    intro: "The terminal is a text window for giving your computer instructions. You're always standing in one folder.",
+    cmds: [
+      ["Where am I?", "pwd", "Get-Location"], ["What's here?", "ls", "dir"], ["Walk into a folder", "cd switchboard", "cd switchboard"],
+      ["Go up one level", "cd ..", "cd .."], ["Make a folder", "mkdir my-project", "mkdir my-project"], ["Open it in VS Code", "code .", "code ."],
+    ],
+    quiz: [["What does cd .. do?", ["Deletes the folder", "Moves you up one folder", "Lists files"], 1, "Two dots always mean the folder above."],
+      ["Which command opens the current folder in VS Code?", ["code .", "open vscode", "cd code"], 0, "The dot means this folder."],
+      ["You don't know which folder you're in. What do you type?", ["ls", "pwd (or Get-Location on Windows)", "mkdir"], 1, "pwd prints the folder you're standing in."]] },
+  { id: "python", n: 2, c: "var(--kelp)", title: "Python projects", tag: "Virtual environments and installs",
+    intro: "Each project keeps its libraries in its own private box called a virtual environment (.venv), so projects can't break each other.",
+    cmds: [
+      ["Make the box", "python3 -m venv .venv", "py -3 -m venv .venv"], ["Step into it", "source .venv/bin/activate", ".\\.venv\\Scripts\\Activate.ps1"],
+      ["Install the shopping list", "pip install -r requirements.txt", "pip install -r requirements.txt"], ["Run a program", "python main.py", "python main.py"],
+      ["Run the checks", "python -m pytest -q", "python -m pytest -q"],
+    ],
+    quiz: [["What is .venv for?", ["Hiding passwords", "A private box of libraries for this project", "Speeding up the computer"], 1, "Each project gets its own libraries."],
+      ["Where does pip -r read the list from?", ["The file you name after -r", "The internet", "VS Code"], 0, "Usually requirements.txt."],
+      ["Your prompt shows (.venv). What does that mean?", ["Something broke", "The virtual environment is switched on", "You're on Windows"], 1, "Commands now use the project's libraries."]] },
+  { id: "git", n: 3, c: "var(--sun)", title: "Save points", tag: "Git: never lose work again",
+    intro: "Git takes snapshots of your project called commits. Make one before every big change, and you can always go back.",
+    cmds: [
+      ["What changed?", "git status", "git status"], ["See the exact lines", "git diff", "git diff"], ["Pick changes", "git add README.md", "git add README.md"],
+      ["Save a point", "git commit -m \"Explain setup\"", "git commit -m \"Explain setup\""], ["Upload to GitHub", "git push", "git push"], ["See history", "git log --oneline", "git log --oneline"],
+    ],
+    quiz: [["When should you commit?", ["Only at the end of the project", "Before and after each meaningful change", "Never, GitHub does it"], 1, "Small, frequent save points make undo easy."],
+      ["What does git push do?", ["Uploads your save points to GitHub", "Deletes old commits", "Downloads updates"], 0, "pull downloads, push uploads."],
+      ["You ran git add . and .env is listed. What now?", ["Commit anyway", "Add .env to .gitignore and unstage it with git restore --staged .env", "Delete the project"], 1, "Secrets must never reach GitHub."]] },
+  { id: "ai", n: 4, c: "var(--orchid)", title: "Working with AI", tag: "Approve, review, stay safe",
+    intro: "Your AI helper proposes edits and commands; you approve them. Use the decoder on any command you're unsure about, and commit before big changes.",
+    cmds: [
+      ["Save before the AI starts", "git commit -am \"Before AI changes\"", "git commit -am \"Before AI changes\""], ["Review what it changed", "git diff", "git diff"],
+      ["Undo changes to one file", "git restore bot/weather.py", "git restore bot/weather.py"], ["Park changes for later", "git stash", "git stash"],
+    ],
+    quiz: [["The AI wants to run rm -rf build. What do you do first?", ["Approve quickly", "Check what it deletes. rm -rf removes for good", "Restart VS Code"], 1, "Read Careful badges before approving."],
+      ["Where should API keys live?", ["In the chat with the AI", "In .env, which .gitignore keeps out of Git", "In README.md"], 1, "Never paste keys into chats or code."],
+      ["The AI made a mess of a file. Fastest safe undo?", ["git restore <file>", "Delete the project", "Buy a new laptop"], 0, "Restores the file to your last save point."]] },
+  { id: "switchboard", n: 5, c: "var(--coral)", title: "Your Switchboard", tag: "Cheap where possible, smart where needed",
+    intro: "Switchboard sends each AI request to the right model: free local models for easy steps, paid cloud models for hard ones.",
+    cmds: [
+      ["Download a local model", "ollama pull qwen2.5-coder:7b", "ollama pull qwen2.5-coder:7b"], ["Which models are ready?", "python -m switchboard check", "python -m switchboard check"],
+      ["Where would this prompt go?", "python -m switchboard explain \"fix my python bug\"", "python -m switchboard explain \"fix my python bug\""],
+      ["Start the router", "python -m switchboard serve", "python -m switchboard serve"],
+    ],
+    quiz: [["What does explain do?", ["Calls the model", "Shows which model would be picked, without calling it", "Deletes the config"], 1, "A free dry run."],
+      ["Which model answers when a prompt contains an API key?", ["The cheapest cloud model", "A local model, or none at all", "Every model"], 1, "Private data never leaves your computer."],
+      ["Which address do you give Cline?", ["http://127.0.0.1:8787/v1", "https://api.openai.com", "github.com"], 0, "Your local Switchboard."]] },
+];
+function renderLevels() {
+  const done = store.get("academy", {});
+  $("#levels").replaceChildren(...LESSONS.map(l => h("button", { class: "lvl", type: "button", style: `--c:${l.c}`, onclick: () => openLesson(l) },
+    h("span", { class: "num", text: String(l.n) }), h("h3", { text: l.title }), h("span", { class: "muted", text: l.tag }),
+    done[l.id] ? h("span", { class: "chip ok done", text: "✓ +100 XP" }) : h("span", { class: "chip no done", text: "100 XP" }))));
+}
+function openLesson(l) {
+  const box = h("section", { class: "panel lesson", id: "lesson" },
+    h("div", {}, h("div", { class: "eyebrow", text: `Level ${l.n}` }), h("h2", { text: l.title }), h("p", { class: "muted", text: l.intro })));
+  const cmds = h("div", { class: "cmds" });
+  for (const [label, linux, win] of l.cmds) {
+    const a = cmdLine(linux, "$").line, b = cmdLine(win, "PS>").line;
+    cmds.append(h("div", { class: "cmdcard" }, h("b", { text: label }),
+      h("div", { class: "os" }, h("div", { style: "flex:1 1 260px;min-width:0" }, h("small", { text: linux === win ? "Any system" : "Kubuntu / macOS" }), a),
+        linux === win ? null : h("div", { style: "flex:1 1 260px;min-width:0" }, h("small", { text: "Windows" }), b))));
+  }
+  box.append(h("div", { class: "eyebrow", text: "Hover each part of a command" }), cmds);
+  const quiz = h("div", { class: "quiz" }); let right = 0; const answered = new Set();
+  l.quiz.forEach(([q, opts, ok, why], qi) => {
+    const fb = h("div", { class: "fb muted" });
+    const row = h("div", { class: "opts" }, ...opts.map((o, oi) => h("button", { type: "button", onclick: e => {
+      if (answered.has(qi)) return;
+      if (oi === ok) { answered.add(qi); right++; e.target.classList.add("right"); fb.textContent = "Right! " + why; fb.style.color = "var(--kelp)";
+        if (right === l.quiz.length) { const d = store.get("academy", {}); if (!d[l.id]) { d[l.id] = true; store.set("academy", d); toast(`Level ${l.n} complete! +100 XP`); renderLevels(); updateLevel(); } }
+      } else { e.target.classList.add("wrong"); fb.textContent = "Not quite, try another."; fb.style.color = "var(--coral)"; }
+    } }, o)));
+    quiz.append(h("div", { class: "q" }, h("p", { text: q }), row, fb));
+  });
+  box.append(h("div", { class: "eyebrow", text: "Quiz" }), quiz);
+  $("#lesson-slot").replaceChildren(box);
+  box.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+function decode() {
+  const v = $("#dec-in").value.trim(), out = $("#dec-out");
+  if (!v) return out.replaceChildren(h("p", { class: "muted", text: "Type or paste a command above." }));
+  const { line, ex } = cmdLine(v);
+  out.replaceChildren(line, h("div", { class: "summary", text: ex.summary }),
+    ...ex.risks.map(r => h("div", { class: "risk " + r.level, text: (r.level === "danger" ? "Careful: " : "Heads-up: ") + r.text })),
+    ex.risks.length ? null : h("p", { class: "muted", text: "No risky patterns spotted. Hover each colored piece for details." }));
+}
+$("#dec-in").addEventListener("input", decode);
+$("#dec-ex").append(...["pip install --require-hashes -r requirements.txt", "rm -rf build && python -m pytest -q", "curl -s https://example.com/install.sh | bash", "git push --force", "ollama pull llama3.2:3b"]
+  .map(c => h("button", { class: "btn", type: "button", onclick: () => { $("#dec-in").value = c; decode(); } }, c)));
+const BADGES = [
+  ["First save point", "Make your first Git commit.", () => world && world.stats.commits >= 1],
+  ["Local hero", "Have 3 AI steps answered by free local models.", () => world && world.stats.local >= 3],
+  ["Secret keeper", "Switchboard kept a request with private data on your computer.", () => world && world.stats.keptLocal >= 1],
+  ["Builder", "Make 5 edits in one session.", () => world && world.stats.edits >= 5],
+  ["Tested", "Run the automatic checks (pytest).", () => world && [...worldView.entries.querySelectorAll(".cmd")].some(c => /pytest/.test(c.textContent))],
+  ["Graduate", "Finish all five Academy levels.", () => Object.values(store.get("academy", {})).filter(Boolean).length >= LESSONS.length],
+];
+const earned = new Set();
+let badgesReady = false;
+function renderBadges() {
+  $("#badges").replaceChildren(...BADGES.map(([name, how, test], i) => {
+    const got = test();
+    if (got && !earned.has(name)) { if (badgesReady) toast(`Badge unlocked: ${name}`); earned.add(name); }
+    return h("div", { class: "badge" + (got ? " got" : ""), tip: { title: name, body: how, why: got ? "Unlocked." : null } }, h("span", { class: "medal", text: got ? "★" : String(i + 1) }), h("div", {}, h("b", { text: name }), h("div", { class: "muted", style: "font-size:12px", text: how })));
+  }));
+  badgesReady = true;
+}
+
+/* =========================================================== tabs & boot */
+function showTab(name) {
+  for (const t of ["world", "replay", "academy"]) {
+    $("#tab-" + t).setAttribute("aria-selected", String(t === name));
+    $("#view-" + t).hidden = t !== name;
+  }
+  store.set("tab", name); hideTip();
+}
+for (const t of ["world", "replay", "academy"]) $("#tab-" + t).addEventListener("click", () => showTab(t));
+const startTab = /^#(world|replay|academy)$/.test(location.hash) ? location.hash.slice(1) : store.get("tab", "world");
+showTab(["world", "replay", "academy"].includes(startTab) ? startTab : "world");
+if (store.get("hint-x", false)) $("#hint").hidden = true;
+$("#hint-x").addEventListener("click", () => { $("#hint").hidden = true; store.set("hint-x", true); });
+renderLevels(); decode(); boot();
+</script>

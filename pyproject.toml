@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "workflow-arcade"
+version = "0.1.0"
+description = "A game-like, local-only live map of your coding workflow: files, commands, Git and AI steps, with hover explanations."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = []          # standard library only, on purpose
+
+[project.urls]
+Homepage = "https://github.com/alexb-joat/workflow-arcade"
+Issues = "https://github.com/alexb-joat/workflow-arcade/issues"
+
+[project.scripts]
+workflow-arcade = "workflow_arcade.__main__:main"
+
+[tool.setuptools]
+packages = ["workflow_arcade"]
+
+[tool.setuptools.package-data]
+workflow_arcade = ["static/*.html"]
