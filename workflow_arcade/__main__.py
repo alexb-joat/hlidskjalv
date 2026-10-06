@@ -1,0 +1,181 @@
+"""python -m workflow_arcade [watch|hook|sessions]"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import sys
+import threading
+import time
+import webbrowser
+from pathlib import Path
+
+from . import __version__
+from .server import Hub, list_sessions, serve
+from .sources import CommandWatcher, FileWatcher, GitWatcher, SwitchboardWatcher, load_prices
+
+HOOKS = {
+    "bash": r'''
+# --- Workflow Arcade: record terminal commands (local file, owner-only) ---
+# Commands that start with a space are not recorded (Ubuntu's default HISTCONTROL).
+__arcade_last=$(HISTTIMEFORMAT= builtin history 1 | awk '{print $1}')
+__arcade_log() {
+  local h n c f="${ARCADE_HOME:-$HOME/.arcade}/commands.log"
+  h=$(HISTTIMEFORMAT= builtin history 1) || return
+  read -r n c <<<"$h"
+  { [ -z "$c" ] || [ "$n" = "$__arcade_last" ]; } && return
+  __arcade_last=$n
+  [ -f "$f" ] || ( umask 077; mkdir -p "${f%/*}"; : >> "$f" )
+  printf '%s\t%s\t%s\n' "$(date +%s)" "$PWD" "$c" >> "$f"
+}
+case ";$PROMPT_COMMAND;" in *";__arcade_log;"*) ;; *) PROMPT_COMMAND="__arcade_log${PROMPT_COMMAND:+;$PROMPT_COMMAND}";; esac
+# --- end Workflow Arcade ---
+''',
+    "zsh": r'''
+# --- Workflow Arcade: record terminal commands (local file, owner-only) ---
+setopt HIST_IGNORE_SPACE   # commands starting with a space are not recorded
+__arcade_last=$(fc -l -1 2>/dev/null | awk '{print $1}')
+__arcade_log() {
+  local h n c f="${ARCADE_HOME:-$HOME/.arcade}/commands.log"
+  h=$(fc -l -1 2>/dev/null) || return
+  read -r n c <<<"$h"
+  [[ -z "$c" || "$n" == "$__arcade_last" ]] && return
+  __arcade_last=$n
+  [[ -f "$f" ]] || ( umask 077; mkdir -p "${f:h}"; : >> "$f" )
+  printf '%s\t%s\t%s\n' "$(date +%s)" "$PWD" "$c" >> "$f"
+}
+autoload -Uz add-zsh-hook && add-zsh-hook precmd __arcade_log
+# --- end Workflow Arcade ---
+''',
+    "powershell": r'''
+# --- Workflow Arcade: record terminal commands (local file in your profile folder) ---
+# Commands that start with a space are not recorded.
+$global:__ArcadeLastId = -1
+$global:__ArcadeOriginalPrompt = $function:prompt
+function global:prompt {
+  $h = Get-History -Count 1
+  if ($h -and $h.Id -ne $global:__ArcadeLastId -and -not $h.CommandLine.StartsWith(' ')) {
+    $global:__ArcadeLastId = $h.Id
+    $dir = if ($env:ARCADE_HOME) { $env:ARCADE_HOME } else { Join-Path $HOME '.arcade' }
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
+    $ts = [DateTimeOffset]::Now.ToUnixTimeSeconds()
+    $line = "$ts`t$($PWD.Path)`t$($h.CommandLine -replace "`r?`n", ' ')"
+    Add-Content -Path (Join-Path $dir 'commands.log') -Value $line -Encoding utf8
+  }
+  & $global:__ArcadeOriginalPrompt
+}
+# --- end Workflow Arcade ---
+''',
+}
+
+
+def arcade_home() -> Path:
+    home = Path(os.environ.get("ARCADE_HOME") or Path.home() / ".arcade")
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "sessions").mkdir(exist_ok=True)
+    if os.name == "posix":
+        os.chmod(home, 0o700)
+        os.chmod(home / "sessions", 0o700)
+    return home
+
+
+def prune(sessions: Path, keep: int) -> None:
+    for old in [s["id"] for s in list_sessions(sessions)][keep:]:
+        try:
+            (sessions / old).unlink()
+        except OSError:
+            pass
+
+
+def check_folder(folder: Path) -> None:
+    home = Path.home().resolve()
+    if folder == home or folder == Path(folder.anchor) or not folder.is_dir():
+        sys.exit(f"Pick a project folder (not your whole home folder or drive): {folder}")
+
+
+def watch(args) -> None:
+    root = Path(args.folder).expanduser().resolve()
+    check_folder(root)
+    home = arcade_home()
+    sessions = home / "sessions"
+    prune(sessions, max(args.keep - 1, 0))
+
+    sb_log = args.switchboard_log or os.environ.get("ARCADE_SWITCHBOARD_LOG")
+    sb_path = Path(sb_log).expanduser().resolve() if sb_log else None
+    files = FileWatcher(root)
+    git = GitWatcher(root)
+    cmds = CommandWatcher(root, home / "commands.log")
+    ai = SwitchboardWatcher(sb_path, load_prices(home / "prices.json"))
+
+    snapshot = files.snapshot()
+    git.prime()
+    name = re.sub(r"[^A-Za-z0-9._-]+", "-", root.name)[:60] or "project"
+    meta = {
+        "git": git.available(), "branch": git.branch,
+        "commands_hook": (home / "commands.log").exists(),
+        "switchboard": bool(sb_path and sb_path.exists()),
+        "truncated": files.truncated, "version": __version__,
+    }
+    session_path = sessions / f"{time.strftime('%Y%m%d-%H%M%S')}-{name}.jsonl"
+    hub = Hub(root.name, snapshot, session_path, meta)
+
+    def loop():
+        while True:
+            for source in (files, git, cmds, ai):
+                try:
+                    for ev in source.poll():
+                        hub.publish(ev)
+                except Exception as e:  # one bad poll must not stop the game
+                    print(f"warning: {type(source).__name__}: {e}", file=sys.stderr)
+            time.sleep(args.interval)
+
+    threading.Thread(target=loop, daemon=True).start()
+    httpd = serve(hub, sessions, args.port)
+    url = f"http://127.0.0.1:{args.port}/"
+    print(f"Workflow Arcade is watching {root}")
+    print(f"  open {url}   (Ctrl+C to stop)")
+    if files.truncated:
+        print("  note: more than 5000 files; showing the first 5000")
+    if not meta["commands_hook"]:
+        print("  tip: terminal commands aren't recorded yet; see README > Record terminal commands")
+    if sb_log and not meta["switchboard"]:
+        print(f"  note: Switchboard log not found yet at {sb_path}; it appears after the first AI call")
+    if not args.no_open:
+        webbrowser.open(url)
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\nSaved this session for Replay.")
+
+
+def main(argv: list[str] | None = None) -> None:
+    ap = argparse.ArgumentParser(prog="workflow-arcade", description="A game-like live view of your coding workflow.")
+    ap.add_argument("--version", action="version", version=__version__)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    w = sub.add_parser("watch", help="watch a project folder and open the Arcade")
+    w.add_argument("folder", nargs="?", default=".")
+    w.add_argument("--port", type=int, default=int(os.environ.get("ARCADE_PORT", "8788")))
+    w.add_argument("--switchboard-log", help="path to Switchboard's logs/decisions.jsonl")
+    w.add_argument("--interval", type=float, default=1.0, help="seconds between checks")
+    w.add_argument("--keep", type=int, default=50, help="how many past sessions to keep for Replay")
+    w.add_argument("--no-open", action="store_true", help="don't open the browser")
+
+    h = sub.add_parser("hook", help="print the shell snippet that records terminal commands")
+    h.add_argument("shell", choices=sorted(HOOKS))
+
+    sub.add_parser("sessions", help="list saved sessions")
+
+    args = ap.parse_args(argv)
+    if args.cmd == "watch":
+        watch(args)
+    elif args.cmd == "hook":
+        print(HOOKS[args.shell].strip())
+    elif args.cmd == "sessions":
+        for s in list_sessions(arcade_home() / "sessions"):
+            print(f"{s['id']}  {s['bytes']:>8} bytes")
+
+
+if __name__ == "__main__":
+    main()
