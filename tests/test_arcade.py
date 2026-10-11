@@ -715,6 +715,48 @@ class AlertsTest(unittest.TestCase):
             httpd.server_close()
 
 
+class UsageTest(unittest.TestCase):
+    def test_budget_reads_switchboard_metrics_read_only(self):
+        import sqlite3
+        from workflow_arcade.usage import budget
+        home = Path(tempfile.mkdtemp())
+        self.assertFalse(budget(home)["available"])
+        con = sqlite3.connect(home / "metrics.db")
+        con.execute("CREATE TABLE calls (id INTEGER PRIMARY KEY, ts REAL, route TEXT, model TEXT, local INTEGER, status INTEGER,"
+                    " latency_ms INTEGER, tokens_in INTEGER, tokens_out INTEGER, cost REAL, fallbacks INTEGER, sensitive TEXT)")
+        now = time.time()
+        rows = [(now, "big", 0, 200, 0.5), (now, "coder", 1, 200, 0.0), (now, "gpt", 0, 200, None), (now - 40 * 86400, "big", 0, 200, 9.0)]
+        con.executemany("INSERT INTO calls (ts, route, model, local, status, cost) VALUES (?, 'code', ?, ?, ?, ?)", rows)
+        con.commit(); con.close()
+        (home / "budget.json").write_text(json.dumps({"daily_usd": 2, "monthly_usd": "lots"}))
+        b = budget(home, now)
+        self.assertEqual((b["today"], b["month"]), (0.5, 0.5))
+        self.assertEqual(b["caps"], {"daily_usd": 2.0, "monthly_usd": 15.0})  # bad values fall back
+        self.assertEqual(b["calls_today"], {"total": 3, "local": 1})
+        self.assertEqual((b["unpriced_today"], b["unpriced_models"]), (1, ["gpt"]))
+
+    def test_claude_usage_per_session(self):
+        from workflow_arcade.usage import ClaudeUsage
+        d = Path(tempfile.mkdtemp())
+        (d / "s1" / "subagents").mkdir(parents=True)
+
+        def turn(mid, cached, ts, tool=None):
+            content = [{"type": "tool_use", "id": tool, "name": "Bash", "input": {"command": "ls"}}] if tool else [{"type": "text"}]
+            return json.dumps({"type": "assistant", "timestamp": ts, "message": {"id": mid, "model": "claude-x", "content": content,
+                               "usage": {"input_tokens": 10, "cache_read_input_tokens": cached, "cache_creation_input_tokens": 5, "output_tokens": 7}}})
+        (d / "s1.jsonl").write_text("\n".join([turn("a", 100, "2026-10-01T10:00:00Z"), turn("a", 100, "2026-10-01T10:00:00Z", "t1"),
+                                                 turn("b", 1000, "2026-10-01T11:00:00Z")]) + "\n")
+        (d / "s1" / "subagents" / "x.jsonl").write_text(turn("c", 50, "2026-10-01T10:30:00Z") + "\n")
+        u = ClaudeUsage(d)
+        [s] = u.report()["sessions"]
+        self.assertEqual((s["turns"], s["subagent_turns"], s["commands"]), (3, 1, 1))
+        self.assertEqual(s["cached"], 1150)
+        self.assertEqual(s["in"], 1150 + 3 * 15)
+        self.assertEqual(s["peak"], 1015)
+        self.assertEqual((s["first"], s["last"]), ("2026-10-01T10:00:00Z", "2026-10-01T11:00:00Z"))
+        self.assertIs(u.report()["sessions"][0]["turns"], 3)  # cached parse gives the same answer
+
+
 class ServerTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

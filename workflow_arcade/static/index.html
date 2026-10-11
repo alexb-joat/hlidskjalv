@@ -292,6 +292,22 @@ details > summary { cursor: pointer; color: var(--muted); font-weight: 700; }
 #term { height: min(70vh, 640px); min-height: 280px; border-radius: calc(var(--r) * 0.833333); overflow: hidden; background: #0d0f12; padding: 6px; border: 1px solid var(--line); }
 .termoff { padding: 18px; display: grid; gap: 10px; }
 
+/* ---------- cost and usage */
+.meter { display: grid; gap: 5px; }
+.meter-top { display: flex; justify-content: space-between; gap: 8px; font-size: calc(14px * var(--fz)); }
+.meter-top span { color: var(--muted); }
+.meter-track { height: 10px; border-radius: 4px; background: color-mix(in srgb, var(--m) 18%, var(--surface)); overflow: hidden; }
+.meter-track i { display: block; height: 100%; background: var(--m); border-radius: 0 4px 4px 0; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: calc(12.5px * var(--fz)); color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.seg-new { background: var(--accent); } .seg-cached { background: color-mix(in srgb, var(--accent) 38%, var(--surface)); }
+.usage .barcell { min-width: 150px; width: 40%; }
+.split { display: inline-flex; gap: 2px; height: 12px; vertical-align: middle; min-width: 6px; max-width: calc(100% - 52px); }
+.split i { display: block; height: 100%; min-width: 2px; }
+.split i:first-child { border-radius: 0; } .split i:last-child { border-radius: 0 4px 4px 0; }
+.barval { margin-left: 6px; color: var(--muted); font-variant-numeric: tabular-nums; font-size: calc(12.5px * var(--fz)); }
+
 /* ---------- alerts */
 .alerts-bar { margin: 12px 0; align-items: center; }
 .alert-groups, .alert-list { display: grid; gap: 8px; }
@@ -1493,7 +1509,106 @@ function renderDetails() {
     : it.kind === "event" ? eventPanel(it.ev, src) : it.kind === "file" ? filePanel(it.path, src)
     : it.kind === "folder" ? folderPanel(it.dir, src) : modelPanel(it.model, src);
   $("#details-main").replaceChildren(main, timelinePanel(src));
-  $("#details-side").replaceChildren(...overviewPanels(src));
+  $("#details-side").replaceChildren(...overviewPanels(src), usagePanels());
+}
+
+/* =========================================================== cost & usage (Details side) */
+const USAGE = { at: 0, data: null, loading: null };
+function demoUsage() {
+  const now = Date.now();
+  const iso = d => new Date(now - d * 3600e3).toISOString();
+  return {
+    budget: { available: true, caps: { daily_usd: 1, monthly_usd: 15 }, today: 0.81, month: 6.4, unpriced_today: 0, unpriced_models: [], calls_today: { total: 42, local: 31 } },
+    hardware: { available: true, budget: { gb: 11.2, rule: "70% of 16 GB RAM, keeping at least 4 GB for the OS and apps" },
+      hardware: { cpu: "Example CPU, 16 cores", ram_total: 16e9, gpus: [{ name: "Integrated GPU", shared: true }] },
+      installed: [{ name: "llama3.2:3b", size_gb: 2, need_gb: 2.4, fits: true }, { name: "qwen2.5-coder:7b", size_gb: 4.7, need_gb: 5.6, fits: true }],
+      suggestions: [{ route: "writing", action: "use-installed", model_tag: "llama3.2:3b", reasons: ["route writing starts at a paid cloud model; putting the installed local model first costs $0", "llama3.2:3b needs ~2.4 GB; you have ~11.2 GB usable -> fits"], yaml: "routes:\n  writing:\n    models: [local-general, claude-sonnet]" }] },
+    claude: { available: true, sessions: [
+      { id: "demo-a", turns: 198, in: 52_226_432, cached: 51_621_014, out: 291_268, peak: 504_656, commands: 166, subagent_turns: 25, first: iso(5), last: iso(1), models: { "claude-opus": 198 } },
+      { id: "demo-b", turns: 34, in: 2_100_000, cached: 1_850_000, out: 41_000, peak: 88_000, commands: 12, subagent_turns: 0, first: iso(30), last: iso(28), models: { "claude-sonnet": 34 } },
+    ] },
+  };
+}
+function loadUsage(force) {
+  if (mode === "demo") { USAGE.data = demoUsage(); return Promise.resolve(USAGE.data); }
+  if (!force && USAGE.data && Date.now() - USAGE.at < 30000) return Promise.resolve(USAGE.data);
+  if (USAGE.loading) return USAGE.loading;
+  const get = p => fetch(p, { cache: "no-store" }).then(r => r.json()).catch(() => ({ available: false }));
+  USAGE.loading = Promise.all([get("/api/budget"), get("/api/hardware"), get("/api/claude-usage")]).then(([budget, hardware, claude]) => {
+    USAGE.data = { budget, hardware, claude }; USAGE.at = Date.now(); USAGE.loading = null; return USAGE.data;
+  });
+  return USAGE.loading;
+}
+/* A meter: one ratio against a limit. The fill carries the state (accent, warning, danger), the track is a
+   lighter step of the same colour, and the state is also written out, never colour alone. */
+function meter(label, value, cap, period) {
+  const pct = cap > 0 ? value / cap : 0;
+  const [tone, state] = pct >= 1 ? ["danger", "Cap reached: cloud models are skipped and local ones answer"] : pct >= 0.75 ? ["warn", "Close to the cap"] : ["accent", "Under the cap"];
+  return h("div", { class: "meter", style: `--m: var(--${tone})`, role: "meter", "aria-label": label, "aria-valuemin": "0", "aria-valuemax": String(cap), "aria-valuenow": String(value),
+      tip: { title: label, body: `${money(value)} spent ${period}, cap ${money(cap)} (${Math.round(pct * 100)}%).`, why: state } },
+    h("div", { class: "meter-top" }, h("b", { text: label }), h("span", { text: `${money(value)} of ${money(cap)}` })),
+    h("div", { class: "meter-track" }, h("i", { style: `width:${Math.max(pct > 0 ? 1.5 : 0, Math.min(100, pct * 100))}%` })),
+    h("small", { class: "muted", text: state }));
+}
+function budgetPanel(b) {
+  if (!b || !b.available) return panel("Spending caps", "Not connected",
+    h("p", { class: "muted", style: "margin:0", text: "Switchboard keeps a call history and daily and monthly caps in ~/.arcade. Start Switchboard (v0.2 or newer) to see them here." }));
+  const ct = b.calls_today || { total: 0, local: 0 };
+  return panel("Spending caps", `${money(b.today)} today · ${money(b.month)} this month`,
+    meter("Today", b.today, b.caps.daily_usd, "today"), meter("This month", b.month, b.caps.monthly_usd, "this month"),
+    h("p", { class: "muted", style: "margin:0", text: `${ct.total} Switchboard call${ct.total === 1 ? "" : "s"} today, ${ct.local} on free local models.${b.caps_file ? "" : " Caps are the defaults ($1/day, $15/month)."}` }),
+    b.unpriced_today ? h("ul", { class: "dlist" }, h("li", { class: "warn" }, `${b.unpriced_today} cloud call${b.unpriced_today === 1 ? "" : "s"} today had no price, so the caps can't count ${b.unpriced_today === 1 ? "it" : "them"}.`,
+      h("small", { text: `Add ${b.unpriced_models.join(", ") || "those models"} to ~/.arcade/prices.json.` }))) : null,
+    h("div", { class: "cmd", text: "~/.arcade/budget.json  {\"daily_usd\": 1.0, \"monthly_usd\": 15.0}" }));
+}
+function hardwarePanel(hw) {
+  if (!hw || !hw.available) return panel("Local models for this computer", "No report yet",
+    h("p", { class: "muted", style: "margin:0", text: "Switchboard writes a hardware report to ~/.arcade/hardware.json when it starts. Or run: python -m switchboard hardware" }));
+  const H = hw.hardware || {}, gpu = (H.gpus || [])[0];
+  const age = hw.generated_at ? ` · checked ${ago(hw.generated_at)}` : "";
+  return panel("Local models for this computer", `~${hw.budget.gb} GB usable for a model${age}`,
+    kv([["Computer", H.cpu || "?", `${H.ram_total ? (H.ram_total / 1e9).toFixed(1) + " GB RAM" : ""}${gpu ? " · " + gpu.name + (gpu.shared ? " (shares RAM)" : "") : ""}`],
+      ["Rule", hw.budget.rule]]),
+    (hw.installed || []).length ? h("div", { class: "tablewrap" }, h("table", { class: "dt" },
+      h("thead", {}, h("tr", {}, h("th", { text: "Installed" }), h("th", { class: "n", text: "Size" }), h("th", { class: "n", text: "Needs" }), h("th", { text: "Fits" }))),
+      h("tbody", {}, ...hw.installed.map(m => h("tr", {}, h("td", { text: m.name }), h("td", { class: "n", text: m.size_gb + " GB" }), h("td", { class: "n", text: "~" + m.need_gb + " GB" }),
+        h("td", { text: m.fits ? "yes" : "no, too big" })))))) : null,
+    (hw.suggestions || []).length ? h("ul", { class: "dlist" }, ...hw.suggestions.map(s => h("li", { class: "ok" },
+      h("b", { text: `${s.route}: ${s.action === "pull" ? "download" : s.action === "too-big" ? "switch to" : "use"} ${s.model_tag}` }),
+      ...(s.reasons || []).slice(0, 3).map(r => h("small", { text: r })),
+      s.yaml ? h("details", {}, h("summary", { text: "config.yaml change" }), h("pre", { class: "raw", text: s.yaml })) : null,
+      ...(s.commands || []).map(c => h("div", { class: "cmd", text: c }))))) : h("p", { class: "muted", style: "margin:0", text: "No suggestions: every route already has a local model that fits." }));
+}
+function claudePanel(c) {
+  if (!c || !c.available || !c.sessions.length) return panel("Claude Code usage", "No sessions here yet",
+    h("p", { class: "muted", style: "margin:0", text: "Run claude in this project and its sessions appear here: tokens per session and how much was re-read context." }));
+  const S = c.sessions, limit = PREFS.usage.fresh_threshold;
+  const tot = S.reduce((a, s) => ({ turns: a.turns + s.turns, in: a.in + s.in, cached: a.cached + s.cached, out: a.out + s.out }), { turns: 0, in: 0, cached: 0, out: 0 });
+  const maxIn = Math.max(...S.map(s => s.in), 1), long = S.filter(s => s.peak >= limit);
+  const bar = s => {
+    const fresh = s.in - s.cached;
+    return h("div", { class: "split", style: `width:${Math.max(4, (s.in / maxIn) * 100)}%` },
+      fresh ? h("i", { class: "seg-new", style: `flex:${fresh}`, tip: { title: "New input", body: `${fresh.toLocaleString()} tokens sent for the first time.` } }) : null,
+      s.cached ? h("i", { class: "seg-cached", style: `flex:${s.cached}`, tip: { title: "Cached (re-read)", body: `${s.cached.toLocaleString()} tokens of earlier conversation read again (${Math.round((s.cached / s.in) * 100)}%).` } }) : null);
+  };
+  const when = s => s.last ? new Date(s.last).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "?";
+  return panel("Claude Code usage", `${S.length} session${S.length === 1 ? "" : "s"} · ${fmt(tot.in)} tokens in, ${Math.round((tot.cached / Math.max(1, tot.in)) * 100)}% re-read`,
+    h("div", { class: "legend" }, h("span", {}, h("i", { class: "seg-new" }), "New input"), h("span", {}, h("i", { class: "seg-cached" }), "Cached (re-read earlier context)")),
+    h("div", { class: "tablewrap" }, h("table", { class: "dt usage" },
+      h("thead", {}, h("tr", {}, h("th", { text: "Session" }), h("th", { class: "n", text: "Turns" }), h("th", { text: "Input" }), h("th", { class: "n", text: "Out" }), h("th", { class: "n", text: "Peak" }), h("th", { class: "n", text: "Cmds" }))),
+      h("tbody", {}, ...S.slice(0, 30).map(s => h("tr", {},
+        h("td", {}, when(s), s.peak >= limit ? h("span", { class: "chip warn", style: "margin-left:6px", tip: { title: "Long context", body: `One turn carried ${s.peak.toLocaleString()} tokens of context (your threshold: ${limit.toLocaleString()}).`, why: "Every turn re-reads the whole conversation, so long sessions use your plan fastest." } }, "long") : null),
+        h("td", { class: "n", text: s.turns }),
+        h("td", { class: "barcell" }, bar(s), h("span", { class: "barval", text: fmt(s.in) })),
+        h("td", { class: "n", text: fmt(s.out) }), h("td", { class: "n", text: fmt(s.peak) }), h("td", { class: "n", text: s.commands })))))),
+    long.length ? h("ul", { class: "dlist" }, h("li", { class: "warn" }, `${long.length} session${long.length === 1 ? "" : "s"} grew past ${fmt(limit)} tokens of context in one turn.`,
+      h("small", { text: "Start a new session (or /clear) when you switch tasks: the next turn then reads a few thousand tokens instead of the whole history. Threshold: Settings → Features." }))) : null);
+}
+function usagePanels() {
+  const slot = h("div", { class: "dcol" }, panel("Cost and usage", "Loading…"));
+  loadUsage().then(d => fill(slot, budgetPanel(d.budget), claudePanel(d.claude), hardwarePanel(d.hardware)))
+    .catch(() => fill(slot, panel("Cost and usage", "Couldn't load")));
+  return slot;
 }
 
 /* =========================================================== owner key & settings */
@@ -1891,6 +2006,8 @@ function featuresSection(draft, set) {
   return [
     field("In-page terminal", "A real shell in the project folder, for paired browsers only. Applies after a restart. Linux and macOS.", toggleCtl(draft.features.terminal, v => set("features.terminal", v), "On")),
     field("Levels and XP", "Points for real work, levels and badges.", toggleCtl(draft.features.xp, v => set("features.xp", v), "On")),
+    field("Long-context warning", "Flag Claude Code sessions where one turn carries more context than this (Details → Claude Code usage).",
+      rangeCtl(10000, 1000000, 10000, draft.usage.fresh_threshold, v => fmt(v) + " tokens", v => set("usage.fresh_threshold", v))),
   ];
 }
 function sourcesSection(draft, set) {

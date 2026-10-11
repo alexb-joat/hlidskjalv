@@ -103,6 +103,13 @@ def read_session(folder: Path, sid: str) -> list[dict] | None:
     return events
 
 
+class UsageContext:
+    """What the cost and usage endpoints read: ~/.arcade and Claude Code's transcripts for this project."""
+
+    def __init__(self, home: Path, claude):
+        self.home, self.claude = home, claude
+
+
 class AlertsContext:
     """What the alert endpoints need: the publisher, the history file, acknowledgements, journal status."""
 
@@ -112,7 +119,7 @@ class AlertsContext:
 
 def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None = None,
                  owner: Owner | None = None, settings: Settings | None = None, restart=None,
-                 alerts: AlertsContext | None = None):
+                 alerts: AlertsContext | None = None, usage: UsageContext | None = None):
     def refused(severity: str, title: str, detail: str, fp: str):
         if alerts:
             alerts.alerter.raise_(severity, "refused_access", title, detail[:300], fingerprint=fp)
@@ -196,6 +203,16 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                 self.wfile.write(data)
             elif url.path == "/api/term":
                 self._terminal()
+            elif url.path in ("/api/budget", "/api/hardware", "/api/claude-usage"):
+                from . import usage as u
+                if usage is None:
+                    return self._json({"available": False})
+                if url.path == "/api/budget":
+                    self._json(u.budget(usage.home))
+                elif url.path == "/api/hardware":
+                    self._json(u.hardware(usage.home))
+                else:
+                    self._json(usage.claude.report() if usage.claude else {"available": False, "sessions": []})
             elif url.path == "/api/alerts":
                 if alerts is None:
                     return self._json({"alerts": [], "acks": [], "system_log": None})
@@ -324,8 +341,8 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
 
 def serve(hub: Hub, sessions: Path, port: int, terminal: Terminal | None = None,
           owner: Owner | None = None, settings: Settings | None = None, restart=None,
-          alerts: AlertsContext | None = None) -> ThreadingHTTPServer:
+          alerts: AlertsContext | None = None, usage: UsageContext | None = None) -> ThreadingHTTPServer:
     httpd = ThreadingHTTPServer(("127.0.0.1", port),
-                                make_handler(hub, sessions, port, terminal, owner, settings, restart, alerts))
+                                make_handler(hub, sessions, port, terminal, owner, settings, restart, alerts, usage))
     httpd.daemon_threads = True
     return httpd

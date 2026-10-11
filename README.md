@@ -70,6 +70,12 @@ If you also use the [Claude Code](https://claude.com/claude-code) CLI in the sam
 
 The **Details** tab explains each AI step in full: Switchboard's reasons for the route and model, models it skipped (busy, down, or over your spending cap), tokens in, cached and out, and cost. Its cost-efficiency panel totals spend per model and points at the cheapest next step, for example a route that keeps sending routine prompts to a paid model.
 
+Details also shows, read-only:
+
+- **Spending caps:** today's and this month's cloud spend against Switchboard's caps (from `~/.arcade/metrics.db` and `budget.json`), and cloud calls that had no price so the caps couldn't count them.
+- **Claude Code usage:** per session in this project: turns, tokens in, how much of that was re-read earlier context, tokens out, the largest context of any one turn, and how many commands the AI ran. Sessions past a threshold you choose are flagged "long": starting fresh for a new task is the biggest saving on a plan.
+- **Local models for this computer:** Switchboard's hardware report (`~/.arcade/hardware.json`): how much memory a model may use, which installed models fit, and per route a suggestion with its reasons and the `config.yaml` change.
+
 ### Connect VS Code to Switchboard (Cline)
 
 [Cline](https://marketplace.visualstudio.com/items?itemName=saoudrizwan.claude-dev) is a free, open-source AI coding helper for VS Code that asks before every edit and command.

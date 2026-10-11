@@ -14,7 +14,8 @@ from pathlib import Path
 
 from . import __version__
 from .alerts import Acks, Alerter, PersistenceWatcher, SwitchboardSecurityWatcher, SystemLogWatcher
-from .server import AlertsContext, Hub, list_sessions, serve
+from .server import AlertsContext, Hub, UsageContext, list_sessions, serve
+from .usage import ClaudeUsage
 from . import terminal as term
 from .auth import Owner, issue_pair_code, rotate_key, write_private
 from .settings import Settings
@@ -159,7 +160,8 @@ def watch(args, argv: list[str]) -> None:
 
     shell = term.Terminal(root, owner, lambda sev, title, detail, fp: alerter.raise_(
         sev, "refused_access", title, detail, fingerprint=fp)) if meta["terminal"] else None
-    httpd = serve(hub, sessions, args.port, shell, owner, settings, restart, alerts_ctx)
+    usage_ctx = UsageContext(home, ClaudeUsage(claude_code.dir) if claude_code else None)
+    httpd = serve(hub, sessions, args.port, shell, owner, settings, restart, alerts_ctx, usage_ctx)
     write_private(home / "server.json", json.dumps({
         "port": args.port, "pid": os.getpid(), "folder": str(root), "version": __version__,
         "started": time.time()}))
