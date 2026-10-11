@@ -419,6 +419,14 @@ class SettingsTest(unittest.TestCase):
         self.path.write_text("not json")
         self.assertEqual(Settings(self.path).data, defaults())
 
+    def test_page_defaults_match_the_schema(self):
+        """The page carries its own copy of the defaults (for the demo and the first paint)."""
+        import re
+        from importlib import resources
+        page = resources.files("workflow_arcade").joinpath("static/index.html").read_text(encoding="utf-8")
+        embedded = re.search(r"/\*DEFAULTS\*/(.*?)/\*END\*/", page, re.S).group(1)
+        self.assertEqual(json.loads(embedded), defaults())
+
     def test_merge_reports_where(self):
         with self.assertRaisesRegex(SettingsError, "look.background.angle"):
             merge(defaults(), {"look": {"background": {"angle": 999}}})

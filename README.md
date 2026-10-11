@@ -5,16 +5,16 @@
 ![dependencies](https://img.shields.io/badge/dependencies-0-5fd6ae)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-**See what you and your AI coding helper are doing, as a game.** Workflow Arcade watches a project folder and draws it as a map: folders are islands, files are tiles. Each edit, command, Git save point and AI step lights up the map, lands in a quest log and earns XP. Hover over anything (a file, a command, even one flag like `-rf`) for a plain-English explanation.
+**See what you and your AI coding helper are doing.** Workflow Arcade watches a project folder and draws it as a live map: folders are groups, files are tiles. Each edit, command, Git save point and AI step lights up the map, lands in the activity log and (optionally) earns XP. Hover over anything (a file, a command, even one flag like `-rf`) for a plain-English explanation.
 
 Made for people who are new to coding and work with an AI helper in VS Code.
 
 | View | What it does |
 |---|---|
-| **World** | Live map of the project and a quest log of everything that happens, with "Careful" badges on risky commands |
-| **Replay** | Every session is saved on your computer; scrub through it like a game replay |
-| **Academy** | Five short levels (terminal, Python, Git, working with AI, Switchboard), a command decoder and badges |
-| **Details** | Click anything (a log entry, a file tile, an island, the model ribbon) for every detail: why a model was picked, tokens, cost, what each piece of a command does, a file's history. Plus where your tokens and money go, and how to spend less |
+| **Live** | Live map of the project and an activity log of everything that happens, with "Careful" badges on risky commands |
+| **Replay** | Every session is saved on your computer; scrub through it step by step |
+| **Learn** | Five short levels (terminal, Python, Git, working with AI, Switchboard), a command decoder and badges |
+| **Details** | Click anything (a log entry, a file tile, a folder, the model ribbon) for every detail: why a model was picked, tokens, cost, what each piece of a command does, a file's history. Plus where your tokens and money go, and how to spend less |
 | **Terminal** | Optional: a real shell in the project folder, inside the page (off unless you start with `--terminal`) |
 
 It only **watches**: it never changes your files, never runs anything from your project, and never sends anything anywhere. The one exception is the optional terminal, which you switch on yourself. No dependencies beyond Python itself.
@@ -35,7 +35,7 @@ Point it at **one project folder**, not your whole home folder or drive (it refu
 
 ## See your terminal commands (optional)
 
-Add a small hook to your shell so commands typed in the project (by you *or* by your AI helper in VS Code's terminal) show up in the quest log:
+Add a small hook to your shell so commands typed in the project (by you *or* by your AI helper in VS Code's terminal) show up in the activity log:
 
 Kubuntu (bash):
 
@@ -84,6 +84,18 @@ The **Details** tab explains each AI step in full: Switchboard's reasons for the
 4. Your Claude and OpenAI keys now live only in Switchboard's `.env`, not in VS Code. Switchboard sends easy steps to free local models and hard ones to the cloud.
 
 Cline's requests carry a large instruction block, and small local models (3B–8B) often struggle to follow it for multi-step edits. Keep a strong cloud model first in Switchboard's `code` route, and let local models take the quick and writing routes.
+
+## Make it yours
+
+The first time you open it, a short setup asks how it should look; skip it and everything stays at sensible defaults. Change anything later in **Settings** (the gear icon):
+
+- **Look:** light, dark or follow the system; seven palettes, or your own accent, surface and text colours (with a readability check); font, text size, density, corner rounding, animations.
+- **Background:** plain, gradient, glow, or slow particles (they pause when the tab is hidden and respect your system's reduce-motion setting).
+- **Layout:** the icon navigation at the top, bottom, left or right, with or without names; which views to show, in what order, and which one opens first.
+- **Features and sources:** the in-page terminal, levels and XP, Switchboard's log, Claude Code.
+- **Your settings:** export, import, reset, or run the setup again.
+
+Settings are saved in `~/.arcade/settings.json` and checked on every change. Changing them needs a paired browser (see below).
 
 ## Start at login (optional)
 
@@ -137,7 +149,7 @@ The terminal display is [xterm.js](https://xtermjs.org/) (MIT), shipped unmodifi
 
 ## Try it without installing
 
-The page opens in a demo session when it isn't connected to a running Arcade, so you can explore World, Replay, Academy and Details with example data.
+The page opens in a demo session when it isn't connected to a running Arcade, so you can explore Live, Replay, Learn and Details with example data (and try the customization; in the demo it's kept in your browser).
 
 ## Development
 

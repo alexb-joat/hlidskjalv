@@ -1,271 +1,351 @@
 <title>Workflow Arcade</title>
 <meta name="description" content="A game-like live map of your coding workflow.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&family=JetBrains+Mono:wght@400;600&family=Nunito:wght@400;600;700;800&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
-/* Layout: an archipelago sea chart. Folders are islands, files are tiles,
-   the quest log is the captain's journal on the right. Single deliberate dark look. */
+/* Neutral by default. Every colour is a token; Settings (look.*) rewrite them at
+   runtime. Palettes set only bg, surface, text and accent: the rest is mixed. */
 :root {
-  --abyss: #061820;      /* page */
-  --deep: #0b2630;       /* panels */
-  --reef: #113845;       /* raised */
-  --line: #1d4f5c;       /* hairlines */
-  --foam: #e6f2ef;       /* text */
-  --mist: #93b7b8;       /* muted text */
-  --sand: #f2dcaa;       /* island headers, docs */
-  --sun: #ffcc4d;        /* xp, config, caution */
-  --kelp: #5fd6ae;       /* code, success, local */
-  --lagoon: #45c2e6;     /* tests, commands */
-  --orchid: #c6a2ff;     /* AI, data */
-  --coral: #ff7b5e;      /* secrets, danger */
-  --display: "Bungee", "Impact", "Arial Black", system-ui, sans-serif;
-  --body: "Nunito", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --bg: #f6f6f4; --surface: #ffffff; --text: #1d1d1b; --accent: #3b5bdb; --accent-text: #ffffff;
+  --ok: #2b8a3e; --info: #1971c2; --ai: #6741d9; --warn: #b35c00; --danger: #c92a2a; --docs: #8a6a1f;
+  --web: #c2255c; --script: #5c940d; --asset: #3b5bdb; --str: #c2410c;
+  --raised: color-mix(in srgb, var(--text) 5%, var(--surface));
+  --line: color-mix(in srgb, var(--text) 13%, var(--surface));
+  --muted: color-mix(in srgb, var(--text) 62%, var(--surface));
+  --body: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
-  --r: 14px;
+  --r: 12px; --fz: 1; --pad: 1; --rail: 64px;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --bg: #111112; --surface: #1a1a1c; --text: #ececea; --accent: #8ea6ff; --accent-text: #0e0e10;
+  --ok: #69db7c; --info: #74c0fc; --ai: #b197fc; --warn: #ffc078; --danger: #ff8787; --docs: #e9c46a;
+  --web: #ff9fcf; --script: #9be36a; --asset: #8fb0ff; --str: #ffb4a2;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
-html, body { height: 100%; }
+html, body { min-height: 100%; }
 body {
-  margin: 0; background: var(--abyss); color: var(--foam);
-  font: 15px/1.5 var(--body);
-  background-image:
-    radial-gradient(1200px 600px at 15% -10%, color-mix(in srgb, var(--lagoon) 16%, transparent), transparent 60%),
-    radial-gradient(900px 500px at 110% 20%, color-mix(in srgb, var(--orchid) 10%, transparent), transparent 60%),
-    repeating-linear-gradient(0deg, color-mix(in srgb, var(--line) 35%, transparent) 0 1px, transparent 1px 64px),
-    repeating-linear-gradient(90deg, color-mix(in srgb, var(--line) 35%, transparent) 0 1px, transparent 1px 64px);
-  background-attachment: fixed;
+  margin: 0; background-color: var(--bg); color: var(--text);
+  font: calc(15px * var(--fz))/1.5 var(--body);
+  background-attachment: fixed; isolation: isolate;
 }
-button, input, select { font: inherit; color: inherit; }
-:focus-visible { outline: 2px solid var(--sun); outline-offset: 2px; }
+#bgfx { position: fixed; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .wrap { max-width: 1320px; margin: 0 auto; padding-inline: 16px; padding-block: 0 48px; }
+html.no-anim *, html.no-anim *::before, html.no-anim *::after { animation: none !important; transition: none !important; }
 
-/* ---------- HUD */
+/* ---------- header */
 .hud {
   position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
-  background: color-mix(in srgb, var(--abyss) 86%, transparent); backdrop-filter: blur(10px);
+  background: color-mix(in srgb, var(--bg) 86%, transparent); backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--line);
 }
-.hud-in { max-width: 1320px; margin: 0 auto; padding: 10px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; }
-.logo { font-family: var(--display); font-size: 20px; letter-spacing: .02em; line-height: 1; display: flex; align-items: center; gap: 10px; white-space: nowrap; }
-.logo svg { width: 30px; height: 30px; }
-.logo small { display: block; font: 700 11px/1.2 var(--body); color: var(--mist); letter-spacing: .08em; text-transform: uppercase; margin-top: 4px; }
-.mode { font: 800 11px/1 var(--body); letter-spacing: .12em; text-transform: uppercase; padding: 6px 10px; border-radius: 99px; border: 1px solid currentColor; display: inline-flex; align-items: center; gap: 7px; }
+.hud-in { max-width: 1320px; margin: 0 auto; padding: 10px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
+.logo { font-weight: 800; font-size: calc(18px * var(--fz)); letter-spacing: -.01em; line-height: 1; display: flex; align-items: center; gap: 10px; white-space: nowrap; }
+.logo svg { width: 28px; height: 28px; }
+.logo small { display: block; font: 600 calc(11px * var(--fz))/1.2 var(--body); color: var(--muted); letter-spacing: .06em; text-transform: uppercase; margin-top: 4px; }
+.mode { font: 700 calc(11px * var(--fz))/1 var(--body); letter-spacing: .1em; text-transform: uppercase; padding: 6px 10px; border-radius: 99px; border: 1px solid currentColor; display: inline-flex; align-items: center; gap: 7px; }
 .mode::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.mode.live { color: var(--kelp); } .mode.live::before { animation: blink 1.6s infinite; }
-.mode.demo { color: var(--sun); } .mode.off { color: var(--coral); }
-.level { display: flex; align-items: center; gap: 10px; min-width: 210px; flex: 1 1 210px; max-width: 340px; }
-.lvl-badge { font-family: var(--display); font-size: 18px; width: 42px; height: 42px; display: grid; place-items: center; border-radius: 12px; background: var(--sun); color: var(--abyss); box-shadow: 0 0 0 3px color-mix(in srgb, var(--sun) 30%, transparent); flex: none; }
+.mode.live { color: var(--ok); } .mode.live::before { animation: blink 1.6s infinite; }
+.mode.demo { color: var(--warn); } .mode.off { color: var(--danger); }
+.level { display: flex; align-items: center; gap: 10px; min-width: 190px; flex: 1 1 190px; max-width: 320px; }
+html.no-xp .level, html.no-xp #badges, html.no-xp #badges-title { display: none !important; }
+.lvl-badge { font-weight: 800; font-size: calc(17px * var(--fz)); width: 38px; height: 38px; display: grid; place-items: center; border-radius: var(--r); background: var(--accent); color: var(--accent-text); flex: none; }
 .lvl-text { flex: 1; min-width: 0; }
-.lvl-text b { font-weight: 800; }
-.lvl-text span { color: var(--mist); font-size: 12px; font-variant-numeric: tabular-nums; }
-.bar { height: 8px; border-radius: 99px; background: var(--reef); overflow: hidden; margin-top: 4px; }
-.bar i { display: block; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, var(--sun), var(--kelp)); transition: width .6s cubic-bezier(.2,.8,.2,1); }
-.tabs { display: flex; gap: 4px; margin-left: auto; background: var(--deep); padding: 4px; border-radius: 12px; border: 1px solid var(--line); }
-.tabs button { border: 0; background: transparent; padding: 7px 14px; border-radius: 9px; cursor: pointer; font-weight: 800; color: var(--mist); }
-.tabs button[aria-selected="true"] { background: var(--reef); color: var(--foam); box-shadow: inset 0 -2px 0 var(--sun); }
-.tabs button:hover { color: var(--foam); }
+.lvl-text b { font-weight: 700; }
+.lvl-text span { color: var(--muted); font-size: calc(12px * var(--fz)); font-variant-numeric: tabular-nums; }
+.bar { height: 6px; border-radius: 99px; background: var(--raised); overflow: hidden; margin-top: 4px; }
+.bar i { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--accent); transition: width .6s cubic-bezier(.2,.8,.2,1); }
+#nav-top-slot { margin-left: auto; }
+
+/* ---------- navigation: icons, at the top, bottom, left or right */
+.nav { display: flex; gap: 4px; background: var(--surface); padding: 4px; border-radius: calc(var(--r) + 2px); border: 1px solid var(--line); }
+.nav button { position: relative; border: 0; background: transparent; padding: 8px; border-radius: var(--r); cursor: pointer; color: var(--muted); display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 40px; min-height: 40px; font-weight: 700; font-size: calc(14px * var(--fz)); }
+.nav button svg { width: 20px; height: 20px; flex: none; }
+.nav button[aria-selected="true"] { background: var(--raised); color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+.nav button:hover { color: var(--text); }
+.nav .lbl { display: none; white-space: nowrap; }
+html.nav-labels .nav .lbl { display: inline; }
+.nav .badge-n { position: absolute; top: 2px; right: 2px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 99px; background: var(--danger); color: #fff; font: 700 calc(10px * var(--fz))/17px var(--body); text-align: center; }
+.nav .sep { flex: 1; }
+html.nav-left .nav, html.nav-right .nav {
+  position: fixed; top: 0; bottom: 0; z-index: 30; width: var(--rail); flex-direction: column; align-items: stretch;
+  border-radius: 0; padding: calc(10px + env(safe-area-inset-top, 0px)) 8px calc(10px + env(safe-area-inset-bottom, 0px));
+}
+html.nav-left .nav { left: 0; border-width: 0 1px 0 0; } html.nav-right .nav { right: 0; border-width: 0 0 0 1px; }
+html.nav-left.nav-labels, html.nav-right.nav-labels { --rail: 148px; }
+html.nav-left.nav-labels .nav button, html.nav-right.nav-labels .nav button { justify-content: flex-start; }
+html.nav-left body { padding-left: var(--rail); } html.nav-right body { padding-right: var(--rail); }
+html.nav-bottom .nav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; justify-content: center; border-radius: 0; border-width: 1px 0 0;
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+}
+html.nav-bottom .nav .sep { flex: 0 0 12px; }
+html.nav-bottom.nav-labels .nav button { flex-direction: column; gap: 2px; font-size: calc(11px * var(--fz)); }
+html.nav-bottom body { padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
+html.nav-bottom.nav-labels body { padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+
+/* density */
+html.density-compact { --pad: .78; } html.density-spacious { --pad: 1.22; }
 
 /* ---------- generic */
-.panel { background: color-mix(in srgb, var(--deep) 92%, transparent); border: 1px solid var(--line); border-radius: var(--r); }
-.eyebrow { font: 800 11px/1.2 var(--body); letter-spacing: .14em; text-transform: uppercase; color: var(--mist); }
-h2 { font-family: var(--display); font-weight: 400; font-size: 22px; margin: 0; letter-spacing: .01em; text-wrap: balance; }
-h3 { font-size: 17px; margin: 0; font-weight: 800; text-wrap: balance; }
-.muted { color: var(--mist); }
-.btn { border: 1px solid var(--line); background: var(--reef); padding: 8px 14px; border-radius: 10px; cursor: pointer; font-weight: 800; }
-.btn:hover { border-color: var(--mist); }
-.btn.primary { background: var(--sun); color: var(--abyss); border-color: var(--sun); }
-.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 99px; font-size: 12px; font-weight: 700; background: var(--reef); border: 1px solid var(--line); white-space: nowrap; }
-.chip.ok { color: var(--kelp); } .chip.no { color: var(--mist); } .chip.warn { color: var(--sun); } .chip.bad { color: var(--coral); } .chip.ai { color: var(--orchid); }
+.panel { background: color-mix(in srgb, var(--surface) 92%, transparent); border: 1px solid var(--line); border-radius: var(--r); }
+.eyebrow { font: 800 calc(11px * var(--fz))/1.2 var(--body); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+h2 { font-family: var(--body); font-weight: 400; font-size: calc(22px * var(--fz)); margin: 0; letter-spacing: .01em; text-wrap: balance; }
+h3 { font-size: calc(17px * var(--fz)); margin: 0; font-weight: 800; text-wrap: balance; }
+.muted { color: var(--muted); }
+.btn { border: 1px solid var(--line); background: var(--raised); padding: 8px 14px; border-radius: calc(var(--r) * 0.833333); cursor: pointer; font-weight: 800; }
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 99px; font-size: calc(12px * var(--fz)); font-weight: 700; background: var(--raised); border: 1px solid var(--line); white-space: nowrap; }
+.chip.ok { color: var(--ok); } .chip.no { color: var(--muted); } .chip.warn { color: var(--warn); } .chip.bad { color: var(--danger); } .chip.ai { color: var(--ai); }
 [data-tip] { cursor: help; }
 .view[hidden] { display: none !important; }
 
 /* ---------- world layout */
 .intro { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 18px 0 14px; }
 .intro .title { flex: 1 1 320px; min-width: 0; }
-.intro .title p { margin: 4px 0 0; color: var(--mist); max-width: 70ch; }
+.intro .title p { margin: 4px 0 0; color: var(--muted); max-width: 70ch; }
 .sources { display: flex; flex-wrap: wrap; gap: 6px; }
 .grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; align-items: start; }
 @media (max-width: 980px) { .grid { grid-template-columns: minmax(0,1fr); } }
 
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 10px; margin-bottom: 14px; }
-.stat { padding: 10px 12px; border-radius: 12px; background: var(--deep); border: 1px solid var(--line); min-width: 0; }
-.stat b { display: block; font-family: var(--display); font-weight: 400; font-size: 22px; line-height: 1.1; font-variant-numeric: tabular-nums; }
-.stat span { font-size: 12px; color: var(--mist); font-weight: 700; }
-.ratio { height: 6px; border-radius: 99px; background: color-mix(in srgb, var(--orchid) 55%, var(--reef)); margin-top: 6px; overflow: hidden; }
-.ratio i { display: block; height: 100%; background: var(--kelp); width: 0; transition: width .5s; }
+.stat { padding: calc(10px * var(--pad)) calc(12px * var(--pad)); border-radius: calc(var(--r) * 1); background: var(--surface); border: 1px solid var(--line); min-width: 0; }
+.stat b { display: block; font-family: var(--body); font-weight: 400; font-size: calc(22px * var(--fz)); line-height: 1.1; font-variant-numeric: tabular-nums; }
+.stat span { font-size: calc(12px * var(--fz)); color: var(--muted); font-weight: 700; }
+.ratio { height: 6px; border-radius: 99px; background: color-mix(in srgb, var(--ai) 55%, var(--raised)); margin-top: 6px; overflow: hidden; }
+.ratio i { display: block; height: 100%; background: var(--ok); width: 0; transition: width .5s; }
 
-.ribbon { display: flex; align-items: center; gap: 12px; padding: 10px 14px; margin-bottom: 14px; border-radius: 12px; background: var(--deep); border: 1px solid var(--line); position: relative; overflow: hidden; min-height: 48px; }
-.ribbon .beam { position: absolute; inset: 0; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--orchid) 30%, transparent), transparent); transform: translateX(-100%); pointer-events: none; }
+.ribbon { display: flex; align-items: center; gap: 12px; padding: 10px 14px; margin-bottom: 14px; border-radius: calc(var(--r) * 1); background: var(--surface); border: 1px solid var(--line); position: relative; overflow: hidden; min-height: 48px; }
+.ribbon .beam { position: absolute; inset: 0; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--ai) 30%, transparent), transparent); transform: translateX(-100%); pointer-events: none; }
 .ribbon.cast .beam { animation: beam 1.1s ease-out; }
 .ribbon .txt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ribbon svg { width: 22px; height: 22px; color: var(--orchid); flex: none; }
+.ribbon svg { width: 22px; height: 22px; color: var(--ai); flex: none; }
 
 .map { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
-.island {
-  border-radius: 18px; padding: 12px 12px 14px; position: relative;
-  background: radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--sand) 9%, var(--deep)), var(--deep) 70%);
-  border: 1px solid color-mix(in srgb, var(--sand) 22%, var(--line));
-  box-shadow: 0 10px 30px -18px #000, inset 0 1px 0 color-mix(in srgb, var(--sand) 12%, transparent);
+.group {
+  border-radius: calc(var(--r) * 1.25); padding: calc(12px * var(--pad)) calc(12px * var(--pad)) calc(14px * var(--pad)); position: relative;
+  background: var(--surface); border: 1px solid var(--line);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 6%, transparent);
 }
-.island header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; min-width: 0; }
-.island header b { font-family: var(--mono); font-size: 13px; color: var(--sand); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.island header span { margin-left: auto; font-size: 12px; color: var(--mist); flex: none; }
+.group header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; min-width: 0; }
+.group header b { font-family: var(--mono); font-size: calc(13px * var(--fz)); color: var(--docs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.group header span { margin-left: auto; font-size: calc(12px * var(--fz)); color: var(--muted); flex: none; }
 .tiles { display: flex; flex-wrap: wrap; gap: 8px; }
 .tile {
-  --c: var(--mist);
-  width: 68px; display: grid; justify-items: center; gap: 4px; padding: 7px 4px 6px; border-radius: 12px;
-  background: color-mix(in srgb, var(--c) 9%, var(--reef)); border: 1px solid color-mix(in srgb, var(--c) 35%, transparent);
+  --c: var(--muted);
+  width: 68px; display: grid; justify-items: center; gap: 4px; padding: calc(7px * var(--pad)) calc(4px * var(--pad)) calc(6px * var(--pad)); border-radius: calc(var(--r) * 1);
+  background: color-mix(in srgb, var(--c) 9%, var(--raised)); border: 1px solid color-mix(in srgb, var(--c) 35%, transparent);
   position: relative; transition: transform .15s, box-shadow .3s; outline-offset: 1px;
 }
 .tile:hover, .tile:focus-visible { transform: translateY(-2px); box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--c) 70%, transparent); }
-.tile .g { font: 800 12px/1 var(--mono); color: var(--c); width: 34px; height: 30px; display: grid; place-items: center; border-radius: 8px; background: color-mix(in srgb, var(--c) 16%, transparent); }
-.tile .n { font: 11px/1.2 var(--mono); color: var(--foam); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tile .heat { position: absolute; top: 4px; right: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--sun); box-shadow: 0 0 8px var(--sun); opacity: 0; }
+.tile .g { font: 800 calc(12px * var(--fz))/1 var(--mono); color: var(--c); width: 34px; height: 30px; display: grid; place-items: center; border-radius: calc(var(--r) * 0.666667); background: color-mix(in srgb, var(--c) 16%, transparent); }
+.tile .n { font: calc(11px * var(--fz))/1.2 var(--mono); color: var(--text); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile .heat { position: absolute; top: 4px; right: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); opacity: 0; }
 .tile.hot .heat { opacity: 1; }
 .tile.gone { opacity: .35; filter: grayscale(1); }
 .tile.gone .n { text-decoration: line-through; }
 .tile.secret .g::after { content: ""; }
 .tile.pulse { animation: pulse 1.4s ease-out; }
 .tile.spawn { animation: spawn .6s cubic-bezier(.2,1.4,.4,1); }
-.pop { position: absolute; left: 50%; top: -6px; transform: translate(-50%, 0); font: 800 12px/1 var(--mono); padding: 3px 6px; border-radius: 6px; background: var(--abyss); border: 1px solid var(--line); white-space: nowrap; pointer-events: none; animation: rise 1.8s ease-out forwards; z-index: 3; }
-.pop .a { color: var(--kelp); } .pop .r { color: var(--coral); }
-.more { align-self: center; font-size: 12px; color: var(--mist); padding: 4px 8px; }
-.empty { padding: 28px; text-align: center; color: var(--mist); }
+.pop { position: absolute; left: 50%; top: -6px; transform: translate(-50%, 0); font: 800 calc(12px * var(--fz))/1 var(--mono); padding: 3px 6px; border-radius: calc(var(--r) * 0.5); background: var(--bg); border: 1px solid var(--line); white-space: nowrap; pointer-events: none; animation: rise 1.8s ease-out forwards; z-index: 3; }
+.pop .a { color: var(--ok); } .pop .r { color: var(--danger); }
+.more { align-self: center; font-size: calc(12px * var(--fz)); color: var(--muted); padding: 4px 8px; }
+.empty { padding: 28px; text-align: center; color: var(--muted); }
 
-.k-code { --c: var(--kelp); } .k-test { --c: var(--lagoon); } .k-config { --c: var(--sun); } .k-docs { --c: var(--sand); }
-.k-data { --c: var(--orchid); } .k-secret { --c: var(--coral); } .k-web { --c: #ff9fcf; } .k-script { --c: #9be36a; } .k-asset { --c: #8fb0ff; } .k-other { --c: var(--mist); }
+.k-code { --c: var(--ok); } .k-test { --c: var(--info); } .k-config { --c: var(--warn); } .k-docs { --c: var(--docs); }
+.k-data { --c: var(--ai); } .k-secret { --c: var(--danger); } .k-web { --c: var(--web); } .k-script { --c: var(--script); } .k-asset { --c: var(--asset); } .k-other { --c: var(--muted); }
 
 /* ---------- quest log */
-.log { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.log { padding: calc(14px * var(--pad)); display: flex; flex-direction: column; gap: 10px; }
 .log-head { display: flex; align-items: center; gap: 8px; }
-.log-head h2 { font-size: 18px; }
-.log-head .muted { margin-left: auto; font-size: 12px; }
+.log-head h2 { font-size: calc(18px * var(--fz)); }
+.log-head .muted { margin-left: auto; font-size: calc(12px * var(--fz)); }
 .entries { display: flex; flex-direction: column; gap: 8px; max-height: 72vh; overflow-y: auto; padding-right: 4px; scrollbar-width: thin; }
-.entry { display: grid; grid-template-columns: 34px minmax(0,1fr); gap: 10px; padding: 9px 10px; border-radius: 12px; background: var(--reef); border: 1px solid transparent; animation: slide .45s cubic-bezier(.2,.9,.2,1); }
+.entry { display: grid; grid-template-columns: 34px minmax(0,1fr); gap: 10px; padding: calc(9px * var(--pad)) calc(10px * var(--pad)); border-radius: calc(var(--r) * 1); background: var(--raised); border: 1px solid transparent; animation: slide .45s cubic-bezier(.2,.9,.2,1); }
 .entry:hover { border-color: var(--line); }
-.entry.now { border-color: var(--sun); box-shadow: 0 0 0 2px color-mix(in srgb, var(--sun) 25%, transparent); }
-.entry .ico { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: var(--c, var(--mist)); background: color-mix(in srgb, var(--c, var(--mist)) 16%, transparent); }
+.entry.now { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
+.entry .ico { width: 34px; height: 34px; border-radius: calc(var(--r) * 0.833333); display: grid; place-items: center; color: var(--c, var(--muted)); background: color-mix(in srgb, var(--c, var(--muted)) 16%, transparent); }
 .entry .ico svg { width: 18px; height: 18px; }
 .entry .t { font-weight: 800; line-height: 1.3; overflow-wrap: anywhere; }
-.entry .s { font-size: 13px; color: var(--mist); overflow-wrap: anywhere; }
+.entry .s { font-size: calc(13px * var(--fz)); color: var(--muted); overflow-wrap: anywhere; }
 .entry .meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; align-items: center; }
-.entry time { font-size: 11px; color: var(--mist); font-variant-numeric: tabular-nums; }
-.cmd { font: 13px/1.6 var(--mono); background: var(--abyss); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; margin-top: 6px; overflow-x: auto; white-space: nowrap; }
-.cmd .p { color: var(--mist); margin-right: 6px; }
-.tok { border-radius: 4px; padding: 1px 2px; }
-.tok:hover, .tok:focus-visible { background: color-mix(in srgb, var(--sun) 22%, transparent); }
-.tok.prog { color: var(--lagoon); font-weight: 600; } .tok.sub { color: var(--kelp); } .tok.flag { color: var(--sun); }
-.tok.path { color: var(--sand); } .tok.str { color: #ffb4a2; } .tok.op { color: var(--orchid); } .tok.unk { color: var(--foam); }
+.entry time { font-size: calc(11px * var(--fz)); color: var(--muted); font-variant-numeric: tabular-nums; }
+.cmd { font: calc(13px * var(--fz))/1.6 var(--mono); background: var(--bg); border: 1px solid var(--line); border-radius: calc(var(--r) * 0.666667); padding: 5px 8px; margin-top: 6px; overflow-x: auto; white-space: nowrap; }
+.cmd .p { color: var(--muted); margin-right: 6px; }
+.tok { border-radius: calc(var(--r) * 0.333333); padding: 1px 2px; }
+.tok:hover, .tok:focus-visible { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.tok.prog { color: var(--info); font-weight: 600; } .tok.sub { color: var(--ok); } .tok.flag { color: var(--warn); }
+.tok.path { color: var(--docs); } .tok.str { color: var(--str); } .tok.op { color: var(--ai); } .tok.unk { color: var(--text); }
 
 /* ---------- tooltip */
-#tip { position: fixed; z-index: 100; max-width: min(340px, calc(100vw - 24px)); padding: 12px 14px; border-radius: 12px; background: #04131a; border: 1px solid var(--line); box-shadow: 0 18px 40px -12px #000; pointer-events: none; opacity: 0; transform: translateY(4px); transition: opacity .12s, transform .12s; font-size: 13.5px; }
+#tip { position: fixed; z-index: 100; max-width: min(340px, calc(100vw - 24px)); padding: 12px 14px; border-radius: calc(var(--r) * 1); background: var(--surface); color: var(--text); border: 1px solid var(--line); box-shadow: 0 18px 40px -12px #000; pointer-events: none; opacity: 0; transform: translateY(4px); transition: opacity .12s, transform .12s; font-size: calc(13.5px * var(--fz)); }
 #tip.on { opacity: 1; transform: none; }
-#tip .tt { font-weight: 800; font-size: 14.5px; margin-bottom: 4px; display: flex; gap: 8px; align-items: center; }
-#tip .tt .kind { margin-left: auto; font: 700 10px/1 var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--mist); }
-#tip p { margin: 4px 0 0; color: color-mix(in srgb, var(--foam) 88%, var(--mist)); }
-#tip .why { color: var(--kelp); }
-#tip .warn { color: var(--sun); }
-#tip .danger { color: var(--coral); }
-#tip .where { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); font: 12px/1.4 var(--mono); color: var(--sand); overflow-wrap: anywhere; }
+#tip .tt { font-weight: 800; font-size: calc(14.5px * var(--fz)); margin-bottom: 4px; display: flex; gap: 8px; align-items: center; }
+#tip .tt .kind { margin-left: auto; font: 700 calc(10px * var(--fz))/1 var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+#tip p { margin: 4px 0 0; color: color-mix(in srgb, var(--text) 88%, var(--muted)); }
+#tip .why { color: var(--ok); }
+#tip .warn { color: var(--warn); }
+#tip .danger { color: var(--danger); }
+#tip .where { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); font: calc(12px * var(--fz))/1.4 var(--mono); color: var(--docs); overflow-wrap: anywhere; }
 
 /* ---------- toast */
 .toasts { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); display: grid; gap: 8px; z-index: 50; }
-.toast { background: var(--sun); color: var(--abyss); font-weight: 800; padding: 10px 14px; border-radius: 12px; box-shadow: 0 10px 30px -10px #000; animation: slide .4s; }
+.toast { background: var(--accent); color: var(--accent-text); font-weight: 800; padding: 10px 14px; border-radius: calc(var(--r) * 1); box-shadow: 0 10px 30px -10px color-mix(in srgb, #000 50%, transparent); animation: slide .4s; }
 
 /* ---------- replay */
-.replay-bar { padding: 14px; display: grid; gap: 12px; margin-bottom: 14px; }
+.replay-bar { padding: calc(14px * var(--pad)); display: grid; gap: 12px; margin-bottom: 14px; }
 .replay-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.replay-row select { background: var(--reef); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; max-width: 100%; min-width: 0; flex: 1 1 260px; }
-.seg { display: inline-flex; background: var(--reef); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
-.seg button { border: 0; background: transparent; padding: 5px 10px; border-radius: 7px; cursor: pointer; font-weight: 800; color: var(--mist); }
-.seg button[aria-pressed="true"] { background: var(--sun); color: var(--abyss); }
+.replay-row select { background: var(--raised); border: 1px solid var(--line); border-radius: calc(var(--r) * 0.833333); padding: 8px 10px; max-width: 100%; min-width: 0; flex: 1 1 260px; }
+.seg { display: inline-flex; background: var(--raised); border: 1px solid var(--line); border-radius: calc(var(--r) * 0.833333); padding: 3px; }
+.seg button { border: 0; background: transparent; padding: 5px 10px; border-radius: calc(var(--r) * 0.583333); cursor: pointer; font-weight: 800; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
 .track { position: relative; height: 34px; }
 .track .marks { position: absolute; left: 8px; right: 8px; top: 4px; height: 10px; }
 .track .marks i { position: absolute; top: 0; width: 3px; height: 10px; border-radius: 2px; background: var(--c); transform: translateX(-1px); }
-.track input { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; accent-color: var(--sun); }
-.clock { font: 600 13px var(--mono); color: var(--mist); font-variant-numeric: tabular-nums; }
+.track input { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; accent-color: var(--accent); }
+.clock { font: 600 calc(13px * var(--fz)) var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* ---------- academy */
-.decoder { padding: 16px; margin-bottom: 16px; display: grid; gap: 10px; }
-.decoder input { width: 100%; background: var(--abyss); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: 14px var(--mono); }
+.decoder { padding: calc(16px * var(--pad)); margin-bottom: 16px; display: grid; gap: 10px; }
+.decoder input { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: calc(var(--r) * 0.833333); padding: 10px 12px; font: calc(14px * var(--fz)) var(--mono); }
 .decoder .examples { display: flex; flex-wrap: wrap; gap: 6px; }
-.decoder .examples button { font: 12px var(--mono); }
+.decoder .examples button { font: calc(12px * var(--fz)) var(--mono); }
 .decoded .summary { font-weight: 700; margin-top: 4px; }
-.risk { margin-top: 8px; padding: 8px 10px; border-radius: 10px; font-size: 13.5px; border: 1px solid; }
-.risk.danger { color: var(--coral); border-color: color-mix(in srgb, var(--coral) 50%, transparent); background: color-mix(in srgb, var(--coral) 10%, transparent); }
-.risk.caution { color: var(--sun); border-color: color-mix(in srgb, var(--sun) 50%, transparent); background: color-mix(in srgb, var(--sun) 8%, transparent); }
+.risk { margin-top: 8px; padding: 8px 10px; border-radius: calc(var(--r) * 0.833333); font-size: calc(13.5px * var(--fz)); border: 1px solid; }
+.risk.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 50%, transparent); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.risk.caution { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 50%, transparent); background: color-mix(in srgb, var(--warn) 8%, transparent); }
 .levels { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
-.lvl { text-align: left; padding: 16px; border-radius: 16px; cursor: pointer; background: var(--deep); border: 1px solid var(--line); display: grid; gap: 6px; position: relative; color: var(--foam); }
-.lvl:hover { border-color: var(--sand); }
-.lvl .num { font-family: var(--display); font-size: 30px; line-height: 1; color: var(--c); }
+.lvl { text-align: left; padding: calc(16px * var(--pad)); border-radius: calc(var(--r) * 1.33333); cursor: pointer; background: var(--surface); border: 1px solid var(--line); display: grid; gap: 6px; position: relative; color: var(--text); }
+.lvl:hover { border-color: var(--docs); }
+.lvl .num { font-family: var(--body); font-size: calc(30px * var(--fz)); line-height: 1; color: var(--c); }
 .lvl .done { position: absolute; top: 14px; right: 14px; }
-.lesson { padding: 18px; margin-top: 16px; display: grid; gap: 14px; }
+.lesson { padding: calc(18px * var(--pad)); margin-top: 16px; display: grid; gap: 14px; }
 .lesson .cmds { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); }
-.cmdcard { padding: 12px; border-radius: 12px; background: var(--reef); display: grid; gap: 4px; min-width: 0; }
+.cmdcard { padding: calc(12px * var(--pad)); border-radius: calc(var(--r) * 1); background: var(--raised); display: grid; gap: 4px; min-width: 0; }
 .cmdcard .os { display: flex; flex-wrap: wrap; gap: 8px; }
 .cmdcard .os .cmd { margin: 0; flex: 1 1 260px; min-width: 0; }
-.cmdcard .os small { color: var(--mist); font-weight: 700; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; display: block; margin-bottom: 2px; }
+.cmdcard .os small { color: var(--muted); font-weight: 700; font-size: calc(11px * var(--fz)); letter-spacing: .08em; text-transform: uppercase; display: block; margin-bottom: 2px; }
 .quiz { display: grid; gap: 12px; }
 .q p { margin: 0 0 6px; font-weight: 700; }
 .q .opts { display: flex; flex-wrap: wrap; gap: 6px; }
-.q .opts button { border: 1px solid var(--line); background: var(--reef); border-radius: 10px; padding: 7px 12px; cursor: pointer; text-align: left; }
-.q .opts button.right { border-color: var(--kelp); color: var(--kelp); }
-.q .opts button.wrong { border-color: var(--coral); color: var(--coral); }
-.q .fb { font-size: 13px; margin-top: 4px; }
+.q .opts button { border: 1px solid var(--line); background: var(--raised); border-radius: calc(var(--r) * 0.833333); padding: 7px 12px; cursor: pointer; text-align: left; }
+.q .opts button.right { border-color: var(--ok); color: var(--ok); }
+.q .opts button.wrong { border-color: var(--danger); color: var(--danger); }
+.q .fb { font-size: calc(13px * var(--fz)); margin-top: 4px; }
 .badges { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 16px; }
-.badge { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 12px; background: var(--deep); border: 1px dashed var(--line); color: var(--mist); }
-.badge.got { border-style: solid; border-color: var(--sun); color: var(--foam); }
-.badge .medal { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--reef); font-family: var(--display); flex: none; }
-.badge.got .medal { background: var(--sun); color: var(--abyss); }
+.badge { display: flex; gap: 10px; align-items: center; padding: calc(10px * var(--pad)) calc(12px * var(--pad)); border-radius: calc(var(--r) * 1); background: var(--surface); border: 1px dashed var(--line); color: var(--muted); }
+.badge.got { border-style: solid; border-color: var(--accent); color: var(--text); }
+.badge .medal { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--raised); font-family: var(--body); flex: none; }
+.badge.got .medal { background: var(--accent); color: var(--accent-text); }
 
-.hint { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 10px 14px; border-radius: 12px; border: 1px dashed color-mix(in srgb, var(--sun) 45%, transparent); color: var(--mist); font-size: 13.5px; margin-bottom: 14px; align-items: center; }
-.hint b { color: var(--sun); }
-.hint button { margin-left: auto; background: none; border: 0; color: var(--mist); cursor: pointer; text-decoration: underline; }
+.hint { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 10px 14px; border-radius: calc(var(--r) * 1); border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent); color: var(--muted); font-size: calc(13.5px * var(--fz)); margin-bottom: 14px; align-items: center; }
+.hint b { color: var(--accent); }
+.hint button { margin-left: auto; background: none; border: 0; color: var(--muted); cursor: pointer; text-decoration: underline; }
 
 /* ---------- details */
 .pickable, .pickable[data-tip] { cursor: pointer; }
 .dgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 @media (max-width: 980px) { .dgrid { grid-template-columns: minmax(0, 1fr); } }
 .dcol { display: grid; gap: 16px; min-width: 0; }
-.dpanel { padding: 16px; display: grid; gap: 12px; min-width: 0; }
+.dpanel { padding: calc(16px * var(--pad)); display: grid; gap: 12px; min-width: 0; }
 .dpanel > header { display: flex; gap: 10px; align-items: center; min-width: 0; }
-.dpanel > header .ico { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; color: var(--c, var(--mist)); background: color-mix(in srgb, var(--c, var(--mist)) 16%, transparent); flex: none; }
+.dpanel > header .ico { width: 38px; height: 38px; border-radius: calc(var(--r) * 0.833333); display: grid; place-items: center; color: var(--c, var(--muted)); background: color-mix(in srgb, var(--c, var(--muted)) 16%, transparent); flex: none; }
 .dpanel > header .ico svg { width: 20px; height: 20px; }
-.dpanel > header h2 { font-size: 19px; overflow-wrap: anywhere; }
-.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 14px; margin: 0; font-size: 14px; }
-.kv dt { color: var(--mist); font-weight: 700; }
+.dpanel > header h2 { font-size: calc(19px * var(--fz)); overflow-wrap: anywhere; }
+.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 14px; margin: 0; font-size: calc(14px * var(--fz)); }
+.kv dt { color: var(--muted); font-weight: 700; }
 .kv dd { margin: 0; overflow-wrap: anywhere; }
-.kv dd small { display: block; color: var(--mist); font-size: 12.5px; }
+.kv dd small { display: block; color: var(--muted); font-size: calc(12.5px * var(--fz)); }
 .dlist { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.dlist li { padding: 8px 10px; border-radius: 10px; background: var(--reef); font-size: 14px; overflow-wrap: anywhere; }
-.dlist li small { display: block; color: var(--mist); font-size: 12.5px; }
-.dlist li.bad { box-shadow: inset 3px 0 0 var(--coral); } .dlist li.warn { box-shadow: inset 3px 0 0 var(--sun); }
-.dlist li.ok { box-shadow: inset 3px 0 0 var(--kelp); } .dlist li.ai { box-shadow: inset 3px 0 0 var(--orchid); }
+.dlist li { padding: 8px 10px; border-radius: calc(var(--r) * 0.833333); background: var(--raised); font-size: calc(14px * var(--fz)); overflow-wrap: anywhere; }
+.dlist li small { display: block; color: var(--muted); font-size: calc(12.5px * var(--fz)); }
+.dlist li.bad { box-shadow: inset 3px 0 0 var(--danger); } .dlist li.warn { box-shadow: inset 3px 0 0 var(--warn); }
+.dlist li.ok { box-shadow: inset 3px 0 0 var(--ok); } .dlist li.ai { box-shadow: inset 3px 0 0 var(--ai); }
 .tablewrap { overflow-x: auto; }
-table.dt { width: 100%; border-collapse: collapse; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+table.dt { width: 100%; border-collapse: collapse; font-size: calc(13.5px * var(--fz)); font-variant-numeric: tabular-nums; }
 .dt th, .dt td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-.dt th { color: var(--mist); font-weight: 800; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.dt th { color: var(--muted); font-weight: 800; font-size: calc(11px * var(--fz)); letter-spacing: .08em; text-transform: uppercase; }
 .dt .n { text-align: right; }
-.dt tr.pickable:hover td { background: var(--reef); }
+.dt tr.pickable:hover td { background: var(--raised); }
 .filter { display: flex; flex-wrap: wrap; gap: 8px; }
-.filter input, .filter select { background: var(--abyss); border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; min-width: 0; flex: 1 1 150px; }
+.filter input, .filter select { background: var(--bg); border: 1px solid var(--line); border-radius: calc(var(--r) * 0.833333); padding: 7px 10px; min-width: 0; flex: 1 1 150px; }
 .timeline { display: flex; flex-direction: column; gap: 6px; max-height: 62vh; overflow-y: auto; scrollbar-width: thin; }
-.trow { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 6px 9px; border-radius: 10px; background: var(--reef); border: 1px solid transparent; cursor: pointer; text-align: left; width: 100%; }
-.trow:hover, .trow.sel { border-color: var(--sun); }
+.trow { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: calc(6px * var(--pad)) calc(9px * var(--pad)); border-radius: calc(var(--r) * 0.833333); background: var(--raised); border: 1px solid transparent; cursor: pointer; text-align: left; width: 100%; }
+.trow:hover, .trow.sel { border-color: var(--accent); }
 .trow svg { width: 16px; height: 16px; color: var(--c); }
-.trow .tt2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; font-size: 13.5px; }
-.trow time { font-size: 11px; color: var(--mist); font-variant-numeric: tabular-nums; }
-pre.raw { font: 12px/1.5 var(--mono); background: var(--abyss); border: 1px solid var(--line); border-radius: 10px; padding: 10px; overflow: auto; max-height: 280px; margin: 8px 0 0; }
-details > summary { cursor: pointer; color: var(--mist); font-weight: 700; }
-#tip .more { margin-top: 8px; font-size: 12px; color: var(--mist); }
+.trow .tt2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; font-size: calc(13.5px * var(--fz)); }
+.trow time { font-size: calc(11px * var(--fz)); color: var(--muted); font-variant-numeric: tabular-nums; }
+pre.raw { font: calc(12px * var(--fz))/1.5 var(--mono); background: var(--bg); border: 1px solid var(--line); border-radius: calc(var(--r) * 0.833333); padding: 10px; overflow: auto; max-height: 280px; margin: 8px 0 0; }
+details > summary { cursor: pointer; color: var(--muted); font-weight: 700; }
+#tip .more { margin-top: 8px; font-size: calc(12px * var(--fz)); color: var(--muted); }
 
 /* ---------- terminal */
 .termbox { padding: 10px; display: grid; gap: 8px; }
 .termbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.termbar .status { font-size: 13px; color: var(--mist); flex: 1 1 200px; min-width: 0; }
-#term { height: min(70vh, 640px); min-height: 280px; border-radius: 10px; overflow: hidden; background: #04131a; padding: 6px; }
+.termbar .status { font-size: calc(13px * var(--fz)); color: var(--muted); flex: 1 1 200px; min-width: 0; }
+#term { height: min(70vh, 640px); min-height: 280px; border-radius: calc(var(--r) * 0.833333); overflow: hidden; background: #0d0f12; padding: 6px; border: 1px solid var(--line); }
 .termoff { padding: 18px; display: grid; gap: 10px; }
+
+/* ---------- dialogs, setup and Settings */
+.modal-back { position: fixed; inset: 0; z-index: 60; background: color-mix(in srgb, #000 45%, transparent); display: grid; place-items: center; padding: 16px; }
+.modal { width: min(560px, 100%); max-height: calc(100dvh - 32px); overflow: auto; background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: calc(var(--r) * 1.4); box-shadow: 0 24px 60px -20px #000; padding: calc(18px * var(--pad)); display: grid; gap: 12px; align-content: start; }
+.modal.wide { width: min(900px, 100%); }
+.modal-head { display: flex; align-items: center; gap: 10px; }
+.modal-head h2 { font-size: calc(20px * var(--fz)); margin: 0; }
+.modal-head .x { margin-left: auto; border: 0; background: var(--raised); width: 34px; height: 34px; border-radius: var(--r); cursor: pointer; font-size: 20px; line-height: 1; color: var(--muted); }
+.fields { display: grid; gap: 14px; min-width: 0; }
+.field { display: grid; grid-template-columns: minmax(150px, 220px) minmax(0, 1fr); gap: 6px 16px; align-items: start; }
+.field-l b { display: block; font-weight: 700; }
+.field-l small { display: block; color: var(--muted); font-size: calc(12.5px * var(--fz)); line-height: 1.35; margin-top: 2px; }
+@media (max-width: 640px) { .field { grid-template-columns: minmax(0, 1fr); } }
+.field input[type=text], .field select { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r); padding: 8px 10px; min-width: 0; }
+.seg { flex-wrap: wrap; }
+.btn.small { padding: 4px 10px; font-size: calc(12.5px * var(--fz)); }
+.btn:disabled { opacity: .4; cursor: default; }
+.toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.toggle input { width: 18px; height: 18px; accent-color: var(--accent); }
+.range { display: flex; align-items: center; gap: 10px; }
+.range input { flex: 1; min-width: 0; accent-color: var(--accent); }
+.range output { min-width: 52px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; font-size: calc(13px * var(--fz)); }
+.colorctl, .colorrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+input[type=color] { width: 44px; height: 32px; padding: 2px; border: 1px solid var(--line); border-radius: calc(var(--r) * .6); background: var(--bg); cursor: pointer; }
+.swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+.swatch { border: 1px solid var(--line); background: var(--bg); border-radius: var(--r); padding: 6px; cursor: pointer; display: grid; gap: 4px; justify-items: start; font-size: calc(12.5px * var(--fz)); }
+.swatch[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
+.swatch > i { display: flex; width: 100%; height: 26px; border-radius: calc(var(--r) * .5); padding: 4px; gap: 4px; }
+.swatch > i i { flex: 1; border-radius: 4px; } .swatch > i i:last-child { flex: .5; }
+.navpick { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.navpick button { border: 1px solid var(--line); background: var(--bg); border-radius: var(--r); padding: 8px; cursor: pointer; display: grid; gap: 6px; justify-items: center; font-size: calc(12.5px * var(--fz)); }
+.navpick button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
+.mini { width: 54px; height: 38px; border: 1px solid var(--line); border-radius: 5px; position: relative; background: var(--surface); }
+.mini i { position: absolute; background: var(--accent); border-radius: 2px; }
+.mini-top i { left: 3px; right: 3px; top: 3px; height: 6px; } .mini-bottom i { left: 3px; right: 3px; bottom: 3px; height: 6px; }
+.mini-left i { left: 3px; top: 3px; bottom: 3px; width: 7px; } .mini-right i { right: 3px; top: 3px; bottom: 3px; width: 7px; }
+.order { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.order li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r); background: var(--raised); }
+.order li svg { width: 18px; height: 18px; color: var(--muted); }
+.order li span:not(.toggle span) { flex: 1; }
+.steps { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0; padding: 0; counter-reset: st; }
+.steps li { counter-increment: st; font-size: calc(12.5px * var(--fz)); color: var(--muted); padding: 4px 10px; border-radius: 99px; background: var(--raised); }
+.steps li::before { content: counter(st) ". "; }
+.steps li.on { background: var(--accent); color: var(--accent-text); } .steps li.done { color: var(--text); }
+.setup { display: grid; gap: 12px; }
+.setup h3 { font-size: calc(18px * var(--fz)); }
+.setup-foot, .settings .restart { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.setup-foot .sep { flex: 1; }
+.set-grid { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 640px) { .set-grid { grid-template-columns: minmax(0, 1fr); } }
+.set-nav { display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; }
+@media (max-width: 640px) { .set-nav { flex-direction: row; flex-wrap: wrap; position: static; } }
+.set-nav button { text-align: left; border: 0; background: transparent; padding: 7px 10px; border-radius: var(--r); cursor: pointer; color: var(--muted); font-weight: 600; }
+.set-nav button[aria-current="true"] { background: var(--raised); color: var(--text); box-shadow: inset 2px 0 0 var(--accent); }
+.svc { border: 1px solid var(--line); border-radius: var(--r); padding: 12px; display: grid; gap: 6px; }
+.svc header { display: flex; align-items: center; gap: 8px; } .svc header .chip { margin-left: auto; }
+code { font: calc(12.5px * var(--fz))/1.45 var(--mono); overflow-wrap: anywhere; }
 
 @keyframes blink { 50% { opacity: .25; } }
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--c) 80%, transparent); } 70% { box-shadow: 0 0 0 14px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
@@ -275,7 +355,9 @@ details > summary { cursor: pointer; color: var(--mist); font-weight: 700; }
 @keyframes beam { to { transform: translateX(100%); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 @media (max-width: 640px) {
-  .tabs { margin-left: 0; width: 100%; } .tabs button { flex: 1 1 0; min-width: 0; padding: 7px 2px; font-size: 13.5px; }
+  #nav-top-slot { margin-left: 0; width: 100%; } html.nav-top .nav button { flex: 1 1 0; min-width: 0; padding: 8px 2px; }
+  html.nav-left, html.nav-right { --rail: 56px; } html.nav-left.nav-labels, html.nav-right.nav-labels { --rail: 56px; }
+  html.nav-left .nav .lbl, html.nav-right .nav .lbl { display: none; }
   .level { max-width: none; }
   .tile { width: 62px; }
   .stats { grid-template-columns: 1fr 1fr; }
@@ -286,38 +368,34 @@ details > summary { cursor: pointer; color: var(--mist); font-weight: 700; }
 <header class="hud">
   <div class="hud-in">
     <div class="logo" data-tip="logo">
-      <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill="var(--sun)"/><path d="M9 21l4-10 3 7 2-4 5 7" fill="none" stroke="var(--abyss)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill="var(--accent)"/><path d="M9 21l4-10 3 7 2-4 5 7" fill="none" stroke="var(--bg)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <div>Workflow Arcade<small id="project">loading…</small></div>
     </div>
     <span class="mode demo" id="mode">Demo</span>
     <div class="level" data-tip="level">
       <div class="lvl-badge" id="lvl">1</div>
-      <div class="lvl-text"><b id="rank">Deckhand</b> <span id="xp">0 XP</span><div class="bar"><i id="xpbar"></i></div></div>
+      <div class="lvl-text"><b id="rank">Level 1</b> <span id="xp">0 XP</span><div class="bar"><i id="xpbar"></i></div></div>
     </div>
-    <nav class="tabs" role="tablist" aria-label="Views">
-      <button role="tab" id="tab-world" aria-selected="true" aria-controls="view-world">World</button>
-      <button role="tab" id="tab-replay" aria-selected="false" aria-controls="view-replay">Replay</button>
-      <button role="tab" id="tab-academy" aria-selected="false" aria-controls="view-academy">Academy</button>
-      <button role="tab" id="tab-details" aria-selected="false" aria-controls="view-details">Details</button>
-      <button role="tab" id="tab-terminal" aria-selected="false" aria-controls="view-terminal">Terminal</button>
-    </nav>
+    <div id="nav-top-slot"></div>
   </div>
 </header>
+<nav class="nav" id="nav" role="tablist" aria-label="Views"></nav>
+<canvas id="bgfx" aria-hidden="true"></canvas>
 
 <main class="wrap">
-  <section class="view" id="view-world" role="tabpanel" aria-labelledby="tab-world">
+  <section class="view" id="view-live" role="tabpanel" aria-labelledby="tab-live">
     <div class="intro">
       <div class="title">
         <div class="eyebrow" id="world-eyebrow">Live map</div>
-        <h2 id="world-title">Your project, as a world</h2>
-        <p id="world-sub">Every folder is an island and every file is a tile. When you or your AI helper changes something, it lights up here and lands in the quest log. Hover over anything to see what it is.</p>
+        <h2 id="world-title">Your project, live</h2>
+        <p id="world-sub">Every folder is a group and every file is a tile. When you or your AI helper changes something, it lights up here and lands in the activity log. Hover over anything to see what it is; click it for every detail.</p>
       </div>
       <div class="sources" id="sources"></div>
     </div>
     <div class="hint" id="hint">
       <span><b>Hover</b> over a tile, command or log entry for an explanation. <b>Click</b> it for every detail.</span>
       <span><b>Glowing dot</b> means changed this session.</span>
-      <span><b>Coral tiles</b> hold secrets. Never share them.</span>
+      <span><b>Red tiles</b> hold secrets. Never share them.</span>
       <button type="button" id="hint-x">Got it</button>
     </div>
     <div id="world-slot"></div>
@@ -347,10 +425,10 @@ details > summary { cursor: pointer; color: var(--mist); font-weight: 700; }
     <div id="replay-slot"></div>
   </section>
 
-  <section class="view" id="view-academy" role="tabpanel" aria-labelledby="tab-academy" hidden>
+  <section class="view" id="view-learn" role="tabpanel" aria-labelledby="tab-learn" hidden>
     <div class="intro">
       <div class="title">
-        <div class="eyebrow">Academy</div>
+        <div class="eyebrow">Learn</div>
         <h2>Learn the moves</h2>
         <p>Short levels on the commands you'll see most often. Each one ends with a three-question quiz worth 100 XP.</p>
       </div>
@@ -363,7 +441,7 @@ details > summary { cursor: pointer; color: var(--mist); font-weight: 700; }
     </div>
     <div class="levels" id="levels"></div>
     <div id="lesson-slot"></div>
-    <div class="eyebrow" style="margin-top:22px">Badges</div>
+    <div class="eyebrow" id="badges-title" style="margin-top:22px">Badges</div>
     <div class="badges" id="badges"></div>
   </section>
 
@@ -372,7 +450,7 @@ details > summary { cursor: pointer; color: var(--mist); font-weight: 700; }
       <div class="title">
         <div class="eyebrow" id="details-eyebrow">Details</div>
         <h2>Everything, in full</h2>
-        <p>Click anything in World or Replay (a log entry, a tile, an island, the model ribbon) to see every detail here. Below: where your tokens and money go, and how to spend less.</p>
+        <p>Click anything in Live or Replay (a log entry, a tile, a folder, the model ribbon) to see every detail here. Below: where your tokens and money go, and how to spend less.</p>
       </div>
     </div>
     <div class="dgrid"><div class="dcol" id="details-main"></div><div class="dcol" id="details-side"></div></div>
@@ -383,7 +461,7 @@ details > summary { cursor: pointer; color: var(--mist); font-weight: 700; }
       <div class="title">
         <div class="eyebrow">Terminal</div>
         <h2>Your shell, inside the Arcade</h2>
-        <p>A real terminal in the project folder. Commands typed here show up in the quest log like any other (with the shell hook installed).</p>
+        <p>A real terminal in the project folder. Commands typed here show up in the activity log like any other (with the shell hook installed).</p>
       </div>
     </div>
     <div id="terminal-slot"></div>
@@ -397,6 +475,7 @@ details > summary { cursor: pointer; color: var(--mist); font-weight: 700; }
 "use strict";
 /* =========================================================== helpers */
 const $ = (s, el = document) => el.querySelector(s);
+function fill(el, ...kids) { el.replaceChildren(...kids.flat().filter(k => k != null && k !== false)); return el; }
 function h(tag, props, ...kids) {
   const el = document.createElement(tag);
   for (const [k, v] of Object.entries(props || {})) {
@@ -715,13 +794,13 @@ document.addEventListener("click", e => { const el = e.target.closest("[data-tip
 
 /* =========================================================== explanations of events */
 const EV = {
-  file_created: { c: "var(--kelp)", why: "New files are where new features live. Check the AI put it in a sensible folder." },
-  file_changed: { c: "var(--sun)", why: "Green numbers are lines added, red are lines removed. Big red numbers deserve a look before you save a point." },
-  file_deleted: { c: "var(--coral)", why: "Deleted files can be brought back with Git, as long as they were in a save point." },
-  command: { c: "var(--lagoon)", why: "Commands act on your computer. Hover each piece to see what it does before approving the next one." },
-  commit: { c: "var(--sun)", why: "A save point. You can always come back to this exact state." },
-  branch: { c: "var(--orchid)", why: "A branch is a parallel version of the project, handy for trying ideas safely." },
-  ai_call: { c: "var(--orchid)", why: "Switchboard picked this model for this step. Local models are free and private; cloud models cost money per token." },
+  file_created: { c: "var(--ok)", why: "New files are where new features live. Check the AI put it in a sensible folder." },
+  file_changed: { c: "var(--warn)", why: "Green numbers are lines added, red are lines removed. Big red numbers deserve a look before you save a point." },
+  file_deleted: { c: "var(--danger)", why: "Deleted files can be brought back with Git, as long as they were in a save point." },
+  command: { c: "var(--info)", why: "Commands act on your computer. Hover each piece to see what it does before approving the next one." },
+  commit: { c: "var(--accent)", why: "A save point. You can always come back to this exact state." },
+  branch: { c: "var(--ai)", why: "A branch is a parallel version of the project, handy for trying ideas safely." },
+  ai_call: { c: "var(--ai)", why: "Switchboard picked this model for this step. Local models are free and private; cloud models cost money per token." },
 };
 function eventView(ev) {
   const name = ev.path ? base(ev.path) : "";
@@ -796,7 +875,7 @@ function makeWorldView(slot, src) {
   const map = h("div", { class: "map" });
   const entries = h("div", { class: "entries" });
   const count = h("span", { class: "muted", text: "0 events" });
-  const log = h("aside", { class: "panel log" }, h("div", { class: "log-head" }, h("h2", { text: "Quest log" }), count), entries);
+  const log = h("aside", { class: "panel log" }, h("div", { class: "log-head" }, h("h2", { text: "Activity" }), count), entries);
   slot.append(h("div", { class: "grid" }, h("div", { style: "min-width:0" }, ribbon, stats, map), log));
   const tiles = new Map();
   let shape = "", lastAi = null;
@@ -825,7 +904,7 @@ function makeWorldView(slot, src) {
     if (!dirs.length) { map.append(h("div", { class: "empty panel", text: "No files yet. Create one and it will appear here." })); return; }
     for (const d of dirs) {
       const files = groups.get(d).sort((a, b) => a.path.localeCompare(b.path));
-      const isle = h("section", { class: "island" }, h("header", {},
+      const isle = h("section", { class: "group" }, h("header", {},
         pickable(h("b", { tip: { title: d ? d + "/" : "Project root", body: folderHint(d), where: `${files.length} file${files.length === 1 ? "" : "s"}` }, tabindex: "0" }, d ? d + "/" : "project root"), () => ({ kind: "folder", dir: d, src })),
         h("span", { text: files.length })));
       const row = h("div", { class: "tiles" });
@@ -891,7 +970,6 @@ function makeWorldView(slot, src) {
 setInterval(() => document.querySelectorAll("time[data-ts]").forEach(t => t.textContent = ago(+t.dataset.ts)), 10000);
 
 /* =========================================================== XP & level */
-const RANKS = ["Deckhand", "Navigator", "Builder", "Tinkerer", "Engineer", "Architect", "Wizard", "Legend"];
 let workXp = 0;
 function academyXp() { return Object.values(store.get("academy", {})).filter(Boolean).length * 100; }
 let lastLevel = null;
@@ -899,14 +977,14 @@ function levelOf(xp) { return Math.floor(Math.sqrt(xp / 60)) + 1; }
 function updateLevel() {
   const xp = workXp + academyXp(), lv = levelOf(xp);
   const lo = 60 * (lv - 1) ** 2, hi = 60 * lv ** 2;
-  $("#lvl").textContent = lv; $("#rank").textContent = RANKS[Math.min(lv - 1, RANKS.length - 1)];
+  $("#lvl").textContent = lv; $("#rank").textContent = `Level ${lv}`;
   $("#xp").textContent = `${xp} XP · ${hi - xp} to level ${lv + 1}`;
   $("#xpbar").style.width = `${Math.round(((xp - lo) / (hi - lo)) * 100)}%`;
-  if (lastLevel != null && lv > lastLevel) toast(`Level up! You're now a ${RANKS[Math.min(lv - 1, RANKS.length - 1)]}.`);
+  if (lastLevel != null && lv > lastLevel && PREFS.features.xp) toast(`Level up: level ${lv}.`);
   lastLevel = lv; renderBadges();
 }
 function toast(text) { const t = h("div", { class: "toast", text }); $("#toasts").append(t); setTimeout(() => t.remove(), 3800); }
-TIPS.set($(".level"), () => ({ title: "Level and XP", body: ["Earn XP for real work: new files +10, edits +5, commands +3, save points +50, AI steps on local models +5, Academy levels +100."], why: "Save points are worth the most: they're what make experiments safe." }));
+TIPS.set($(".level"), () => ({ title: "Level and XP", body: ["Earn XP for real work: new files +10, edits +5, commands +3, save points +50, AI steps on local models +5, Learn levels +100."], why: "Save points are worth the most: they're what make experiments safe." }));
 TIPS.set($(".logo"), { title: "Workflow Arcade", body: "A live, game-like view of what you and your AI helper do in a project. It only watches; it never changes your files or runs anything.", where: "Runs on your computer at http://127.0.0.1:8788" });
 
 /* =========================================================== demo data */
@@ -988,7 +1066,7 @@ async function boot() {
     const r = await fetch("/api/state", { cache: "no-store" });
     if (!r.ok) throw new Error();
     const state = await r.json();
-    await OWNER.init(); await loadPrefs();
+    await OWNER.init();
     setMode("live");
     $("#world-eyebrow").textContent = "Live map";
     startWorld(state.snapshot, state.events);
@@ -1076,7 +1154,7 @@ $("#rp-speed").addEventListener("click", e => {
 
 /* =========================================================== academy */
 const LESSONS = [
-  { id: "terminal", n: 1, c: "var(--lagoon)", title: "Find your way", tag: "The terminal: folders and files",
+  { id: "terminal", n: 1, c: "var(--info)", title: "Find your way", tag: "The terminal: folders and files",
     intro: "The terminal is a text window for giving your computer instructions. You're always standing in one folder.",
     cmds: [
       ["Where am I?", "pwd", "Get-Location"], ["What's here?", "ls", "dir"], ["Walk into a folder", "cd switchboard", "cd switchboard"],
@@ -1085,7 +1163,7 @@ const LESSONS = [
     quiz: [["What does cd .. do?", ["Deletes the folder", "Moves you up one folder", "Lists files"], 1, "Two dots always mean the folder above."],
       ["Which command opens the current folder in VS Code?", ["code .", "open vscode", "cd code"], 0, "The dot means this folder."],
       ["You don't know which folder you're in. What do you type?", ["ls", "pwd (or Get-Location on Windows)", "mkdir"], 1, "pwd prints the folder you're standing in."]] },
-  { id: "python", n: 2, c: "var(--kelp)", title: "Python projects", tag: "Virtual environments and installs",
+  { id: "python", n: 2, c: "var(--ok)", title: "Python projects", tag: "Virtual environments and installs",
     intro: "Each project keeps its libraries in its own private box called a virtual environment (.venv), so projects can't break each other.",
     cmds: [
       ["Make the box", "python3 -m venv .venv", "py -3 -m venv .venv"], ["Step into it", "source .venv/bin/activate", ".\\.venv\\Scripts\\Activate.ps1"],
@@ -1095,7 +1173,7 @@ const LESSONS = [
     quiz: [["What is .venv for?", ["Hiding passwords", "A private box of libraries for this project", "Speeding up the computer"], 1, "Each project gets its own libraries."],
       ["Where does pip -r read the list from?", ["The file you name after -r", "The internet", "VS Code"], 0, "Usually requirements.txt."],
       ["Your prompt shows (.venv). What does that mean?", ["Something broke", "The virtual environment is switched on", "You're on Windows"], 1, "Commands now use the project's libraries."]] },
-  { id: "git", n: 3, c: "var(--sun)", title: "Save points", tag: "Git: never lose work again",
+  { id: "git", n: 3, c: "var(--accent)", title: "Save points", tag: "Git: never lose work again",
     intro: "Git takes snapshots of your project called commits. Make one before every big change, and you can always go back.",
     cmds: [
       ["What changed?", "git status", "git status"], ["See the exact lines", "git diff", "git diff"], ["Pick changes", "git add README.md", "git add README.md"],
@@ -1104,7 +1182,7 @@ const LESSONS = [
     quiz: [["When should you commit?", ["Only at the end of the project", "Before and after each meaningful change", "Never, GitHub does it"], 1, "Small, frequent save points make undo easy."],
       ["What does git push do?", ["Uploads your save points to GitHub", "Deletes old commits", "Downloads updates"], 0, "pull downloads, push uploads."],
       ["You ran git add . and .env is listed. What now?", ["Commit anyway", "Add .env to .gitignore and unstage it with git restore --staged .env", "Delete the project"], 1, "Secrets must never reach GitHub."]] },
-  { id: "ai", n: 4, c: "var(--orchid)", title: "Working with AI", tag: "Approve, review, stay safe",
+  { id: "ai", n: 4, c: "var(--ai)", title: "Working with AI", tag: "Approve, review, stay safe",
     intro: "Your AI helper proposes edits and commands; you approve them. Use the decoder on any command you're unsure about, and commit before big changes.",
     cmds: [
       ["Save before the AI starts", "git commit -am \"Before AI changes\"", "git commit -am \"Before AI changes\""], ["Review what it changed", "git diff", "git diff"],
@@ -1113,7 +1191,7 @@ const LESSONS = [
     quiz: [["The AI wants to run rm -rf build. What do you do first?", ["Approve quickly", "Check what it deletes. rm -rf removes for good", "Restart VS Code"], 1, "Read Careful badges before approving."],
       ["Where should API keys live?", ["In the chat with the AI", "In .env, which .gitignore keeps out of Git", "In README.md"], 1, "Never paste keys into chats or code."],
       ["The AI made a mess of a file. Fastest safe undo?", ["git restore <file>", "Delete the project", "Buy a new laptop"], 0, "Restores the file to your last save point."]] },
-  { id: "switchboard", n: 5, c: "var(--coral)", title: "Your Switchboard", tag: "Cheap where possible, smart where needed",
+  { id: "switchboard", n: 5, c: "var(--danger)", title: "Your Switchboard", tag: "Cheap where possible, smart where needed",
     intro: "Switchboard sends each AI request to the right model: free local models for easy steps, paid cloud models for hard ones.",
     cmds: [
       ["Download a local model", "ollama pull qwen2.5-coder:7b", "ollama pull qwen2.5-coder:7b"], ["Which models are ready?", "python -m switchboard check", "python -m switchboard check"],
@@ -1146,9 +1224,9 @@ function openLesson(l) {
     const fb = h("div", { class: "fb muted" });
     const row = h("div", { class: "opts" }, ...opts.map((o, oi) => h("button", { type: "button", onclick: e => {
       if (answered.has(qi)) return;
-      if (oi === ok) { answered.add(qi); right++; e.target.classList.add("right"); fb.textContent = "Right! " + why; fb.style.color = "var(--kelp)";
+      if (oi === ok) { answered.add(qi); right++; e.target.classList.add("right"); fb.textContent = "Right! " + why; fb.style.color = "var(--ok)";
         if (right === l.quiz.length) { const d = store.get("academy", {}); if (!d[l.id]) { d[l.id] = true; store.set("academy", d); toast(`Level ${l.n} complete! +100 XP`); renderLevels(); updateLevel(); } }
-      } else { e.target.classList.add("wrong"); fb.textContent = "Not quite, try another."; fb.style.color = "var(--coral)"; }
+      } else { e.target.classList.add("wrong"); fb.textContent = "Not quite, try another."; fb.style.color = "var(--danger)"; }
     } }, o)));
     quiz.append(h("div", { class: "q" }, h("p", { text: q }), row, fb));
   });
@@ -1160,7 +1238,7 @@ function decode() {
   const v = $("#dec-in").value.trim(), out = $("#dec-out");
   if (!v) return out.replaceChildren(h("p", { class: "muted", text: "Type or paste a command above." }));
   const { line, ex } = cmdLine(v);
-  out.replaceChildren(line, h("div", { class: "summary", text: ex.summary }),
+  fill(out, line, h("div", { class: "summary", text: ex.summary }),
     ...ex.risks.map(r => h("div", { class: "risk " + r.level, text: (r.level === "danger" ? "Careful: " : "Heads-up: ") + r.text })),
     ex.risks.length ? null : h("p", { class: "muted", text: "No risky patterns spotted. Hover each colored piece for details." }));
 }
@@ -1173,7 +1251,7 @@ const BADGES = [
   ["Secret keeper", "Switchboard kept a request with private data on your computer.", () => world && world.stats.keptLocal >= 1],
   ["Builder", "Make 5 edits in one session.", () => world && world.stats.edits >= 5],
   ["Tested", "Run the automatic checks (pytest).", () => world && [...worldView.entries.querySelectorAll(".cmd")].some(c => /pytest/.test(c.textContent))],
-  ["Graduate", "Finish all five Academy levels.", () => Object.values(store.get("academy", {})).filter(Boolean).length >= LESSONS.length],
+  ["Graduate", "Finish all five Learn levels.", () => Object.values(store.get("academy", {})).filter(Boolean).length >= LESSONS.length],
 ];
 const earned = new Set();
 let badgesReady = false;
@@ -1317,7 +1395,7 @@ function eventPanel(ev, src) {
     v.sub ? h("p", { class: "muted", style: "margin:0", text: v.sub }) : null,
     v.chips.length ? h("div", { class: "meta", style: "display:flex;flex-wrap:wrap;gap:6px" }, ...v.chips) : null,
     kv(rows), ...extra,
-    h("p", { class: "why", style: "margin:0;color:var(--kelp)", text: c.why }),
+    h("p", { class: "why", style: "margin:0;color:var(--ok)", text: c.why }),
     h("details", {}, h("summary", { text: "Raw event (exactly what the Arcade recorded)" }), h("pre", { class: "raw", text: JSON.stringify(ev, null, 2) })));
 }
 function relatedList(evs, src, empty) {
@@ -1341,7 +1419,7 @@ function folderPanel(dir, src) {
   const evs = eventsOf(src).filter(e => e.path && dirOf(e.path) === dir);
   const files = world ? [...world.files.values()].filter(f => dirOf(f.path) === dir) : [];
   const busiest = files.filter(f => f.edits).sort((a, b) => b.edits - a.edits).slice(0, 8);
-  return panel("Island", dir ? dir + "/" : "Project root",
+  return panel("Folder", dir ? dir + "/" : "Project root",
     kv([["What it is", folderHint(dir)], ["Files", files.length], ["Changes this session", evs.length]]),
     busiest.length ? h("ul", { class: "dlist" }, ...busiest.map(f => pickable(h("li", {}, base(f.path), h("small", { text: `${f.edits}× · +${f.added} −${f.removed}` })), () => ({ kind: "file", path: f.path, src })))) : null,
     h("div", { class: "eyebrow", text: "History" }), relatedList(evs, src, "Nothing changed here yet."));
@@ -1361,7 +1439,7 @@ function renderDetails() {
   const it = detail.item, src = (it && it.src) || "live";
   $("#details-eyebrow").textContent = src === "replay" ? "Details · replay" : mode === "demo" ? "Details · example session" : "Details · live";
   const main = !it || it.kind === "overview" ? panel("Nothing picked yet", "Click anything to see it here",
-      h("p", { class: "muted", style: "margin:0", text: "In World or Replay, click a quest-log entry, a file tile, an island name, the model ribbon or the stats. On a touch screen, tap twice." }))
+      h("p", { class: "muted", style: "margin:0", text: "In Live or Replay, click an activity entry, a file tile, a folder name, the model ribbon or the stats. On a touch screen, tap twice." }))
     : it.kind === "event" ? eventPanel(it.ev, src) : it.kind === "file" ? filePanel(it.path, src)
     : it.kind === "folder" ? folderPanel(it.dir, src) : modelPanel(it.model, src);
   $("#details-main").replaceChildren(main, timelinePanel(src));
@@ -1394,16 +1472,6 @@ const OWNER = {
     if (this.key) { try { await this.post("/api/ping"); this.paired = true; } catch { this.paired = false; } }
   },
 };
-let PREFS = null;
-async function loadPrefs() {
-  try { PREFS = (await (await fetch("/api/settings", { cache: "no-store" })).json()).settings || null; } catch { PREFS = null; }
-  return PREFS;
-}
-async function savePrefs(change) {
-  const r = await OWNER.post("/api/settings", { change });
-  PREFS = r.settings;
-  return r;  // r.restart: some changes only apply after POST /api/restart
-}
 
 /* =========================================================== terminal */
 const TERM = { term: null, fit: null, ws: null, loading: null, status: null };
@@ -1427,7 +1495,7 @@ function renderTerminal() {
       h("ul", { class: "dlist" },
         h("li", { class: "ok" }, "Only this page can connect", h("small", { text: "Other websites and other users on this computer are refused: the Arcade checks the page's origin and a secret key made fresh at every start." })),
         h("li", { class: "ok" }, "Only paired browsers", h("small", { text: "A browser is paired once with a one-time link (the one the Arcade opens, or: python3 -m workflow_arcade pair). After the first use the link is worthless, even if someone copies it." })),
-        h("li", { class: "warn" }, "It's a real shell", h("small", { text: "Commands run as you, in the project folder. Use the Academy's command decoder when you're unsure what a command does." })))));
+        h("li", { class: "warn" }, "It's a real shell", h("small", { text: "Commands run as you, in the project folder. Use the command decoder in Learn when you're unsure what a command does." })))));
   }
   if (slot.dataset.state === "on") { requestAnimationFrame(() => TERM.fit && TERM.fit.fit()); return; }
   slot.dataset.state = "on";
@@ -1474,22 +1542,446 @@ function termConnect(fresh) {
   term.focus();
 }
 
-/* =========================================================== tabs & boot */
-const TABS = ["world", "replay", "academy", "details", "terminal"];
-let currentTab = "world";
+/* =========================================================== settings: defaults, look, background */
+// Same as settings.defaults() on the server; a test keeps the two identical.
+const DEFAULT_PREFS = /*DEFAULTS*/{"setup_done":false,"look":{"mode":"system","palette":"neutral","accent":null,"surface":null,"text":null,"font":"system","font_size":15,"density":"comfortable","radius":12,"animations":true,"background":{"type":"solid","colors":[],"angle":135,"particles":{"density":60,"speed":1.0,"size":2.0,"color":null,"links":true}}},"layout":{"nav_position":"top","nav_labels":false,"views":["live","replay","learn","details","terminal","alerts"],"hidden":[],"default_view":"live"},"features":{"terminal":false,"xp":true},"alerts":{"ai_commands":true,"refused_access":true,"persistence":true,"system_log":true,"view":"grouped","toast_min":"high","notify":false,"sound":false,"colors":{"info":null,"medium":null,"high":null,"critical":null}},"sources":{"switchboard_log":null,"claude_code":true},"usage":{"fresh_threshold":150000}}/*END*/;
+const clone = o => JSON.parse(JSON.stringify(o));
+function deepMerge(base, change) {
+  const out = clone(base);
+  for (const [k, v] of Object.entries(change || {})) out[k] = v && typeof v === "object" && !Array.isArray(v) && out[k] && typeof out[k] === "object" ? deepMerge(out[k], v) : clone(v);
+  return out;
+}
+const PALETTES = {  // [page, surface, text, accent] per mode
+  neutral: { name: "Neutral", light: ["#f6f6f4", "#ffffff", "#1d1d1b", "#3b5bdb"], dark: ["#111112", "#1a1a1c", "#ececea", "#8ea6ff"] },
+  graphite: { name: "Graphite", light: ["#eef0f3", "#fbfcfd", "#1b2129", "#0b7285"], dark: ["#0f1318", "#171c22", "#e6ebf0", "#66d9e8"] },
+  paper: { name: "Paper", light: ["#f4efe6", "#fffcf6", "#2a241c", "#9c4221"], dark: ["#16130f", "#1e1a15", "#efe7da", "#f4a261"] },
+  mint: { name: "Mint", light: ["#eef6f2", "#fbfefc", "#14231c", "#2b8a3e"], dark: ["#0e1512", "#151d19", "#e3efe8", "#63e6be"] },
+  indigo: { name: "Indigo", light: ["#f0f0fa", "#fcfcff", "#1c1b33", "#5f3dc4"], dark: ["#111022", "#18172d", "#e9e8f7", "#b197fc"] },
+  rose: { name: "Rose", light: ["#fbf0f2", "#fffcfd", "#2d1a1f", "#c2255c"], dark: ["#170f12", "#20161a", "#f3e5e9", "#faa2c1"] },
+  amber: { name: "Amber", light: ["#fbf5e9", "#fffdf7", "#2b2210", "#a85400"], dark: ["#16120a", "#1f190f", "#f3ead8", "#ffc078"] },
+};
+const FONTS = {
+  system: { name: "System", stack: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' },
+  humanist: { name: "Humanist", stack: '"Nunito Sans", system-ui, sans-serif', google: "Nunito+Sans:wght@400;600;700;800" },
+  geometric: { name: "Geometric", stack: '"Manrope", system-ui, sans-serif', google: "Manrope:wght@400;600;700;800" },
+  serif: { name: "Serif", stack: '"Source Serif 4", Georgia, serif', google: "Source+Serif+4:wght@400;600;700" },
+  mono: { name: "Mono", stack: '"JetBrains Mono", ui-monospace, monospace' },
+};
+function hexRgb(hex) { const n = parseInt(hex.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
+function luminance(hex) {
+  return hexRgb(hex).map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; })
+    .reduce((acc, v, i) => acc + v * [0.2126, 0.7152, 0.0722][i], 0);
+}
+function contrast(a, b) { const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); }
+const darkQuery = matchMedia("(prefers-color-scheme: dark)");
+function isDark(look) { return look.mode === "dark" || (look.mode === "system" && darkQuery.matches); }
+/* The colours actually in use, after palette, mode and your own overrides. */
+function resolvedColors(look) {
+  const mode = isDark(look) ? "dark" : "light";
+  let [bg, surface, text, accent] = (PALETTES[look.palette] || PALETTES.neutral)[mode];
+  if (look.surface) { surface = look.surface; bg = look.surface; }
+  if (look.text) text = look.text;
+  if (look.accent) accent = look.accent;
+  return { mode, bg, surface, text, accent, accentText: luminance(accent) > 0.4 ? "#111111" : "#ffffff" };
+}
+function loadFont(key) {
+  const f = FONTS[key]; if (!f || !f.google || document.getElementById("font-" + key)) return;
+  document.head.append(h("link", { id: "font-" + key, rel: "stylesheet", href: `https://fonts.googleapis.com/css2?family=${f.google}&display=swap` }));
+}
+function applyLook(prefs) {
+  const look = prefs.look, root = document.documentElement, c = resolvedColors(look);
+  root.dataset.theme = c.mode;
+  for (const [k, v] of [["--bg", c.bg], ["--surface", c.surface], ["--text", c.text], ["--accent", c.accent], ["--accent-text", c.accentText]]) root.style.setProperty(k, v);
+  root.style.setProperty("--body", (FONTS[look.font] || FONTS.system).stack); loadFont(look.font);
+  root.style.setProperty("--fz", String(look.font_size / 15));
+  root.style.setProperty("--r", look.radius + "px");
+  for (const d of ["compact", "comfortable", "spacious"]) root.classList.toggle("density-" + d, look.density === d);
+  root.classList.toggle("no-anim", !look.animations);
+  root.classList.toggle("no-xp", !prefs.features.xp);
+  for (const [sev, col] of Object.entries(prefs.alerts.colors || {})) root.style[col ? "setProperty" : "removeProperty"]("--sev-" + sev, col);
+  applyBackground(look, c);
+  applyLayout(prefs.layout);
+}
+darkQuery.addEventListener("change", () => PREFS && applyLook(PREFS));
+
+/* Backgrounds: solid, gradients, or particles on a canvas behind everything. */
+const FX = { raf: 0, parts: [], look: null };
+function applyBackground(look, c) {
+  const bgc = look.background, body = document.body;
+  const cols = bgc.colors.length >= 2 ? bgc.colors : bgc.colors.length === 1 ? [bgc.colors[0], c.bg]
+    : [`color-mix(in srgb, ${c.accent} 16%, ${c.bg})`, c.bg];
+  body.style.backgroundImage = bgc.type === "linear" ? `linear-gradient(${bgc.angle}deg, ${cols.join(", ")})`
+    : bgc.type === "radial" ? `radial-gradient(circle at 20% 0%, ${cols.join(", ")})` : "none";
+  FX.look = look; FX.color = bgc.particles.color || c.accent;
+  cancelAnimationFrame(FX.raf); FX.raf = 0;
+  const cv = $("#bgfx"), ctx = cv.getContext("2d");
+  if (bgc.type !== "particles") { cv.hidden = true; return; }
+  cv.hidden = false;
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  cv.width = innerWidth * dpr; cv.height = innerHeight * dpr;
+  const n = Math.round(bgc.particles.density * (innerWidth * innerHeight) / (1280 * 800));
+  while (FX.parts.length < n) FX.parts.push({ x: Math.random(), y: Math.random(), a: Math.random() * Math.PI * 2, s: 0.4 + Math.random() * 0.8 });
+  FX.parts.length = n;
+  const still = !look.animations || matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const draw = () => {
+    const p = FX.look.background.particles, w = cv.width, hgt = cv.height, size = p.size * dpr, link = 110 * dpr;
+    ctx.clearRect(0, 0, w, hgt); ctx.fillStyle = FX.color; ctx.strokeStyle = FX.color;
+    for (const q of FX.parts) {
+      if (!still) { q.x = (q.x + Math.cos(q.a) * q.s * p.speed * 0.0004 + 1) % 1; q.y = (q.y + Math.sin(q.a) * q.s * p.speed * 0.0004 + 1) % 1; }
+      ctx.globalAlpha = 0.55; ctx.beginPath(); ctx.arc(q.x * w, q.y * hgt, size, 0, Math.PI * 2); ctx.fill();
+    }
+    if (p.links) {
+      ctx.lineWidth = dpr * 0.6;
+      for (let i = 0; i < FX.parts.length; i++) for (let j = i + 1; j < FX.parts.length; j++) {
+        const a = FX.parts[i], b = FX.parts[j], dx = (a.x - b.x) * w, dy = (a.y - b.y) * hgt, d = Math.hypot(dx, dy);
+        if (d < link) { ctx.globalAlpha = 0.25 * (1 - d / link); ctx.beginPath(); ctx.moveTo(a.x * w, a.y * hgt); ctx.lineTo(b.x * w, b.y * hgt); ctx.stroke(); }
+      }
+    }
+    ctx.globalAlpha = 1;
+    if (!still && !document.hidden) FX.raf = requestAnimationFrame(draw);
+  };
+  draw();
+}
+addEventListener("resize", () => { if (PREFS && PREFS.look.background.type === "particles") applyBackground(PREFS.look, resolvedColors(PREFS.look)); });
+document.addEventListener("visibilitychange", () => { if (!document.hidden && PREFS && PREFS.look.background.type === "particles") applyBackground(PREFS.look, resolvedColors(PREFS.look)); });
+
+/* =========================================================== views & navigation */
+Object.assign(ICONS, {
+  "v-live": '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+  "v-replay": '<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 8v4l3 2"/>',
+  "v-learn": '<path d="M2 8.5L12 4l10 4.5L12 13z"/><path d="M6 10.5V16c0 1.4 2.7 3 6 3s6-1.6 6-3v-5.5"/>',
+  "v-details": '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6M11 8v6"/>',
+  "v-terminal": '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/>',
+  "v-alerts": '<path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/>',
+  "v-settings": '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1"/>',
+});
+const VIEWS = {
+  live: { label: "Live", tip: "Your project right now: files, commands, Git and AI steps as they happen." },
+  replay: { label: "Replay", tip: "Watch a saved session again, step by step." },
+  learn: { label: "Learn", tip: "Short levels on the commands you'll see most, and a command decoder." },
+  details: { label: "Details", tip: "Everything about whatever you clicked, plus where your tokens and money go." },
+  terminal: { label: "Terminal", tip: "A real shell in the project folder (off unless you switch it on)." },
+};
+let currentTab = "live";
+function visibleViews() {
+  const L = (PREFS || DEFAULT_PREFS).layout;
+  const order = L.views.filter(v => VIEWS[v] && !L.hidden.includes(v));
+  return order.length ? order : ["live"];
+}
+function applyLayout(layout) {
+  const root = document.documentElement, nav = $("#nav");
+  for (const p of ["top", "bottom", "left", "right"]) root.classList.toggle("nav-" + p, layout.nav_position === p);
+  root.classList.toggle("nav-labels", layout.nav_labels);
+  (layout.nav_position === "top" ? $("#nav-top-slot") : document.body).append(nav);
+  nav.replaceChildren(...visibleViews().map(v => h("button", { role: "tab", type: "button", id: "tab-" + v, "aria-controls": "view-" + v,
+      "aria-label": VIEWS[v].label, "aria-selected": String(v === currentTab), tip: { title: VIEWS[v].label, body: VIEWS[v].tip }, onclick: () => showTab(v) },
+      icon("v-" + v), h("span", { class: "lbl", text: VIEWS[v].label }), v === "alerts" ? h("span", { class: "badge-n", id: "alerts-n", hidden: true }) : null)),
+    h("span", { class: "sep" }),
+    h("button", { type: "button", id: "open-settings", "aria-label": "Settings", tip: { title: "Settings", body: "Colours, background, layout, features, sources, autostart and pairing." }, onclick: () => openSettings() },
+      icon("v-settings"), h("span", { class: "lbl", text: "Settings" })));
+  if (!visibleViews().includes(currentTab)) showTab(visibleViews()[0]);
+}
 function showTab(name) {
-  for (const t of TABS) {
-    $("#tab-" + t).setAttribute("aria-selected", String(t === name));
-    $("#view-" + t).hidden = t !== name;
+  if (!VIEWS[name] || !visibleViews().includes(name)) name = visibleViews()[0];
+  for (const v of Object.keys(VIEWS)) {
+    const b = $("#tab-" + v); if (b) b.setAttribute("aria-selected", String(v === name));
+    const sec = $("#view-" + v); if (sec) sec.hidden = v !== name;
   }
   currentTab = name; store.set("tab", name); hideTip();
   if (name === "details") { renderDetails(); scrollTo({ top: 0 }); }
   if (name === "terminal") renderTerminal();
+  if (VIEWS[name].onShow) VIEWS[name].onShow();
 }
-for (const t of TABS) $("#tab-" + t).addEventListener("click", () => showTab(t));
-const startTab = /^#(world|replay|academy|details)$/.test(location.hash) ? location.hash.slice(1) : store.get("tab", "world");
+
+/* =========================================================== settings: load, save, apply */
+let PREFS = clone(DEFAULT_PREFS);
+function applyPrefs() { applyLook(PREFS); store.set("prefsCache", PREFS); }
+{ const cached = store.get("prefsCache", null); if (cached) { try { PREFS = deepMerge(DEFAULT_PREFS, cached); } catch {} } }
+async function loadPrefs() {
+  if (mode === "demo") PREFS = deepMerge(DEFAULT_PREFS, store.get("demoPrefs", {}));
+  else { try { PREFS = deepMerge(DEFAULT_PREFS, (await (await fetch("/api/settings", { cache: "no-store" })).json()).settings || {}); } catch {} }
+  applyPrefs(); return PREFS;
+}
+/* Live: saved on your computer through the owner key (the server validates). Demo: kept in this browser. */
+async function savePrefs(change) {
+  if (mode === "demo") {
+    PREFS = deepMerge(PREFS, change); store.set("demoPrefs", PREFS); applyPrefs();
+    return { settings: PREFS, restart: false };
+  }
+  if (!OWNER.key) throw new Error("this browser isn't paired: run python3 -m workflow_arcade pair --open");
+  const r = await OWNER.post("/api/settings", { change });
+  PREFS = deepMerge(DEFAULT_PREFS, r.settings); applyPrefs();
+  return r;
+}
+
+/* =========================================================== dialogs */
+function openModal(title, body, { onClose, wide } = {}) {
+  hideTip();
+  const prevFocus = document.activeElement;
+  const box = h("div", { class: "modal" + (wide ? " wide" : ""), role: "dialog", "aria-modal": "true", "aria-label": title });
+  const back = h("div", { class: "modal-back" }, box);
+  const close = () => { back.remove(); document.removeEventListener("keydown", onKey); if (onClose) onClose(); if (prevFocus && prevFocus.focus) prevFocus.focus(); };
+  const onKey = e => {
+    if (e.key === "Escape") close();
+    if (e.key === "Tab") {  // keep focus inside the dialog
+      const f = [...box.querySelectorAll("button, input, select, textarea, [tabindex='0']")].filter(x => !x.disabled && x.offsetParent);
+      if (!f.length) return;
+      if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f[f.length - 1].focus(); }
+      else if (!e.shiftKey && document.activeElement === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
+    }
+  };
+  box.append(h("div", { class: "modal-head" }, h("h2", { text: title }), h("button", { class: "x", type: "button", "aria-label": "Close", onclick: close }, "×")), body);
+  back.addEventListener("mousedown", e => { if (e.target === back) close(); });
+  document.addEventListener("keydown", onKey);
+  document.body.append(back);
+  setTimeout(() => { const f = box.querySelector("button:not(.x), input, select"); if (f) f.focus(); }, 30);
+  return { box, close };
+}
+
+/* =========================================================== controls (shared by setup and Settings) */
+const get = (o, path) => path.split(".").reduce((a, k) => a && a[k], o);
+const changeAt = (path, value) => path.split(".").reduceRight((acc, k) => ({ [k]: acc }), value);
+function field(label, hint, control) {
+  return h("div", { class: "field" }, h("div", { class: "field-l" }, h("b", { text: label }), hint ? h("small", { text: hint }) : null), control);
+}
+function segCtl(opts, value, onPick) {
+  const wrap = h("div", { class: "seg", role: "radiogroup" });
+  const paint = v => wrap.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === String(v))));
+  for (const [v, label] of opts) wrap.append(h("button", { type: "button", "data-v": String(v), role: "radio", onclick: () => { paint(v); onPick(v); } }, label));
+  paint(value);
+  return wrap;
+}
+function toggleCtl(value, onPick, label) {
+  const box = h("input", { type: "checkbox", checked: value, onchange: e => onPick(e.target.checked) });
+  return h("label", { class: "toggle" }, box, h("span", { text: label || "" }));
+}
+function rangeCtl(min, max, step, value, fmtV, onPick) {
+  const out = h("output", { text: fmtV(value) });
+  const inp = h("input", { type: "range", min, max, step, value, oninput: e => { out.textContent = fmtV(+e.target.value); onPick(+e.target.value); } });
+  return h("div", { class: "range" }, inp, out);
+}
+function colorCtl(value, fallback, onPick) {
+  const inp = h("input", { type: "color", value: value || fallback, oninput: e => onPick(e.target.value, e) });
+  const reset = h("button", { type: "button", class: "btn small", onclick: () => { inp.value = fallback; onPick(null); } }, "Default");
+  return h("div", { class: "colorctl" }, inp, reset);
+}
+function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+// Changes that alter which controls are shown re-render the form; sliders and colour pickers
+// must not be replaced while you drag them.
+const STRUCTURAL = new Set(["look.mode", "look.palette", "look.background.type", "look.background.colors",
+  "layout.nav_position", "layout.views", "layout.hidden", "layout.nav_labels", "look.accent", "look.surface", "look.text"]);
+const isDrag = e => e && e.type === "input";
+
+/* One builder per section. `draft` is what the controls read; `set(path, value)` changes it. */
+function lookSection(draft, set) {
+  const c = resolvedColors(draft.look);
+  const warns = [];
+  if (contrast(c.text, c.surface) < 4.5) warns.push(`Text on surfaces has a contrast of ${contrast(c.text, c.surface).toFixed(1)}:1; 4.5:1 or more reads comfortably.`);
+  if (contrast(c.accent, c.surface) < 3) warns.push(`The accent has a contrast of ${contrast(c.accent, c.surface).toFixed(1)}:1 on surfaces; 3:1 or more keeps buttons and focus rings visible.`);
+  const swatches = h("div", { class: "swatches" }, ...Object.entries(PALETTES).map(([k, p]) => {
+    const [bg, surf, , acc] = p[c.mode];
+    return h("button", { type: "button", class: "swatch", "aria-pressed": String(draft.look.palette === k), "aria-label": p.name, onclick: () => set("look.palette", k) },
+      h("i", { style: `background:${bg}` }, h("i", { style: `background:${surf}` }), h("i", { style: `background:${acc}` })), h("span", { text: p.name }));
+  }));
+  return [
+    field("Mode", "System follows your computer's light or dark setting.", segCtl([["system", "System"], ["light", "Light"], ["dark", "Dark"]], draft.look.mode, v => set("look.mode", v))),
+    field("Palette", null, swatches),
+    field("Accent colour", "Buttons, focus rings, the selected view.", colorCtl(draft.look.accent, c.accent, (v, e) => set("look.accent", v, !isDrag(e)))),
+    field("Surface colour", "Panels and the page behind them.", colorCtl(draft.look.surface, c.surface, (v, e) => set("look.surface", v, !isDrag(e)))),
+    field("Text colour", null, colorCtl(draft.look.text, c.text, (v, e) => set("look.text", v, !isDrag(e)))),
+    warns.length ? h("ul", { class: "dlist" }, ...warns.map(w => h("li", { class: "warn", text: w }))) : null,
+    field("Font", null, segCtl(Object.entries(FONTS).map(([k, f]) => [k, f.name]), draft.look.font, v => set("look.font", v))),
+    field("Text size", null, rangeCtl(12, 20, 1, draft.look.font_size, v => v + " px", v => set("look.font_size", v))),
+    field("Density", "How much room things get.", segCtl([["compact", "Compact"], ["comfortable", "Comfortable"], ["spacious", "Spacious"]], draft.look.density, v => set("look.density", v))),
+    field("Corner rounding", null, rangeCtl(0, 24, 1, draft.look.radius, v => v + " px", v => set("look.radius", v))),
+    field("Animations", "Off also stops moving backgrounds. Your system's reduce-motion setting always wins.", toggleCtl(draft.look.animations, v => set("look.animations", v), "On")),
+  ];
+}
+function backgroundSection(draft, set) {
+  const b = draft.look.background, c = resolvedColors(draft.look);
+  const out = [field("Background", null, segCtl([["solid", "Solid"], ["linear", "Gradient"], ["radial", "Glow"], ["particles", "Particles"]], b.type, v => set("look.background.type", v)))];
+  if (b.type === "linear" || b.type === "radial") {
+    const cols = b.colors.length ? b.colors : [];
+    out.push(field("Gradient colours", "Up to three. None set: a soft wash of your accent.", h("div", { class: "colorrow" },
+      ...[0, 1, 2].map(i => h("input", { type: "color", value: cols[i] || (i === 0 ? c.accent : c.bg), "aria-label": `Gradient colour ${i + 1}`,
+        oninput: e => { const next = [...(cols.length ? cols : [c.accent, c.bg])]; next[i] = e.target.value; set("look.background.colors", next.slice(0, Math.max(i + 1, 2)), false); } })),
+      h("button", { type: "button", class: "btn small", onclick: () => set("look.background.colors", []) }, "Default"))));
+    if (b.type === "linear") out.push(field("Direction", null, rangeCtl(0, 360, 5, b.angle, v => v + "°", v => set("look.background.angle", v))));
+  }
+  if (b.type === "particles") {
+    const p = b.particles;
+    out.push(field("Amount", null, rangeCtl(0, 200, 5, p.density, v => String(v), v => set("look.background.particles.density", v))),
+      field("Speed", null, rangeCtl(0, 5, 0.1, p.speed, v => v.toFixed(1) + "×", v => set("look.background.particles.speed", v))),
+      field("Size", null, rangeCtl(0.5, 6, 0.5, p.size, v => v + " px", v => set("look.background.particles.size", v))),
+      field("Colour", null, colorCtl(p.color, c.accent, (v, e) => set("look.background.particles.color", v, !isDrag(e)))),
+      field("Connecting lines", null, toggleCtl(p.links, v => set("look.background.particles.links", v), "On")));
+  }
+  return out;
+}
+function layoutSection(draft, set) {
+  const L = draft.layout;
+  const pos = h("div", { class: "navpick" }, ...["top", "bottom", "left", "right"].map(p =>
+    h("button", { type: "button", "aria-pressed": String(L.nav_position === p), "aria-label": "Navigation " + p, onclick: () => set("layout.nav_position", p) },
+      h("span", { class: "mini mini-" + p }, h("i")), h("span", { text: p[0].toUpperCase() + p.slice(1) }))));
+  const order = h("ul", { class: "order" }, ...L.views.filter(v => VIEWS[v]).map((v, i, arr) => h("li", {},
+    toggleCtl(!L.hidden.includes(v), on => set("layout.hidden", on ? L.hidden.filter(x => x !== v) : [...L.hidden, v]), ""),
+    icon("v-" + v), h("span", { text: VIEWS[v].label }),
+    h("button", { type: "button", class: "btn small", "aria-label": `Move ${VIEWS[v].label} up`, disabled: i === 0, onclick: () => { const n = [...L.views]; const a = n.indexOf(v), b = n.indexOf(arr[i - 1]); [n[a], n[b]] = [n[b], n[a]]; set("layout.views", n); } }, "↑"),
+    h("button", { type: "button", class: "btn small", "aria-label": `Move ${VIEWS[v].label} down`, disabled: i === arr.length - 1, onclick: () => { const n = [...L.views]; const a = n.indexOf(v), b = n.indexOf(arr[i + 1]); [n[a], n[b]] = [n[b], n[a]]; set("layout.views", n); } }, "↓"))));
+  return [
+    field("Navigation position", null, pos),
+    field("Labels", "Icons only, or icons with their names.", segCtl([[false, "Icons only"], [true, "Icons + names"]], L.nav_labels, v => set("layout.nav_labels", v === true || v === "true"))),
+    field("Views", "Tick to show, arrows to reorder.", order),
+    field("Open on", null, h("select", { onchange: e => set("layout.default_view", e.target.value) },
+      ...L.views.filter(v => VIEWS[v]).map(v => h("option", { value: v, text: VIEWS[v].label, selected: L.default_view === v })))),
+  ];
+}
+function featuresSection(draft, set) {
+  return [
+    field("In-page terminal", "A real shell in the project folder, for paired browsers only. Applies after a restart. Linux and macOS.", toggleCtl(draft.features.terminal, v => set("features.terminal", v), "On")),
+    field("Levels and XP", "Points for real work, levels and badges.", toggleCtl(draft.features.xp, v => set("features.xp", v), "On")),
+  ];
+}
+function sourcesSection(draft, set) {
+  const path = h("input", { type: "text", value: draft.sources.switchboard_log || "", placeholder: "~/switchboard/logs/decisions.jsonl", spellcheck: "false",
+    onchange: e => set("sources.switchboard_log", e.target.value.trim() || null) });
+  return [
+    field("Switchboard log", "Where Switchboard writes its decisions. Applies after a restart.", path),
+    field("Claude Code", "Show Claude Code's AI steps for this folder (model and tokens only). Applies after a restart.", toggleCtl(draft.sources.claude_code, v => set("sources.claude_code", v), "On")),
+  ];
+}
+
+/* =========================================================== first-start setup */
+function openSetup() {
+  const draft = clone(PREFS), steps = [
+    ["Look", "Pick a mode and palette. Everything previews as you go.", lookSection],
+    ["Background", "Plain, a gradient, or slow particles.", backgroundSection],
+    ["Layout", "Where the navigation sits and which views you want.", layoutSection],
+    ["Features", null, featuresSection],
+    ["Sources", "Where the Arcade looks for AI steps.", sourcesSection],
+  ];
+  let i = 0, saved = false;
+  const body = h("div", { class: "setup" }), dots = h("ol", { class: "steps" });
+  const set = (path, value, rerender = STRUCTURAL.has(path)) => { Object.assign(draft, deepMerge(draft, changeAt(path, value))); applyLook(draft); if (rerender) render(); };
+  const finish = async (change) => {
+    try { await savePrefs(change); saved = true; m.close(); toast("Saved. Change anything later in Settings."); }
+    catch (e) { toast("Couldn't save: " + e.message); }
+  };
+  function render() {
+    const [name, hint, build] = steps[i];
+    dots.replaceChildren(...steps.map(([n], k) => h("li", { class: k === i ? "on" : k < i ? "done" : "" }, n)));
+    const pairNote = mode !== "demo" && !OWNER.key ? h("p", { class: "risk caution", text: "This browser isn't paired yet, so these choices can't be saved. Run: python3 -m workflow_arcade pair --open" }) : null;
+    fill(body, dots, pairNote, h("h3", { text: name }), hint ? h("p", { class: "muted", style: "margin:0 0 6px", text: hint }) : null,
+      h("div", { class: "fields" }, ...build(draft, set)),
+      h("div", { class: "setup-foot" },
+        h("button", { type: "button", class: "btn", onclick: () => finish({ setup_done: true }) }, "Skip setup"),
+        h("span", { class: "sep" }),
+        i ? h("button", { type: "button", class: "btn", onclick: () => { i--; render(); } }, "Back") : null,
+        i < steps.length - 1 ? h("button", { type: "button", class: "btn primary", onclick: () => { i++; render(); } }, "Next")
+          : h("button", { type: "button", class: "btn primary", onclick: () => finish({ setup_done: true, look: draft.look, layout: draft.layout, features: draft.features, sources: draft.sources }) }, "Finish")));
+  }
+  const m = openModal("Make it yours", body, { wide: true, onClose: () => { if (!saved) applyLook(PREFS); } });
+  render();
+}
+
+/* =========================================================== Settings window */
+let restartPending = false;
+function openSettings(section = "look") {
+  const sections = [
+    ["look", "Look", lookSection], ["background", "Background", backgroundSection], ["layout", "Layout", layoutSection],
+    ["features", "Features", featuresSection], ["sources", "Sources", sourcesSection],
+    ["autostart", "Autostart", null], ["pairing", "Pairing", null], ["data", "Your settings", null],
+  ];
+  if (VIEWS.alerts && typeof alertsSection === "function") sections.splice(4, 0, ["alerts", "Alerts", alertsSection]);
+  const list = h("nav", { class: "set-nav", "aria-label": "Settings sections" }), pane = h("div", { class: "set-pane" }), banner = h("div");
+  let pending = {};
+  const flush = debounce(async () => {
+    const change = pending; pending = {};
+    try { const r = await savePrefs(change); if (r.restart) { restartPending = true; paintBanner(); } }
+    catch (e) { toast("Not saved: " + e.message); await loadPrefs(); render(); }
+  }, 250);
+  const set = (path, value, rerender = STRUCTURAL.has(path)) => {
+    const change = changeAt(path, value);
+    pending = deepMerge(pending, change);
+    PREFS = deepMerge(PREFS, change); applyLook(PREFS);   // instant preview; the server has the last word
+    flush(); if (rerender) render();
+  };
+  function paintBanner() {
+    fill(banner, restartPending ? h("div", { class: "risk caution restart" }, "Some changes apply after a restart. ",
+      h("button", { type: "button", class: "btn small primary", onclick: restartNow }, "Restart now")) : "");
+  }
+  function render() {
+    list.replaceChildren(...sections.map(([k, label]) => h("button", { type: "button", "aria-current": String(k === section), onclick: () => { section = k; render(); } }, label)));
+    const s = sections.find(x => x[0] === section);
+    const pairNote = mode !== "demo" && !OWNER.key && s[2] ? h("p", { class: "risk caution", text: "This browser isn't paired, so changes can't be saved. Run: python3 -m workflow_arcade pair --open" }) : null;
+    fill(pane, pairNote, h("div", { class: "fields" }, ...(s[2] ? s[2](PREFS, set) : section === "autostart" ? autostartPane() : section === "pairing" ? pairingPane() : dataPane())));
+  }
+  const body = h("div", { class: "settings" }, banner, h("div", { class: "set-grid" }, list, pane));
+  openModal("Settings", body, { wide: true });
+  paintBanner(); render();
+}
+async function restartNow() {
+  try { await OWNER.post("/api/restart"); toast("Restarting…"); setTimeout(() => location.reload(), 3500); }
+  catch (e) { toast("Couldn't restart: " + e.message); }
+}
+function autostartPane() {
+  const box = h("div", { class: "fields" }, h("p", { class: "muted", text: "Loading…" }));
+  if (mode === "demo") { box.replaceChildren(h("p", { class: "muted", text: "Shows what starts at login on your computer. Not available in the example." })); return [box]; }
+  if (!OWNER.key) { box.replaceChildren(h("p", { class: "muted", text: "Pair this browser to see it: it includes log lines, so it's for you only." })); return [box]; }
+  OWNER.post("/api/autostart").then(st => {
+    box.replaceChildren(
+      h("ul", { class: "dlist" }, ...(st.policy || []).map(p => h("li", { class: "ok", text: p }))),
+      ...st.services.map(s => h("section", { class: "svc" },
+        h("header", {}, h("b", { text: s.app }), h("span", { class: "chip " + (s.active ? "ok" : s.enabled ? "warn" : "no"), text: s.active ? "running" : s.enabled ? "on, not running" : "not set to start" })),
+        h("p", { class: "muted", style: "margin:4px 0", text: s.what }),
+        kv([["How", `${s.kind} ${s.name}`], s.exec && ["Runs", h("code", { text: s.exec })], s.since && ["Since", s.since], s.pid && ["Process", String(s.pid)], s.file && ["File", s.file]]),
+        s.hardening && s.hardening.length ? h("details", {}, h("summary", { text: `Safety settings (${s.hardening.length})` }),
+          h("ul", { class: "dlist" }, ...s.hardening.map(x => h("li", {}, h("code", { text: x.rule }), x.means ? h("small", { text: x.means }) : null)))) : null,
+        s.logs && s.logs.length ? h("details", {}, h("summary", { text: `Recent log (${s.logs.length} lines)` }), h("pre", { class: "raw", text: s.logs.join("\n") })) : null,
+        kv([["Stop now", h("code", { text: s.stop })], ["Start at login", h("code", { text: s.enable })], ["Remove", h("code", { text: s.remove })]]))));
+  }).catch(e => box.replaceChildren(h("p", { class: "muted", text: "Couldn't load: " + e.message })));
+  return [box];
+}
+function pairingPane() {
+  return [
+    field("This browser", null, h("span", { class: "chip " + (mode === "demo" ? "no" : OWNER.paired ? "ok" : "warn"), text: mode === "demo" ? "example only" : OWNER.paired ? "paired" : "not paired" })),
+    h("p", { class: "muted", text: "Watching needs nothing. Changing settings and using the terminal need this browser to be paired once." }),
+    field("Pair a browser", "Prints a link that works once, for 10 minutes.", h("div", { class: "cmd", text: "python3 -m workflow_arcade pair --open" })),
+    field("Un-pair every browser", "Makes a new key; old ones stop working right away.", h("div", { class: "cmd", text: "python3 -m workflow_arcade pair --rotate" })),
+    OWNER.key ? field("Forget here", "Removes the key from this browser only.", h("button", { type: "button", class: "btn", onclick: () => { OWNER.forget(); toast("This browser is no longer paired."); } }, "Forget this browser")) : null,
+  ];
+}
+function dataPane() {
+  const file = h("input", { type: "file", accept: "application/json", hidden: true, onchange: async e => {
+    const f = e.target.files[0]; if (!f) return;
+    try { const data = JSON.parse(await f.text()); delete data.version; await savePrefs(data); toast("Settings imported."); }
+    catch (err) { toast("Couldn't import: " + err.message); }
+  } });
+  return [
+    field("Setup", "Walk through the first-start questions again.", h("button", { type: "button", class: "btn", onclick: () => { document.querySelector(".modal-back")?.remove(); openSetup(); } }, "Run setup again")),
+    field("Export", "Download your settings as a file.", h("button", { type: "button", class: "btn", onclick: () => {
+      const a = h("a", { href: URL.createObjectURL(new Blob([JSON.stringify(PREFS, null, 2)], { type: "application/json" })), download: "arcade-settings.json" }); a.click(); } }, "Export")),
+    field("Import", "Load a settings file; it's checked before anything changes.", h("div", {}, file, h("button", { type: "button", class: "btn", onclick: () => file.click() }, "Import…"))),
+    field("Reset", "Back to the defaults (the setup will show again).", h("button", { type: "button", class: "btn", onclick: async () => {
+      if (!confirm("Reset every setting to its default?")) return;
+      try {
+        if (mode === "demo") { store.set("demoPrefs", {}); PREFS = clone(DEFAULT_PREFS); applyPrefs(); }
+        else { const r = await OWNER.post("/api/settings", { reset: true }); PREFS = deepMerge(DEFAULT_PREFS, r.settings); applyPrefs(); }
+        toast("Reset to defaults.");
+      } catch (e) { toast("Couldn't reset: " + e.message); }
+    } }, "Reset to defaults")),
+  ];
+}
+
+/* =========================================================== boot */
 if (store.get("hint-x", false)) $("#hint").hidden = true;
 $("#hint-x").addEventListener("click", () => { $("#hint").hidden = true; store.set("hint-x", true); });
 renderLevels(); decode();
-boot().then(() => showTab(TABS.includes(startTab) ? startTab : "world"));
+applyPrefs();  // last-known settings first, so the page doesn't flash
+const startTab = /^#(live|replay|learn|details|terminal)$/.test(location.hash) ? location.hash.slice(1) : null;
+boot().then(async () => {
+  await loadPrefs();
+  showTab(startTab || PREFS.layout.default_view);
+  if (!PREFS.setup_done) openSetup();
+});
 </script>
