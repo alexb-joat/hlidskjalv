@@ -85,6 +85,23 @@ The **Details** tab explains each AI step in full: Switchboard's reasons for the
 
 Cline's requests carry a large instruction block, and small local models (3B–8B) often struggle to follow it for multi-step edits. Keep a strong cloud model first in Switchboard's `code` route, and let local models take the quick and writing routes.
 
+## Start at login (optional)
+
+```bash
+python3 -m workflow_arcade autostart enable ~/projects/my-app   # watch this folder from now on
+python3 -m workflow_arcade autostart status                     # what starts, how, since when
+python3 -m workflow_arcade autostart disable                    # remove it again
+python3 -m workflow_arcade pair --open                          # pair your browser once
+```
+
+**Autostart policy.** What it does, exactly:
+
+- Nothing starts at login unless you ran `autostart enable` yourself. Only that command line installs or removes the login item; the page can show it (Settings → Autostart: the command, its safety settings, since when it runs, its recent log) but never changes it.
+- Linux: a systemd *user* unit, `~/.config/systemd/user/workflow-arcade.service`. No root. It runs as you with: files only you can read (`UMask=0077`), no privilege gain for it or anything it starts (`NoNewPrivileges`, so `sudo` doesn't work in the in-page terminal), a 2 GB memory cap, and a restart after crashes but not after you stop it. macOS: a launchd agent in `~/Library/LaunchAgents`. Windows: a hidden Scheduled Task for your user, no admin rights.
+- It uses your system Python (the Arcade needs nothing else), listens on `127.0.0.1` only, and starts with `--no-open`: no browser pops up at login.
+- The in-page terminal stays off at login unless you switched it on in Settings.
+- Logs: `journalctl --user -u workflow-arcade -f` (Linux), `~/.arcade/arcade.log` (macOS).
+
 ## Pairing a browser
 
 Watching needs nothing. Anything that **changes** something (settings, the terminal) needs the owner key, which a browser gets once:

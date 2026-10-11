@@ -214,6 +214,11 @@ def main(argv: list[str] | None = None) -> None:
     pr.add_argument("--open", action="store_true", help="also open it in the browser")
     pr.add_argument("--rotate", action="store_true", help="new owner key first: un-pairs every browser")
 
+    a = sub.add_parser("autostart", help="start the Arcade at login: enable <folder> | disable | status")
+    a.add_argument("action", choices=["enable", "disable", "status"])
+    a.add_argument("folder", nargs="?", help="project folder to watch (for enable)")
+    a.add_argument("--port", type=int, default=int(os.environ.get("ARCADE_PORT", "8788")))
+
     h = sub.add_parser("hook", help="print the shell snippet that records terminal commands")
     h.add_argument("shell", choices=sorted(HOOKS))
 
@@ -224,6 +229,20 @@ def main(argv: list[str] | None = None) -> None:
         watch(args, list(argv if argv is not None else sys.argv[1:]))
     elif args.cmd == "pair":
         pair(args)
+    elif args.cmd == "autostart":
+        from . import autostart
+        home = arcade_home()
+        if args.action == "enable":
+            if not args.folder:
+                sys.exit("Which folder? python3 -m workflow_arcade autostart enable ~/projects/my-app")
+            folder = Path(args.folder).expanduser().resolve()
+            check_folder(folder)
+            print(autostart.enable(folder, args.port, home))
+            print("Pair a browser: python3 -m workflow_arcade pair --open")
+        elif args.action == "disable":
+            print(autostart.disable())
+        else:
+            print(autostart.format_status(autostart.status(home)))
     elif args.cmd == "hook":
         print(HOOKS[args.shell].strip())
     elif args.cmd == "sessions":

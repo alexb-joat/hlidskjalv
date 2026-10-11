@@ -496,6 +496,68 @@ class WriteApiTest(unittest.TestCase):
         c.close()
 
 
+class AutostartTest(unittest.TestCase):
+    def test_unit_is_hardened_and_quotes_paths(self):
+        from workflow_arcade import autostart as a
+        unit = a.render_unit(Path("/home/me/My Project"), 8790)
+        self.assertIn("ExecStart=", unit)
+        self.assertIn("'/home/me/My Project' --no-open --port 8790", unit)
+        for rule in ("UMask=0077", "NoNewPrivileges=true", "Restart=on-failure"):
+            self.assertIn(rule, unit)
+        self.assertNotIn("--terminal", unit)  # the terminal follows Settings, never the login item
+
+    def test_plist_escapes(self):
+        from workflow_arcade import autostart as a
+        plist = a.render_plist(Path("/Users/me/a&b"), 8788, Path("/tmp/log"))
+        self.assertIn("<string>/Users/me/a&amp;b</string>", plist)
+
+    def test_status_reads_systemd_without_changing_anything(self):
+        from workflow_arcade import autostart as a
+        calls = []
+
+        def fake(*args, timeout=15):
+            calls.append(args)
+            if args[:3] == ("systemctl", "--user", "show"):
+                return 0, ("UnitFileState=enabled\nActiveState=active\nSubState=running\nMainPID=42\n"
+                           "ActiveEnterTimestamp=Sun 2026-10-12 09:00:00 CEST\nFragmentPath=")
+            if args[0] == "journalctl":
+                return 0, "line1\nline2"
+            return 1, ""
+        orig_run, orig_sys = a._run, a.system
+        a._run, a.system = fake, (lambda: "linux")
+        try:
+            st = a.status(Path(tempfile.mkdtemp()))
+        finally:
+            a._run, a.system = orig_run, orig_sys
+        arcade = st["services"][0]
+        self.assertTrue(arcade["enabled"] and arcade["active"])
+        self.assertEqual(arcade["pid"], 42)
+        self.assertEqual(arcade["logs"], ["line1", "line2"])
+        self.assertTrue(all(c[0] in ("systemctl", "journalctl") and c[2] in ("show", "-u") for c in calls))
+
+    def test_endpoint_is_owner_only(self):
+        home = Path(tempfile.mkdtemp())
+        port = free_port()
+        owner = Owner(home)
+        httpd = serve(Hub("demo", [], None, {}), home / "sessions", port, None, owner, Settings(home / "s.json"))
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+            hdr = {"Host": f"127.0.0.1:{port}", "Origin": f"http://127.0.0.1:{port}",
+                   "Content-Type": "application/json", "Content-Length": "2"}
+            c.request("POST", "/api/autostart", body=b"{}", headers=hdr)
+            r = c.getresponse(); r.read()
+            self.assertEqual(r.status, 401)
+            c.request("POST", "/api/autostart", body=b"{}", headers={**hdr, "X-Arcade-Key": owner.key})
+            r = c.getresponse()
+            self.assertEqual(r.status, 200)
+            self.assertIn("policy", json.loads(r.read()))
+            c.close()
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
+
 class ServerTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

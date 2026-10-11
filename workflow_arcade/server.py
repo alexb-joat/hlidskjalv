@@ -105,6 +105,10 @@ def read_session(folder: Path, sid: str) -> list[dict] | None:
 
 def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None = None,
                  owner: Owner | None = None, settings: Settings | None = None, restart=None):
+    def autostart_status():
+        from .autostart import status
+        return status(sessions.parent)
+
     # The page file is written without <html>/<head> (it's also published as a
     # hosted demo, which adds them); add them here for the local server.
     page = (b'<!doctype html><html lang="en"><head><meta charset="utf-8">'
@@ -213,7 +217,7 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
             if self.headers.get("Host", "") not in allowed_hosts:
                 return self._json({"error": "forbidden host"}, HTTPStatus.FORBIDDEN)
             path = urlparse(self.path).path
-            if path not in ("/api/pair", "/api/ping", "/api/settings", "/api/restart") or owner is None:
+            if path not in ("/api/pair", "/api/ping", "/api/settings", "/api/restart", "/api/autostart") or owner is None:
                 return self._json({"error": "read-only"}, HTTPStatus.METHOD_NOT_ALLOWED)
             if self.headers.get("Origin") not in allowed_origins:
                 return self._json({"error": "forbidden origin"}, HTTPStatus.FORBIDDEN)
@@ -250,6 +254,8 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                 except OSError:
                     return self._json({"error": "couldn't save settings"}, HTTPStatus.INTERNAL_SERVER_ERROR)
                 return self._json({"settings": data, "restart": again})
+            if path == "/api/autostart":  # owner-only: it includes recent log lines
+                return self._json(autostart_status())
             if path == "/api/restart":
                 if restart is None:
                     return self._json({"error": "restart isn't available here"}, HTTPStatus.NOT_FOUND)
