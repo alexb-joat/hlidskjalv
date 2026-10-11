@@ -11,7 +11,7 @@ page is remote code execution by design, so every connection must pass all of th
   enough;
 - at most MAX_SESSIONS shells at a time; each one dies with its connection.
 
-POSIX only (pty). On Windows the terminal reports itself unavailable.
+Linux and macOS use a pty; Windows 10 1809+ uses ConPTY (conpty.py, experimental).
 """
 
 from __future__ import annotations
@@ -40,7 +40,10 @@ OP_CONT, OP_TEXT, OP_BIN, OP_CLOSE, OP_PING, OP_PONG = 0x0, 0x1, 0x2, 0x8, 0x9, 
 
 
 def supported() -> bool:
-    return pty is not None
+    if pty is not None:
+        return True
+    from . import conpty
+    return conpty.available()
 
 
 def accept_key(key: str) -> str:
@@ -123,6 +126,9 @@ class Terminal:
         self.slots = threading.BoundedSemaphore(MAX_SESSIONS)
 
     def shell(self) -> list[str]:
+        if pty is None:
+            from .conpty import default_shell
+            return default_shell()
         sh = os.environ.get("SHELL") or "/bin/bash"
         if not os.path.isabs(sh) or not os.access(sh, os.X_OK):
             sh = "/bin/sh"
@@ -150,33 +156,27 @@ class Terminal:
             self.slots.release()
 
     def _bridge(self, ws: WebSocket, size) -> None:
-        import subprocess
-        master, slave = pty.openpty()
-        _resize(master, size)
         env = {**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor", "ARCADE_TERMINAL": "1", "PWD": self.root}
-
-        def take_tty():  # runs in the child: own session, pty as controlling terminal
-            fcntl.ioctl(0, termios.TIOCSCTTY, 0)
-
         try:
-            proc = subprocess.Popen(self.shell(), stdin=slave, stdout=slave, stderr=slave, cwd=self.root,
-                                    env=env, start_new_session=True, preexec_fn=take_tty, close_fds=True)
+            if pty is not None:
+                shell = PosixShell(self.shell(), self.root, env, size)
+            else:
+                from .conpty import ConPtyShell
+                shell = ConPtyShell(self.shell(), self.root, env, size)
         except OSError as e:
-            os.close(master), os.close(slave)
-            ws.send(OP_TEXT, json.dumps({"error": f"couldn't start a shell: {e.strerror}"}).encode())
+            ws.send(OP_TEXT, json.dumps({"error": f"couldn't start a shell: {e.strerror or e}"}).encode())
             return ws.close(1011)
-        os.close(slave)
 
         def pump():  # shell -> browser
             try:
                 while True:
-                    data = os.read(master, 65536)
+                    data = shell.read()
                     if not data:
                         break
                     ws.send(OP_BIN, data)
             except OSError:
                 pass
-            code = proc.wait()
+            code = shell.wait()
             try:
                 ws.send(OP_TEXT, json.dumps({"exit": code}).encode())
                 ws.close(1000)
@@ -191,24 +191,63 @@ class Terminal:
                 if op == OP_CLOSE:
                     break
                 if op == OP_BIN:
-                    os.write(master, data)
+                    shell.write(data)
                 elif op == OP_TEXT:
                     try:
                         msg = json.loads(data)
                     except ValueError:
                         continue
                     if isinstance(msg, dict) and "size" in msg:
-                        _resize(master, msg["size"])
+                        shell.resize(msg["size"])
         except (ConnectionError, OSError):
             pass
         finally:
-            _stop(proc)
+            shell.stop()
             reader.join(timeout=2)
-            try:
-                os.close(master)
-            except OSError:
-                pass
+            shell.close()
             ws.closed = True
+
+
+class PosixShell:
+    """A shell on a pty: its own session, the pty as its controlling terminal."""
+
+    def __init__(self, argv: list[str], cwd: str, env: dict, size):
+        import subprocess
+        master, slave = pty.openpty()
+        _resize(master, size)
+
+        def take_tty():  # runs in the child
+            fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+        try:
+            self.proc = subprocess.Popen(argv, stdin=slave, stdout=slave, stderr=slave, cwd=cwd, env=env,
+                                         start_new_session=True, preexec_fn=take_tty, close_fds=True)
+        except OSError:
+            os.close(master)
+            raise
+        finally:
+            os.close(slave)
+        self.fd = master
+
+    def read(self) -> bytes:
+        return os.read(self.fd, 65536)
+
+    def write(self, data: bytes) -> None:
+        os.write(self.fd, data)
+
+    def resize(self, size) -> None:
+        _resize(self.fd, size)
+
+    def wait(self) -> int:
+        return self.proc.wait()
+
+    def stop(self) -> None:
+        _stop(self.proc)
+
+    def close(self) -> None:
+        try:
+            os.close(self.fd)
+        except OSError:
+            pass
 
 
 def _unmask(data: bytes, mask: bytes) -> bytes:

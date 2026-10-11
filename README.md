@@ -144,7 +144,7 @@ Pairing links work **once** and expire after 10 minutes, so a copied link is wor
 
 Changes must also come from the Arcade's own page (Origin check) and be JSON, so other websites can't send them. Settings are saved in `~/.arcade/settings.json`.
 
-## Terminal in the page (optional, Linux and macOS)
+## Terminal in the page (optional)
 
 ```bash
 python3 -m workflow_arcade watch ~/projects/my-app --terminal
@@ -155,7 +155,7 @@ python3 -m workflow_arcade watch ~/projects/my-app --terminal
 - Only the Arcade's own page can connect. Other websites are refused by an Origin check, and other users or programs on the computer by the owner key (see Pairing).
 - At most four shells at a time; each one is closed when its tab disconnects.
 
-The terminal display is [xterm.js](https://xtermjs.org/) (MIT), shipped unmodified in `workflow_arcade/static/vendor/` with its npm checksums. Windows isn't supported yet.
+The terminal display is [xterm.js](https://xtermjs.org/) (MIT), shipped unmodified in `workflow_arcade/static/vendor/` with its npm checksums. Linux and macOS use a pty. Windows 10 (1809) and later use ConPTY with PowerShell; that part is **experimental**: it's tested on Windows CI, not yet on a Windows desktop.
 
 ## Privacy and security
 

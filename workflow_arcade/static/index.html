@@ -1655,7 +1655,7 @@ function renderTerminal() {
     slot.dataset.state = "off";
     return slot.replaceChildren(h("section", { class: "panel termoff" },
       h("h3", { text: mode === "demo" ? "Not available in the example" : "The terminal is switched off" }),
-      h("p", { class: "muted", style: "margin:0", text: "It's off by default because a shell in a web page can do anything you can. Start the Arcade with --terminal to switch it on (Linux and macOS):" }),
+      h("p", { class: "muted", style: "margin:0", text: "It's off by default because a shell in a web page can do anything you can. Switch it on in Settings → Features, or start the Arcade with --terminal (Linux and macOS; Windows experimental):" }),
       h("div", { class: "cmd", text: "python3 -m workflow_arcade watch ~/projects/my-app --terminal" }),
       h("ul", { class: "dlist" },
         h("li", { class: "ok" }, "Only this page can connect", h("small", { text: "Other websites and other users on this computer are refused: the Arcade checks the page's origin and a secret key made fresh at every start." })),
@@ -2004,7 +2004,7 @@ function layoutSection(draft, set) {
 }
 function featuresSection(draft, set) {
   return [
-    field("In-page terminal", "A real shell in the project folder, for paired browsers only. Applies after a restart. Linux and macOS.", toggleCtl(draft.features.terminal, v => set("features.terminal", v), "On")),
+    field("In-page terminal", "A real shell in the project folder, for paired browsers only. Applies after a restart. Linux and macOS; Windows is experimental.", toggleCtl(draft.features.terminal, v => set("features.terminal", v), "On")),
     field("Levels and XP", "Points for real work, levels and badges.", toggleCtl(draft.features.xp, v => set("features.xp", v), "On")),
     field("Long-context warning", "Flag Claude Code sessions where one turn carries more context than this (Details → Claude Code usage).",
       rangeCtl(10000, 1000000, 10000, draft.usage.fresh_threshold, v => fmt(v) + " tokens", v => set("usage.fresh_threshold", v))),

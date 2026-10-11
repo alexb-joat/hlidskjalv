@@ -175,7 +175,7 @@ def watch(args, argv: list[str]) -> None:
     if shell:
         print("  terminal: ON (a real shell in this folder, in the Terminal tab)")
     elif args.terminal or prefs["features"]["terminal"]:
-        print("  note: the in-browser terminal needs Linux or macOS; it stays off on this system")
+        print("  note: the in-browser terminal needs Linux, macOS or Windows 10 (1809+); it stays off on this system")
     if files.truncated:
         print("  note: more than 5000 files; showing the first 5000")
     if not meta["commands_hook"]:
