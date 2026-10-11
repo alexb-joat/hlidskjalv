@@ -317,12 +317,13 @@ def claude_code_project_dir(root: Path, claude_home: Path | None = None) -> Path
 
     Claude Code names each project's folder after its absolute path with every
     character that isn't a letter or digit replaced by "-" (so /home/me/My App
-    becomes -home-me-My-App). If Claude Code ever changes that scheme, the
+    becomes -home-me-My-App, C:\\code\\app becomes C--code-app). `root` must
+    already be resolved, as watch() does. If Claude Code ever changes that scheme, the
     folder simply isn't found and this source reports nothing, like GitWatcher
     does for a non-git folder.
     """
     home = claude_home or Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
-    return home / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(root.resolve()))
+    return home / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(root))
 
 
 class ClaudeCodeWatcher:

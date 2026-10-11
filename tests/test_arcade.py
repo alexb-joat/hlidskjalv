@@ -306,8 +306,8 @@ class TerminalTest(unittest.TestCase):
         self.assertEqual(token, self.shell.token)
         ws.send(term.OP_BIN, b"echo arcade-$((40+2))\n")
         self.assertIn(b"arcade-42", ws.read_until(b"arcade-42"))
-        ws.send(term.OP_BIN, b"pwd\n")
-        self.assertIn(str(self.root.resolve()).encode(), ws.read_until(str(self.root.resolve()).encode()))
+        ws.send(term.OP_BIN, b"pwd\n")  # macOS may print /var/... or /private/var/...: match the unique part
+        self.assertIn(self.root.name.encode(), ws.read_until(self.root.name.encode()))
 
         again = WsClient(self.port)  # a copied link is worthless after first use
         again.hello(pair=code)
