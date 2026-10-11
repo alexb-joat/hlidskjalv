@@ -28,6 +28,7 @@ SENSITIVE = re.compile(
     r"(^\.env($|\.)|\.pem$|\.key$|\.p12$|\.pfx$|\.keystore$|^id_(rsa|dsa|ecdsa|ed25519)"
     r"|credential|secret|\.kdbx$|^\.netrc$|^\.npmrc$|^\.pypirc$)", re.I)
 TEXT_MAX_BYTES = 200_000
+READ_MAX = 1_000_000
 MAX_FILES = 5000
 
 
@@ -192,6 +193,7 @@ class Tail:
     def __init__(self, path: Path | None):
         self.path = path
         self.offset = 0
+        self.skipping = False  # inside a line longer than one read: drop it
         if path and path.exists():
             self.offset = path.stat().st_size  # only new lines
 
@@ -200,14 +202,24 @@ class Tail:
             return []
         size = self.path.stat().st_size
         if size < self.offset:
-            self.offset = 0
+            self.offset, self.skipping = 0, False
         if size == self.offset:
             return []
         with self.path.open("rb") as f:
             f.seek(self.offset)
-            data = f.read(1_000_000)
+            data = f.read(READ_MAX)
+        if self.skipping:
+            nl = data.find(b"\n")
+            if nl < 0:
+                self.offset += len(data)
+                return []
+            self.offset += nl + 1
+            data, self.skipping = data[nl + 1:], False
         end = data.rfind(b"\n")
         if end < 0:
+            if len(data) == READ_MAX:  # one line bigger than a whole read (e.g. an inline image)
+                self.offset += len(data)
+                self.skipping = True
             return []
         self.offset += end + 1
         return data[: end + 1].decode("utf-8", "replace").splitlines()
@@ -281,5 +293,117 @@ class SwitchboardWatcher:
                 "cost": cost,
                 "sensitive": [str(s)[:30] for s in (r.get("sensitive") or [])][:10],
                 "fallbacks": len(r.get("failed_attempts") or []),
+                "reasons": [redact(str(x))[:160] for x in (r.get("reasons") or [])][:20],
+                "attempts": [_attempt(a) for a in (r.get("failed_attempts") or [])][:10],
             })
+        return events
+
+
+def _attempt(a) -> dict:
+    """One failed or skipped model from Switchboard's log, e.g. a budget block."""
+    if not isinstance(a, dict):
+        return {"model": str(a)[:60]}
+    out = {"model": str(a.get("model") or "?")[:60]}
+    for k in ("error", "reason"):
+        if a.get(k) is not None:
+            out[k] = str(a[k])[:160]
+    if isinstance(a.get("status"), int):
+        out["status"] = a["status"]
+    return out
+
+
+def claude_code_project_dir(root: Path, claude_home: Path | None = None) -> Path:
+    """Claude Code's own transcript folder for a project root.
+
+    Claude Code names each project's folder after its absolute path with every
+    character that isn't a letter or digit replaced by "-" (so /home/me/My App
+    becomes -home-me-My-App). If Claude Code ever changes that scheme, the
+    folder simply isn't found and this source reports nothing, like GitWatcher
+    does for a non-git folder.
+    """
+    home = claude_home or Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    return home / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(root.resolve()))
+
+
+class ClaudeCodeWatcher:
+    """AI turns from Claude Code's own session transcripts (metadata only).
+
+    Claude Code talks to Anthropic directly on your subscription, not through
+    Switchboard, so those calls never reach Switchboard's decision log. This
+    tails Claude Code's per-session JSONL transcripts for the watched project
+    instead (including its subagents' transcripts) and reports each finished
+    assistant turn: model and token counts only. Prompt and response text are
+    never read into an event.
+    """
+
+    MAX_SEEN = 20_000
+
+    def __init__(self, root: Path, claude_home: Path | None = None):
+        self.dir = claude_code_project_dir(root, claude_home)
+        self.tails: dict[Path, Tail] = {}
+        self.seen: dict[str, None] = {}  # insertion-ordered, so trimming drops the oldest
+        for p in self._transcripts():
+            self.tails[p] = Tail(p)  # skip transcript history predating this watch
+
+    def available(self) -> bool:
+        return self.dir.is_dir()
+
+    def _transcripts(self) -> list[Path]:
+        if not self.dir.is_dir():
+            return []
+        # <session>.jsonl, plus <session>/subagents/*.jsonl for agents it starts
+        return sorted([*self.dir.glob("*.jsonl"), *self.dir.glob("*/subagents/*.jsonl")])
+
+    def _event(self, line: str, subagent: bool) -> dict | None:
+        if '"assistant"' not in line:  # cheap pre-filter: most lines are tool results
+            return None
+        try:
+            r = json.loads(line)
+        except ValueError:
+            return None
+        if not isinstance(r, dict) or r.get("type") != "assistant":
+            return None
+        msg = r.get("message") or {}
+        mid, model = msg.get("id"), msg.get("model")
+        # One message is split over several lines (one per content block); count it once.
+        # "<synthetic>" marks messages Claude Code wrote itself (errors, notices), not a model call.
+        if not mid or not isinstance(model, str) or model.startswith("<") or mid in self.seen:
+            return None
+        self.seen[mid] = None
+        if len(self.seen) > self.MAX_SEEN:
+            for old in list(self.seen)[: self.MAX_SEEN // 2]:
+                del self.seen[old]
+        usage = msg.get("usage") or {}
+        tin, tout = usage.get("input_tokens"), usage.get("output_tokens")
+        written = usage.get("cache_creation_input_tokens") or 0
+        cached = usage.get("cache_read_input_tokens") or 0
+        return {
+            "type": "ai_call",
+            "route": "claude-code" + (" (subagent)" if subagent else ""),
+            "model": model[:60],
+            "local": False,
+            "subscription": True,
+            "status": 200,
+            "latency_ms": None,
+            # Everything the model read this turn; the cached share is re-read context, cheaper to serve.
+            "tokens_in": tin + written + cached if isinstance(tin, int) else None,
+            "tokens_cached": cached if isinstance(tin, int) else None,
+            "tokens_out": tout if isinstance(tout, int) else None,
+            "cost": None,
+            "sensitive": [],
+            "fallbacks": 0,
+        }
+
+    def poll(self) -> list[dict]:
+        events = []
+        for p in self._transcripts():
+            if p not in self.tails:
+                t = Tail(p)
+                t.offset = 0  # a transcript that started after we began watching: read it all
+                self.tails[p] = t
+            sub = p.parent.name == "subagents"
+            for line in self.tails[p].lines():
+                ev = self._event(line, sub)
+                if ev:
+                    events.append(ev)
         return events

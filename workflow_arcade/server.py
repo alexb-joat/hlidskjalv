@@ -1,7 +1,9 @@
 """Local web server: serves the Arcade page and streams events to it.
 
 Security: binds loopback only, rejects foreign Host headers (DNS rebinding),
-answers GET only, and never serves anything from the watched project.
+answers GET only, and never serves anything from the watched project. The one
+exception to read-only is the opt-in terminal (see terminal.py), which needs
+the per-launch token and this page's own Origin.
 """
 
 from __future__ import annotations
@@ -17,12 +19,22 @@ from importlib import resources
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from .terminal import Terminal, WebSocket, accept_key
+
 SESSION_NAME = re.compile(r"^\d{8}-\d{6}-[A-Za-z0-9._-]{1,60}\.jsonl$")
 MAX_EVENTS = 20_000
 
-CSP = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; "
-       "font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data:; "
-       "base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+# Vendored terminal files (see static/vendor/README.md): the only static files served.
+VENDOR = {"xterm.js": "text/javascript; charset=utf-8", "addon-fit.js": "text/javascript; charset=utf-8",
+          "xterm.css": "text/css; charset=utf-8"}
+
+
+def csp(port: int) -> str:
+    ws = " ".join(f"ws://{h}:{port}" for h in ("127.0.0.1", "localhost", "[::1]"))
+    return ("default-src 'none'; script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            f"font-src https://fonts.gstatic.com; connect-src 'self' {ws}; img-src 'self' data:; "
+            "base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 
 
 def private_file(path: Path):
@@ -86,7 +98,7 @@ def read_session(folder: Path, sid: str) -> list[dict] | None:
     return events
 
 
-def make_handler(hub: Hub, sessions: Path, port: int):
+def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None = None):
     # The page file is written without <html>/<head> (it's also published as a
     # hosted demo, which adds them); add them here for the local server.
     page = (b'<!doctype html><html lang="en"><head><meta charset="utf-8">'
@@ -95,6 +107,8 @@ def make_handler(hub: Hub, sessions: Path, port: int):
             + resources.files("workflow_arcade").joinpath("static/index.html").read_bytes()
             + b"</body></html>")
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
+    allowed_origins = {"http://" + h for h in allowed_hosts}
+    policy = csp(port)
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "arcade"
@@ -110,7 +124,7 @@ def make_handler(hub: Hub, sessions: Path, port: int):
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "no-referrer")
             self.send_header("X-Frame-Options", "DENY")
-            self.send_header("Content-Security-Policy", CSP)
+            self.send_header("Content-Security-Policy", policy)
             if length is not None:
                 self.send_header("Content-Length", str(length))
             self.end_headers()
@@ -135,6 +149,12 @@ def make_handler(hub: Hub, sessions: Path, port: int):
                 self._stream(int((q.get("after") or ["0"])[0] or 0))
             elif url.path == "/api/sessions":
                 self._json(list_sessions(sessions))
+            elif url.path.startswith("/static/vendor/") and url.path[15:] in VENDOR:
+                data = resources.files("workflow_arcade").joinpath("static/vendor/" + url.path[15:]).read_bytes()
+                self._headers(200, VENDOR[url.path[15:]], len(data))
+                self.wfile.write(data)
+            elif url.path == "/api/term":
+                self._terminal()
             elif url.path == "/api/session":
                 events = read_session(sessions, (q.get("id") or [""])[0])
                 if events is None:
@@ -142,6 +162,28 @@ def make_handler(hub: Hub, sessions: Path, port: int):
                 self._json(events)
             else:
                 self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+
+        def _terminal(self):
+            if terminal is None:
+                return self._json({"error": "terminal is off; start with --terminal"}, HTTPStatus.NOT_FOUND)
+            # Browsers don't apply CORS to WebSockets: only our own page may connect.
+            if self.headers.get("Origin") not in allowed_origins:
+                return self._json({"error": "forbidden origin"}, HTTPStatus.FORBIDDEN)
+            key = self.headers.get("Sec-WebSocket-Key", "")
+            if (self.headers.get("Upgrade", "").lower() != "websocket"
+                    or "upgrade" not in self.headers.get("Connection", "").lower() or len(key) != 24):
+                return self._json({"error": "websocket upgrade required"}, HTTPStatus.BAD_REQUEST)
+            self.send_response(HTTPStatus.SWITCHING_PROTOCOLS)
+            self.send_header("Upgrade", "websocket")
+            self.send_header("Connection", "Upgrade")
+            self.send_header("Sec-WebSocket-Accept", accept_key(key))
+            self.end_headers()
+            self.wfile.flush()
+            self.close_connection = True
+            try:
+                terminal.run(WebSocket(self.rfile, self.wfile), self.connection)
+            except (ConnectionError, OSError):
+                pass
 
         def _stream(self, last: int):
             self._headers(200, "text/event-stream")
@@ -165,7 +207,7 @@ def make_handler(hub: Hub, sessions: Path, port: int):
     return Handler
 
 
-def serve(hub: Hub, sessions: Path, port: int) -> ThreadingHTTPServer:
-    httpd = ThreadingHTTPServer(("127.0.0.1", port), make_handler(hub, sessions, port))
+def serve(hub: Hub, sessions: Path, port: int, terminal: Terminal | None = None) -> ThreadingHTTPServer:
+    httpd = ThreadingHTTPServer(("127.0.0.1", port), make_handler(hub, sessions, port, terminal))
     httpd.daemon_threads = True
     return httpd

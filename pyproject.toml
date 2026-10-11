@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "workflow-arcade"
-version = "0.1.0"
+version = "0.2.0"
 description = "A game-like, local-only live map of your coding workflow: files, commands, Git and AI steps, with hover explanations."
 readme = "README.md"
 license = "MIT"
@@ -22,4 +22,4 @@ workflow-arcade = "workflow_arcade.__main__:main"
 packages = ["workflow_arcade"]
 
 [tool.setuptools.package-data]
-workflow_arcade = ["static/*.html"]
+workflow_arcade = ["static/*.html", "static/vendor/*"]
