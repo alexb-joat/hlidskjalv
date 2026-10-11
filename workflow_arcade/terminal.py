@@ -1,16 +1,14 @@
 """Opt-in terminal: a real shell in the browser, over a WebSocket (stdlib only).
 
-Off unless `watch --terminal` is given. A shell in a web page is remote code
-execution by design, so every connection must pass all of these:
+Off unless switched on (`watch --terminal`, or Settings). A shell in a web
+page is remote code execution by design, so every connection must pass all of these:
 
 - the server binds loopback only and checks the Host header (DNS rebinding);
 - the Origin header must be this Arcade's own origin. Browsers don't apply
   CORS to WebSockets, so this is what stops other websites from connecting;
-- the first message must carry the per-launch secret token. Loopback ports are
+- the first message must carry the owner key (auth.py). Loopback ports are
   reachable by every user and process on the computer, so Origin alone is not
-  enough. The browser gets the token by trading a one-time pairing code from
-  the link the Arcade opens: launch arguments are visible to other users
-  (/proc/<pid>/cmdline), so the link itself must stop working once used;
+  enough;
 - at most MAX_SESSIONS shells at a time; each one dies with its connection.
 
 POSIX only (pty). On Windows the terminal reports itself unavailable.
@@ -20,10 +18,8 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import hmac
 import json
 import os
-import secrets
 import signal
 import struct
 import threading
@@ -45,10 +41,6 @@ OP_CONT, OP_TEXT, OP_BIN, OP_CLOSE, OP_PING, OP_PONG = 0x0, 0x1, 0x2, 0x8, 0x9, 
 
 def supported() -> bool:
     return pty is not None
-
-
-def new_token() -> str:
-    return secrets.token_urlsafe(32)
 
 
 def accept_key(key: str) -> str:
@@ -122,27 +114,12 @@ class WebSocket:
 
 
 class Terminal:
-    """Shells for one Arcade launch: the token, the folder they start in, the slot count."""
+    """Shells for one Arcade launch: who may open them, the folder they start in, the slot count."""
 
-    def __init__(self, root, token: str | None = None):
+    def __init__(self, root, owner):
         self.root = str(root)
-        self.token = token or new_token()
-        self.pair_code: str | None = new_token()  # one use, then None
+        self.owner = owner
         self.slots = threading.BoundedSemaphore(MAX_SESSIONS)
-        self._lock = threading.Lock()
-
-    def check_token(self, given) -> bool:
-        return isinstance(given, str) and hmac.compare_digest(given.encode(), self.token.encode())
-
-    def redeem(self, code) -> bool:
-        """Trade the one-time pairing code for the token. Works exactly once."""
-        with self._lock:
-            if not isinstance(code, str) or not self.pair_code:
-                return False
-            if not hmac.compare_digest(code.encode(), self.pair_code.encode()):
-                return False
-            self.pair_code = None
-            return True
 
     def shell(self) -> list[str]:
         sh = os.environ.get("SHELL") or "/bin/bash"
@@ -161,12 +138,8 @@ class Terminal:
                 hello = json.loads(data) if op == OP_TEXT else {}
             except (ValueError, OSError):
                 hello = {}
-            if not isinstance(hello, dict):
-                return ws.close(1008, "bad token")
-            if self.redeem(hello.get("pair")):
-                ws.send(OP_TEXT, json.dumps({"token": self.token}).encode())
-            elif not self.check_token(hello.get("token")):
-                return ws.close(1008, "bad token")
+            if not isinstance(hello, dict) or not self.owner.check(hello.get("key")):
+                return ws.close(1008, "not paired")
             sock.settimeout(None)
             self._bridge(ws, hello.get("size"))
         finally:

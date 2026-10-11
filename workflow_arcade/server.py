@@ -1,9 +1,11 @@
 """Local web server: serves the Arcade page and streams events to it.
 
-Security: binds loopback only, rejects foreign Host headers (DNS rebinding),
-answers GET only, and never serves anything from the watched project. The one
-exception to read-only is the opt-in terminal (see terminal.py), which needs
-the per-launch token and this page's own Origin.
+Security: binds loopback only, rejects foreign Host headers (DNS rebinding)
+and never serves anything from the watched project. Reading is open to the
+local machine; every change (settings, restart, the terminal) needs this
+page's own Origin plus the owner key (see auth.py). Writes must also be JSON:
+a cross-site page can't send that without a CORS preflight, which is never
+answered.
 """
 
 from __future__ import annotations
@@ -19,10 +21,13 @@ from importlib import resources
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from .auth import Owner
+from .settings import Settings, SettingsError
 from .terminal import Terminal, WebSocket, accept_key
 
 SESSION_NAME = re.compile(r"^\d{8}-\d{6}-[A-Za-z0-9._-]{1,60}\.jsonl$")
 MAX_EVENTS = 20_000
+MAX_POST = 64 * 1024
 
 # Vendored terminal files (see static/vendor/README.md): the only static files served.
 VENDOR = {"xterm.js": "text/javascript; charset=utf-8", "addon-fit.js": "text/javascript; charset=utf-8",
@@ -98,7 +103,8 @@ def read_session(folder: Path, sid: str) -> list[dict] | None:
     return events
 
 
-def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None = None):
+def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None = None,
+                 owner: Owner | None = None, settings: Settings | None = None, restart=None):
     # The page file is written without <html>/<head> (it's also published as a
     # hosted demo, which adds them); add them here for the local server.
     page = (b'<!doctype html><html lang="en"><head><meta charset="utf-8">'
@@ -155,6 +161,10 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                 self.wfile.write(data)
             elif url.path == "/api/term":
                 self._terminal()
+            elif url.path == "/api/settings":
+                if settings is None:
+                    return self._json({"error": "settings are off"}, HTTPStatus.NOT_FOUND)
+                self._json({"settings": settings.data})
             elif url.path == "/api/session":
                 events = read_session(sessions, (q.get("id") or [""])[0])
                 if events is None:
@@ -200,14 +210,63 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                 return
 
         def do_POST(self):
+            if self.headers.get("Host", "") not in allowed_hosts:
+                return self._json({"error": "forbidden host"}, HTTPStatus.FORBIDDEN)
+            path = urlparse(self.path).path
+            if path not in ("/api/pair", "/api/ping", "/api/settings", "/api/restart") or owner is None:
+                return self._json({"error": "read-only"}, HTTPStatus.METHOD_NOT_ALLOWED)
+            if self.headers.get("Origin") not in allowed_origins:
+                return self._json({"error": "forbidden origin"}, HTTPStatus.FORBIDDEN)
+            if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
+                return self._json({"error": "send JSON"}, HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
+            length = self.headers.get("Content-Length", "")
+            if not length.isdigit() or int(length) > MAX_POST:
+                return self._json({"error": "body missing or too large"}, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+            try:
+                body = json.loads(self.rfile.read(int(length)) or b"{}")
+            except ValueError:
+                return self._json({"error": "body must be JSON"}, HTTPStatus.BAD_REQUEST)
+            if not isinstance(body, dict):
+                return self._json({"error": "body must be a JSON object"}, HTTPStatus.BAD_REQUEST)
+
+            if path == "/api/pair":
+                key = owner.redeem(body.get("code"))
+                if not key:
+                    return self._json({"error": "pairing code is wrong, used or expired"}, HTTPStatus.FORBIDDEN)
+                return self._json({"key": key})
+            if not owner.check(self.headers.get("X-Arcade-Key")):
+                return self._json({"error": "this browser isn't paired"}, HTTPStatus.UNAUTHORIZED)
+            if path == "/api/ping":
+                return self._json({"ok": True})
+            if path == "/api/settings":
+                if settings is None:
+                    return self._json({"error": "settings are off"}, HTTPStatus.NOT_FOUND)
+                try:
+                    if body.get("reset") is True:
+                        return self._json({"settings": settings.reset(), "restart": True})
+                    data, again = settings.update(body.get("change"))
+                except SettingsError as e:
+                    return self._json({"error": str(e)}, HTTPStatus.BAD_REQUEST)
+                except OSError:
+                    return self._json({"error": "couldn't save settings"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+                return self._json({"settings": data, "restart": again})
+            if path == "/api/restart":
+                if restart is None:
+                    return self._json({"error": "restart isn't available here"}, HTTPStatus.NOT_FOUND)
+                self._json({"restarting": True}, HTTPStatus.ACCEPTED)
+                threading.Timer(0.3, restart).start()  # after this answer is sent
+
+        def do_PUT(self):
             self._json({"error": "read-only"}, HTTPStatus.METHOD_NOT_ALLOWED)
 
-        do_PUT = do_DELETE = do_PATCH = do_POST
+        do_DELETE = do_PATCH = do_PUT
 
     return Handler
 
 
-def serve(hub: Hub, sessions: Path, port: int, terminal: Terminal | None = None) -> ThreadingHTTPServer:
-    httpd = ThreadingHTTPServer(("127.0.0.1", port), make_handler(hub, sessions, port, terminal))
+def serve(hub: Hub, sessions: Path, port: int, terminal: Terminal | None = None,
+          owner: Owner | None = None, settings: Settings | None = None, restart=None) -> ThreadingHTTPServer:
+    httpd = ThreadingHTTPServer(("127.0.0.1", port),
+                                make_handler(hub, sessions, port, terminal, owner, settings, restart))
     httpd.daemon_threads = True
     return httpd

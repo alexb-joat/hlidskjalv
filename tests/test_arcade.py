@@ -11,6 +11,8 @@ from pathlib import Path
 from workflow_arcade.__main__ import HOOKS, check_folder
 from workflow_arcade.redact import redact
 from workflow_arcade import terminal as term
+from workflow_arcade.auth import Owner, issue_pair_code, rotate_key
+from workflow_arcade.settings import Settings, SettingsError, defaults, merge
 from workflow_arcade.server import Hub, read_session, serve
 from workflow_arcade.sources import (
     ClaudeCodeWatcher, CommandWatcher, FileWatcher, SwitchboardWatcher, claude_code_project_dir,
@@ -272,8 +274,9 @@ class TerminalTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
         self.port = free_port()
-        self.shell = term.Terminal(self.root)
-        self.httpd = serve(Hub("demo", [], None, {}), Path(tempfile.mkdtemp()), self.port, self.shell)
+        self.owner = Owner(Path(tempfile.mkdtemp()))
+        self.shell = term.Terminal(self.root, self.owner)
+        self.httpd = serve(Hub("demo", [], None, {}), Path(tempfile.mkdtemp()), self.port, self.shell, self.owner)
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
 
     def tearDown(self):
@@ -291,36 +294,26 @@ class TerminalTest(unittest.TestCase):
     def test_wrong_token_is_closed(self):
         ws = WsClient(self.port)
         self.assertEqual(ws.status, 101)
-        ws.hello(token="guess")
+        ws.hello(key="guess")
         op, data = ws.recv()
         self.assertEqual(op, term.OP_CLOSE)
         self.assertEqual(int.from_bytes(data[:2], "big"), 1008)
 
-    def test_pairing_code_works_once_then_token_runs_a_real_shell(self):
-        code = self.shell.pair_code
+    def test_owner_key_runs_a_real_shell(self):
         ws = WsClient(self.port)
-        ws.hello(pair=code)
-        op, data = ws.recv()
-        self.assertEqual(op, term.OP_TEXT)
-        token = json.loads(data)["token"]
-        self.assertEqual(token, self.shell.token)
+        ws.hello(key=self.owner.key)
         ws.send(term.OP_BIN, b"echo arcade-$((40+2))\n")
         self.assertIn(b"arcade-42", ws.read_until(b"arcade-42"))
         ws.send(term.OP_BIN, b"pwd\n")  # macOS may print /var/... or /private/var/...: match the unique part
         self.assertIn(self.root.name.encode(), ws.read_until(self.root.name.encode()))
 
-        again = WsClient(self.port)  # a copied link is worthless after first use
-        again.hello(pair=code)
-        self.assertEqual(again.recv()[0], term.OP_CLOSE)
-
-        ok = WsClient(self.port)
-        ok.hello(token=token)
-        ok.send(term.OP_BIN, b"echo second\n")
-        self.assertIn(b"second", ok.read_until(b"second"))
+        old = WsClient(self.port)  # the pairing code is no key: the shell refuses it
+        old.hello(key=self.owner.launch_code())
+        self.assertEqual(old.recv()[0], term.OP_CLOSE)
 
     def test_shell_exit_is_reported(self):
         ws = WsClient(self.port)
-        ws.hello(token=self.shell.token)
+        ws.hello(key=self.owner.key)
         ws.send(term.OP_BIN, b"exit 3\n")
         while True:
             op, data = ws.recv()
@@ -347,6 +340,159 @@ class TerminalTest(unittest.TestCase):
         c.request("GET", "/static/vendor/README.md", headers={"Host": f"127.0.0.1:{self.port}"})
         r = c.getresponse(); r.read()
         self.assertEqual(r.status, 404)
+        c.close()
+
+
+class OwnerTest(unittest.TestCase):
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp())
+        self.owner = Owner(self.home)
+
+    def test_key_is_private_and_survives_restarts(self):
+        self.assertGreaterEqual(len(self.owner.key), 40)
+        if os.name == "posix":
+            self.assertEqual((self.home / "owner.key").stat().st_mode & 0o777, 0o600)
+        self.assertEqual(Owner(self.home).key, self.owner.key)
+
+    def test_codes_work_once(self):
+        code = self.owner.launch_code()
+        self.assertEqual(self.owner.redeem(code), self.owner.key)
+        self.assertIsNone(self.owner.redeem(code))
+        code = issue_pair_code(self.home)  # what `pair` does, for a running server
+        self.assertEqual(self.owner.redeem(code), self.owner.key)
+        self.assertIsNone(self.owner.redeem(code))
+        self.assertFalse((self.home / "pair").exists())
+        self.assertIsNone(self.owner.redeem(None))
+        self.assertIsNone(self.owner.redeem("x" * 500))
+
+    def test_codes_expire(self):
+        code = issue_pair_code(self.home)
+        old = time.time() - 3600
+        os.utime(self.home / "pair", (old, old))
+        self.assertIsNone(self.owner.redeem(code))
+
+    def test_rotate_unpairs_without_restart(self):
+        before = self.owner.key
+        rotate_key(self.home)
+        self.assertFalse(self.owner.check(before))
+        self.assertTrue(self.owner.check(self.owner.key))
+
+
+class SettingsTest(unittest.TestCase):
+    def setUp(self):
+        self.path = Path(tempfile.mkdtemp()) / "settings.json"
+        self.s = Settings(self.path)
+
+    def test_defaults_then_partial_update_is_saved(self):
+        self.assertEqual(self.s.data, defaults())
+        data, restart = self.s.update({"look": {"mode": "dark", "background": {"type": "particles"}}})
+        self.assertEqual(data["look"]["mode"], "dark")
+        self.assertEqual(data["look"]["background"]["type"], "particles")
+        self.assertEqual(data["look"]["palette"], "neutral")  # untouched fields keep their value
+        self.assertFalse(restart)
+        self.assertEqual(Settings(self.path).data, data)
+        if os.name == "posix":
+            self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
+
+    def test_server_options_need_restart(self):
+        self.assertTrue(self.s.update({"features": {"terminal": True}})[1])
+
+    def test_rejects_bad_values_without_partial_writes(self):
+        cases = [
+            {"nope": 1}, {"look": {"mode": "neon"}}, {"look": {"font_size": 99}}, {"look": {"accent": "red"}},
+            {"look": {"accent": "#12345g"}}, {"layout": {"views": ["live"]}},
+            {"layout": {"hidden": ["live", "replay", "learn", "details", "terminal", "alerts"]}},
+            {"look": {"animations": "yes"}}, {"look": "dark"}, {"look": {"radius": True}},
+            {"look": {"background": {"colors": ["#000000"] * 4}}},
+        ]
+        for bad in cases:
+            with self.assertRaises(SettingsError, msg=bad):
+                self.s.update(bad)
+        self.assertEqual(self.s.data, defaults())
+        self.assertFalse(self.path.exists())
+
+    def test_damaged_file_falls_back_per_field(self):
+        self.path.write_text(json.dumps({"look": {"mode": "dark", "font_size": 500}, "junk": 1}))
+        data = Settings(self.path).data
+        self.assertEqual(data["look"]["mode"], "dark")
+        self.assertEqual(data["look"]["font_size"], 15)
+        self.path.write_text("not json")
+        self.assertEqual(Settings(self.path).data, defaults())
+
+    def test_merge_reports_where(self):
+        with self.assertRaisesRegex(SettingsError, "look.background.angle"):
+            merge(defaults(), {"look": {"background": {"angle": 999}}})
+
+
+class WriteApiTest(unittest.TestCase):
+    """Every change needs: our Host, our Origin, JSON, and the owner key."""
+
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp())
+        self.port = free_port()
+        self.owner = Owner(self.home)
+        self.settings = Settings(self.home / "settings.json")
+        self.restarted = threading.Event()
+        self.httpd = serve(Hub("demo", [], None, {}), self.home, self.port, None, self.owner, self.settings,
+                           self.restarted.set)
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+
+    def tearDown(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+
+    def post(self, path, body, key=None, origin=None, ctype="application/json", host=None):
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        data = body if isinstance(body, bytes) else json.dumps(body).encode()
+        headers = {"Host": host or f"127.0.0.1:{self.port}", "Origin": origin or f"http://127.0.0.1:{self.port}",
+                   "Content-Type": ctype, "Content-Length": str(len(data))}
+        if key:
+            headers["X-Arcade-Key"] = key
+        c.request("POST", path, body=data, headers=headers)
+        r = c.getresponse()
+        out = (r.status, json.loads(r.read() or b"{}"))
+        c.close()
+        return out
+
+    def test_pair_then_change_settings(self):
+        status, body = self.post("/api/pair", {"code": self.owner.launch_code()})
+        self.assertEqual(status, 200)
+        key = body["key"]
+        self.assertEqual(self.post("/api/ping", {}, key=key)[0], 200)
+        status, body = self.post("/api/settings", {"change": {"layout": {"nav_position": "left"}}}, key=key)
+        self.assertEqual(status, 200)
+        self.assertEqual(body["settings"]["layout"]["nav_position"], "left")
+        self.assertEqual(Settings(self.home / "settings.json").data["layout"]["nav_position"], "left")
+        status, body = self.post("/api/settings", {"change": {"layout": {"nav_position": "diagonal"}}}, key=key)
+        self.assertEqual(status, 400)
+        self.assertIn("layout.nav_position", body["error"])
+
+    def test_refusals(self):
+        key = self.owner.key
+        change = {"change": {"look": {"mode": "dark"}}}
+        self.assertEqual(self.post("/api/settings", change)[0], 401)                        # no key
+        self.assertEqual(self.post("/api/settings", change, key="x" * 43)[0], 401)          # wrong key
+        self.assertEqual(self.post("/api/settings", change, key=key, origin="https://evil.example")[0], 403)
+        self.assertEqual(self.post("/api/settings", change, key=key, origin="null")[0], 403)
+        self.assertEqual(self.post("/api/settings", change, key=key, host="evil.example")[0], 403)
+        self.assertEqual(self.post("/api/settings", change, key=key, ctype="text/plain")[0], 415)  # simple CORS request
+        self.assertEqual(self.post("/api/settings", b"x" * 70000, key=key)[0], 413)
+        self.assertEqual(self.post("/api/settings", b"{not json", key=key)[0], 400)
+        self.assertEqual(self.post("/api/pair", {"code": "guess"})[0], 403)
+        self.assertEqual(self.post("/api/state", {}, key=key)[0], 405)
+        self.assertEqual(self.settings.data["look"]["mode"], "system")  # nothing got through
+
+    def test_restart_needs_key(self):
+        self.assertEqual(self.post("/api/restart", {})[0], 401)
+        self.assertFalse(self.restarted.is_set())
+        self.assertEqual(self.post("/api/restart", {}, key=self.owner.key)[0], 202)
+        self.assertTrue(self.restarted.wait(2))
+
+    def test_settings_are_readable(self):
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        c.request("GET", "/api/settings", headers={"Host": f"127.0.0.1:{self.port}"})
+        r = c.getresponse()
+        self.assertEqual(json.loads(r.read())["settings"], defaults())
         c.close()
 
 

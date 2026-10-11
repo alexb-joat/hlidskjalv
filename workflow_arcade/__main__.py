@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -14,6 +15,8 @@ from pathlib import Path
 from . import __version__
 from .server import Hub, list_sessions, serve
 from . import terminal as term
+from .auth import Owner, issue_pair_code, rotate_key, write_private
+from .settings import Settings
 from .sources import ClaudeCodeWatcher, CommandWatcher, FileWatcher, GitWatcher, SwitchboardWatcher, load_prices
 
 HOOKS = {
@@ -95,20 +98,25 @@ def check_folder(folder: Path) -> None:
         sys.exit(f"Pick a project folder (not your whole home folder or drive): {folder}")
 
 
-def watch(args) -> None:
+def watch(args, argv: list[str]) -> None:
     root = Path(args.folder).expanduser().resolve()
     check_folder(root)
     home = arcade_home()
     sessions = home / "sessions"
     prune(sessions, max(args.keep - 1, 0))
+    owner = Owner(home)
+    settings = Settings(home / "settings.json")
+    prefs = settings.data
 
-    sb_log = args.switchboard_log or os.environ.get("ARCADE_SWITCHBOARD_LOG")
+    # Command-line flags win; otherwise Settings decide.
+    sb_log = (args.switchboard_log or os.environ.get("ARCADE_SWITCHBOARD_LOG")
+              or prefs["sources"]["switchboard_log"])
     sb_path = Path(sb_log).expanduser().resolve() if sb_log else None
     files = FileWatcher(root)
     git = GitWatcher(root)
     cmds = CommandWatcher(root, home / "commands.log")
     ai = SwitchboardWatcher(sb_path, load_prices(home / "prices.json"))
-    claude_code = ClaudeCodeWatcher(root)
+    claude_code = ClaudeCodeWatcher(root) if prefs["sources"]["claude_code"] else None
 
     snapshot = files.snapshot()
     git.prime()
@@ -117,8 +125,8 @@ def watch(args) -> None:
         "git": git.available(), "branch": git.branch,
         "commands_hook": (home / "commands.log").exists(),
         "switchboard": bool(sb_path and sb_path.exists()),
-        "claude_code": claude_code.available(),
-        "terminal": bool(args.terminal and term.supported()),
+        "claude_code": bool(claude_code and claude_code.available()),
+        "terminal": bool((args.terminal or prefs["features"]["terminal"]) and term.supported()),
         "truncated": files.truncated, "version": __version__,
     }
     session_path = sessions / f"{time.strftime('%Y%m%d-%H%M%S')}-{name}.jsonl"
@@ -126,7 +134,7 @@ def watch(args) -> None:
 
     def loop():
         while True:
-            for source in (files, git, cmds, ai, claude_code):
+            for source in (s for s in (files, git, cmds, ai, claude_code) if s):
                 try:
                     for ev in source.poll():
                         hub.publish(ev)
@@ -135,19 +143,26 @@ def watch(args) -> None:
             time.sleep(args.interval)
 
     threading.Thread(target=loop, daemon=True).start()
-    shell = term.Terminal(root) if meta["terminal"] else None
-    httpd = serve(hub, sessions, args.port, shell)
+    def restart():
+        """Start over with the same command line (new settings apply); same PID under systemd."""
+        again = [a for a in argv if a != "--no-open"] + ["--no-open"]
+        os.execv(sys.executable, [sys.executable, "-m", "workflow_arcade", *again])
+
+    shell = term.Terminal(root, owner) if meta["terminal"] else None
+    httpd = serve(hub, sessions, args.port, shell, owner, settings, restart)
+    write_private(home / "server.json", json.dumps({
+        "port": args.port, "pid": os.getpid(), "folder": str(root), "version": __version__,
+        "started": time.time()}))
     url = f"http://127.0.0.1:{args.port}/"
     print(f"Workflow Arcade is watching {root}")
     print(f"  open {url}   (Ctrl+C to stop)")
+    if not args.no_open:
+        url += f"#pair={owner.launch_code()}"  # one use: pairs this browser for settings and the terminal
+    else:
+        print("  to pair a browser (needed for settings and the terminal): python3 -m workflow_arcade pair")
     if shell:
-        url += f"#pair={shell.pair_code}"
         print("  terminal: ON (a real shell in this folder, in the Terminal tab)")
-        if args.no_open:
-            print(f"  pair your browser with this one-time link: {url}")
-        else:
-            print(f"  your browser is being paired; the link works once. If that fails, open: {url}")
-    elif args.terminal:
+    elif args.terminal or prefs["features"]["terminal"]:
         print("  note: the in-browser terminal needs Linux or macOS; it stays off on this system")
     if files.truncated:
         print("  note: more than 5000 files; showing the first 5000")
@@ -155,7 +170,7 @@ def watch(args) -> None:
         print("  tip: terminal commands aren't recorded yet; see README > Record terminal commands")
     if sb_log and not meta["switchboard"]:
         print(f"  note: Switchboard log not found yet at {sb_path}; it appears after the first AI call")
-    if not meta["claude_code"]:
+    if claude_code and not meta["claude_code"]:
         print("  tip: no Claude Code session transcripts found for this folder yet; run `claude` here to see its AI steps too")
     if not args.no_open:
         webbrowser.open(url)
@@ -163,6 +178,21 @@ def watch(args) -> None:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("\nSaved this session for Replay.")
+
+
+def pair(args) -> None:
+    home = arcade_home()
+    if args.rotate:
+        rotate_key(home)
+        print("New owner key: every browser is un-paired.")
+    try:
+        port = int(json.loads((home / "server.json").read_text(encoding="utf-8"))["port"])
+    except (OSError, ValueError, KeyError, TypeError):
+        port = int(os.environ.get("ARCADE_PORT", "8788"))
+    url = f"http://127.0.0.1:{port}/#pair={issue_pair_code(home)}"
+    print(f"Open this once, within 10 minutes, in the browser to pair:\n  {url}")
+    if args.open:
+        webbrowser.open(url)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -180,6 +210,10 @@ def main(argv: list[str] | None = None) -> None:
     w.add_argument("--terminal", action="store_true",
                    help="also allow a real shell in the browser (Terminal tab); off by default")
 
+    pr = sub.add_parser("pair", help="print a one-time link that pairs a browser with the running Arcade")
+    pr.add_argument("--open", action="store_true", help="also open it in the browser")
+    pr.add_argument("--rotate", action="store_true", help="new owner key first: un-pairs every browser")
+
     h = sub.add_parser("hook", help="print the shell snippet that records terminal commands")
     h.add_argument("shell", choices=sorted(HOOKS))
 
@@ -187,7 +221,9 @@ def main(argv: list[str] | None = None) -> None:
 
     args = ap.parse_args(argv)
     if args.cmd == "watch":
-        watch(args)
+        watch(args, list(argv if argv is not None else sys.argv[1:]))
+    elif args.cmd == "pair":
+        pair(args)
     elif args.cmd == "hook":
         print(HOOKS[args.shell].strip())
     elif args.cmd == "sessions":

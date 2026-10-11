@@ -988,6 +988,7 @@ async function boot() {
     const r = await fetch("/api/state", { cache: "no-store" });
     if (!r.ok) throw new Error();
     const state = await r.json();
+    await OWNER.init(); await loadPrefs();
     setMode("live");
     $("#world-eyebrow").textContent = "Live map";
     startWorld(state.snapshot, state.events);
@@ -1367,9 +1368,45 @@ function renderDetails() {
   $("#details-side").replaceChildren(...overviewPanels(src));
 }
 
+/* =========================================================== owner key & settings */
+/* Reading needs nothing; every change needs the owner key, which this browser
+   gets once from a one-time pairing link (#pair=...). See auth.py. */
+const OWNER = {
+  key: store.get("ownerKey", null),
+  paired: false,
+  forget() { this.key = null; this.paired = false; store.set("ownerKey", null); },
+  async post(path, body) {
+    const r = await fetch(path, { method: "POST", cache: "no-store",
+      headers: { "Content-Type": "application/json", ...(this.key ? { "X-Arcade-Key": this.key } : {}) },
+      body: JSON.stringify(body || {}) });
+    let data = {}; try { data = await r.json(); } catch {}
+    if (r.status === 401) this.forget();
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    return data;
+  },
+  async init() {
+    const m = location.hash.match(/^#pair=([\w-]{20,100})$/);
+    if (m) {
+      history.replaceState(null, "", location.pathname + location.search);  // the code is spent either way
+      try { const { key } = await this.post("/api/pair", { code: m[1] }); this.key = key; store.set("ownerKey", key); toast("This browser is paired."); }
+      catch (e) { toast("Pairing failed: " + e.message); }
+    }
+    if (this.key) { try { await this.post("/api/ping"); this.paired = true; } catch { this.paired = false; } }
+  },
+};
+let PREFS = null;
+async function loadPrefs() {
+  try { PREFS = (await (await fetch("/api/settings", { cache: "no-store" })).json()).settings || null; } catch { PREFS = null; }
+  return PREFS;
+}
+async function savePrefs(change) {
+  const r = await OWNER.post("/api/settings", { change });
+  PREFS = r.settings;
+  return r;  // r.restart: some changes only apply after POST /api/restart
+}
+
 /* =========================================================== terminal */
-const TERM = { term: null, fit: null, ws: null, loading: null, pair: null, status: null };
-{ const m = location.hash.match(/^#pair=([\w-]{20,})$/); if (m) { TERM.pair = m[1]; history.replaceState(null, "", location.pathname + location.search); } }
+const TERM = { term: null, fit: null, ws: null, loading: null, status: null };
 function loadVendor() {
   if (TERM.loading) return TERM.loading;
   const add = (tag, attrs) => new Promise((ok, fail) => { const el = h(tag, attrs); el.onload = ok; el.onerror = fail; document.head.append(el); });
@@ -1389,7 +1426,7 @@ function renderTerminal() {
       h("div", { class: "cmd", text: "python3 -m workflow_arcade watch ~/projects/my-app --terminal" }),
       h("ul", { class: "dlist" },
         h("li", { class: "ok" }, "Only this page can connect", h("small", { text: "Other websites and other users on this computer are refused: the Arcade checks the page's origin and a secret key made fresh at every start." })),
-        h("li", { class: "ok" }, "Paired once per start", h("small", { text: "The link the Arcade opens carries a one-time pairing code. After the first use it's worthless, even if someone copies it." })),
+        h("li", { class: "ok" }, "Only paired browsers", h("small", { text: "A browser is paired once with a one-time link (the one the Arcade opens, or: python3 -m workflow_arcade pair). After the first use the link is worthless, even if someone copies it." })),
         h("li", { class: "warn" }, "It's a real shell", h("small", { text: "Commands run as you, in the project folder. Use the Academy's command decoder when you're unsure what a command does." })))));
   }
   if (slot.dataset.state === "on") { requestAnimationFrame(() => TERM.fit && TERM.fit.fit()); return; }
@@ -1416,22 +1453,21 @@ function termConnect(fresh) {
   const term = TERM.term; if (!term) return;
   if (TERM.ws) { TERM.ws.onclose = null; TERM.ws.close(); TERM.ws = null; }
   if (fresh) term.reset();
-  const token = store.get("termToken", null);
-  if (!TERM.pair && !token) return termStatus("Not paired. Open the one-time link printed where you started the Arcade.");
+  const key = OWNER.key;
+  if (!key) return termStatus("This browser isn't paired. Run: python3 -m workflow_arcade pair");
   const ws = new WebSocket(`ws://${location.host}/api/term`); ws.binaryType = "arraybuffer"; TERM.ws = ws;
   termStatus("Connecting…");
-  ws.onopen = () => { ws.send(JSON.stringify({ ...(TERM.pair ? { pair: TERM.pair } : { token }), size: [term.cols, term.rows] })); TERM.pair = null; };
+  ws.onopen = () => ws.send(JSON.stringify({ key, size: [term.cols, term.rows] }));
   ws.onmessage = m => {
     if (typeof m.data !== "string") { termStatus(`Shell in ${world.snapshot.project} · runs as you`); return term.write(new Uint8Array(m.data)); }
     let msg; try { msg = JSON.parse(m.data); } catch { return; }
-    if (msg.token) store.set("termToken", msg.token);
     if (msg.exit != null) term.write(`\r\n\x1b[2m[shell ended with code ${msg.exit}. Press New shell for another.]\x1b[0m\r\n`);
     if (msg.error) term.write(`\r\n\x1b[31m${msg.error}\x1b[0m\r\n`);
   };
   ws.onclose = e => {
     if (TERM.ws !== ws) return;
     TERM.ws = null;
-    if (e.code === 1008) { store.set("termToken", null); termStatus("This browser isn't paired with the running Arcade. Restart it and use the new link it prints (links work once)."); }
+    if (e.code === 1008) { OWNER.forget(); termStatus("This browser isn't paired (any more). Run: python3 -m workflow_arcade pair"); }
     else if (e.code === 1013) termStatus("Too many terminals open. Close another Arcade tab first.");
     else termStatus("Disconnected. Press New shell to start another.");
   };

@@ -85,16 +85,26 @@ The **Details** tab explains each AI step in full: Switchboard's reasons for the
 
 Cline's requests carry a large instruction block, and small local models (3B–8B) often struggle to follow it for multi-step edits. Keep a strong cloud model first in Switchboard's `code` route, and let local models take the quick and writing routes.
 
+## Pairing a browser
+
+Watching needs nothing. Anything that **changes** something (settings, the terminal) needs the owner key, which a browser gets once:
+
+- The link the Arcade opens at start pairs that browser automatically.
+- For another browser, or an Arcade started with `--no-open` or at login: `python3 -m workflow_arcade pair` prints a one-time link (add `--open` to open it).
+
+Pairing links work **once** and expire after 10 minutes, so a copied link is worthless. The key itself lives in `~/.arcade/owner.key` (readable only by you) and survives restarts. `python3 -m workflow_arcade pair --rotate` replaces it and un-pairs every browser at once.
+
+Changes must also come from the Arcade's own page (Origin check) and be JSON, so other websites can't send them. Settings are saved in `~/.arcade/settings.json`.
+
 ## Terminal in the page (optional, Linux and macOS)
 
 ```bash
 python3 -m workflow_arcade watch ~/projects/my-app --terminal
 ```
 
-The **Terminal** tab then runs your normal shell in the project folder, as you. Commands typed there land in the quest log like any other (with the shell hook installed). A shell in a web page can do anything you can, so it's off by default and locked down when on:
+(or switch it on in Settings). The **Terminal** tab then runs your normal shell in the project folder, as you. Commands typed there land in the activity log like any other (with the shell hook installed). A shell in a web page can do anything you can, so it's off by default and locked down when on:
 
-- Only the Arcade's own page can connect. Other websites are refused by an Origin check, and other users or programs on the computer by a secret key made fresh at every start.
-- Your browser gets that key by trading a **one-time pairing code** from the link the Arcade opens. Once used, the link is worthless, even if someone copied it. To use another browser, restart the Arcade and open the new link it prints.
+- Only the Arcade's own page can connect. Other websites are refused by an Origin check, and other users or programs on the computer by the owner key (see Pairing).
 - At most four shells at a time; each one is closed when its tab disconnects.
 
 The terminal display is [xterm.js](https://xtermjs.org/) (MIT), shipped unmodified in `workflow_arcade/static/vendor/` with its npm checksums. Windows isn't supported yet.
