@@ -116,9 +116,10 @@ class WebSocket:
 class Terminal:
     """Shells for one Arcade launch: who may open them, the folder they start in, the slot count."""
 
-    def __init__(self, root, owner):
+    def __init__(self, root, owner, on_refused=None):
         self.root = str(root)
         self.owner = owner
+        self.on_refused = on_refused or (lambda *a: None)
         self.slots = threading.BoundedSemaphore(MAX_SESSIONS)
 
     def shell(self) -> list[str]:
@@ -130,6 +131,7 @@ class Terminal:
     def run(self, ws: WebSocket, sock) -> None:
         """Authenticate, then bridge the WebSocket and a fresh pty shell until either ends."""
         if not self.slots.acquire(blocking=False):
+            self.on_refused("info", "A terminal was refused: too many open", f"At most {MAX_SESSIONS} at a time.", "term-slots")
             return ws.close(1013, "too many terminals open")
         try:
             sock.settimeout(AUTH_TIMEOUT_S)
@@ -139,6 +141,8 @@ class Terminal:
             except (ValueError, OSError):
                 hello = {}
             if not isinstance(hello, dict) or not self.owner.check(hello.get("key")):
+                self.on_refused("medium", "A terminal connection without the owner key was refused",
+                                "Only a paired browser may open a shell.", "term-key")
                 return ws.close(1008, "not paired")
             sock.settimeout(None)
             self._bridge(ws, hello.get("size"))

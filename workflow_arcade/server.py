@@ -103,8 +103,20 @@ def read_session(folder: Path, sid: str) -> list[dict] | None:
     return events
 
 
+class AlertsContext:
+    """What the alert endpoints need: the publisher, the history file, acknowledgements, journal status."""
+
+    def __init__(self, alerter, history: Path, acks, system_log=None):
+        self.alerter, self.history, self.acks, self.system_log = alerter, history, acks, system_log
+
+
 def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None = None,
-                 owner: Owner | None = None, settings: Settings | None = None, restart=None):
+                 owner: Owner | None = None, settings: Settings | None = None, restart=None,
+                 alerts: AlertsContext | None = None):
+    def refused(severity: str, title: str, detail: str, fp: str):
+        if alerts:
+            alerts.alerter.raise_(severity, "refused_access", title, detail[:300], fingerprint=fp)
+
     def autostart_status():
         from .autostart import status
         return status(sessions.parent)
@@ -144,9 +156,28 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
             self._headers(status, "application/json; charset=utf-8", len(data))
             self.wfile.write(data)
 
+        def _foreign_host(self) -> bool:
+            host = self.headers.get("Host", "")
+            if host in allowed_hosts:
+                return False
+            refused("high", "Blocked a request for another host name",
+                    f"Host: {host[:100]!r}. A web page using DNS rebinding looks like this; so does typing another name for this computer.",
+                    "host-" + host[:60])
+            self._json({"error": "forbidden host"}, HTTPStatus.FORBIDDEN)
+            return True
+
+        def _foreign_origin(self, what: str) -> bool:
+            origin = self.headers.get("Origin")
+            if origin in allowed_origins:
+                return False
+            refused("high", f"A web page tried to {what}", f"Origin: {str(origin)[:100]!r}. Only this Arcade's own page may do that.",
+                    "origin-" + str(origin)[:60])
+            self._json({"error": "forbidden origin"}, HTTPStatus.FORBIDDEN)
+            return True
+
         def do_GET(self):
-            if self.headers.get("Host", "") not in allowed_hosts:
-                return self._json({"error": "forbidden host"}, HTTPStatus.FORBIDDEN)
+            if self._foreign_host():
+                return
             url = urlparse(self.path)
             q = parse_qs(url.query)
             if url.path == "/":
@@ -165,6 +196,12 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                 self.wfile.write(data)
             elif url.path == "/api/term":
                 self._terminal()
+            elif url.path == "/api/alerts":
+                if alerts is None:
+                    return self._json({"alerts": [], "acks": [], "system_log": None})
+                from .alerts import read_history
+                self._json({"alerts": read_history(alerts.history), "acks": alerts.acks.ids,
+                            "system_log": alerts.system_log() if alerts.system_log else None})
             elif url.path == "/api/settings":
                 if settings is None:
                     return self._json({"error": "settings are off"}, HTTPStatus.NOT_FOUND)
@@ -181,8 +218,8 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
             if terminal is None:
                 return self._json({"error": "terminal is off; start with --terminal"}, HTTPStatus.NOT_FOUND)
             # Browsers don't apply CORS to WebSockets: only our own page may connect.
-            if self.headers.get("Origin") not in allowed_origins:
-                return self._json({"error": "forbidden origin"}, HTTPStatus.FORBIDDEN)
+            if self._foreign_origin("open the terminal"):
+                return
             key = self.headers.get("Sec-WebSocket-Key", "")
             if (self.headers.get("Upgrade", "").lower() != "websocket"
                     or "upgrade" not in self.headers.get("Connection", "").lower() or len(key) != 24):
@@ -214,13 +251,14 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                 return
 
         def do_POST(self):
-            if self.headers.get("Host", "") not in allowed_hosts:
-                return self._json({"error": "forbidden host"}, HTTPStatus.FORBIDDEN)
+            if self._foreign_host():
+                return
             path = urlparse(self.path).path
-            if path not in ("/api/pair", "/api/ping", "/api/settings", "/api/restart", "/api/autostart") or owner is None:
+            if path not in ("/api/pair", "/api/ping", "/api/settings", "/api/restart", "/api/autostart",
+                            "/api/alerts/ack") or owner is None:
                 return self._json({"error": "read-only"}, HTTPStatus.METHOD_NOT_ALLOWED)
-            if self.headers.get("Origin") not in allowed_origins:
-                return self._json({"error": "forbidden origin"}, HTTPStatus.FORBIDDEN)
+            if self._foreign_origin("change the Arcade"):
+                return
             if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
                 return self._json({"error": "send JSON"}, HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
             length = self.headers.get("Content-Length", "")
@@ -236,9 +274,13 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
             if path == "/api/pair":
                 key = owner.redeem(body.get("code"))
                 if not key:
+                    refused("medium", "A pairing code was refused", "It was wrong, already used or expired. Opening an old pairing link twice does this too.", "pair")
                     return self._json({"error": "pairing code is wrong, used or expired"}, HTTPStatus.FORBIDDEN)
                 return self._json({"key": key})
             if not owner.check(self.headers.get("X-Arcade-Key")):
+                if self.headers.get("X-Arcade-Key"):
+                    refused("medium", "A request with a wrong owner key was refused",
+                            f"{path}. A browser paired before `pair --rotate` does this once; anything else is someone guessing.", "key")
                 return self._json({"error": "this browser isn't paired"}, HTTPStatus.UNAUTHORIZED)
             if path == "/api/ping":
                 return self._json({"ok": True})
@@ -254,6 +296,16 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                 except OSError:
                     return self._json({"error": "couldn't save settings"}, HTTPStatus.INTERNAL_SERVER_ERROR)
                 return self._json({"settings": data, "restart": again})
+            if path == "/api/alerts/ack":
+                if alerts is None:
+                    return self._json({"error": "alerts are off"}, HTTPStatus.NOT_FOUND)
+                ids = body.get("ids")
+                if not isinstance(ids, list):
+                    return self._json({"error": "ids must be a list"}, HTTPStatus.BAD_REQUEST)
+                try:
+                    return self._json({"acks": alerts.acks.add(ids)})
+                except OSError:
+                    return self._json({"error": "couldn't save"}, HTTPStatus.INTERNAL_SERVER_ERROR)
             if path == "/api/autostart":  # owner-only: it includes recent log lines
                 return self._json(autostart_status())
             if path == "/api/restart":
@@ -271,8 +323,9 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
 
 
 def serve(hub: Hub, sessions: Path, port: int, terminal: Terminal | None = None,
-          owner: Owner | None = None, settings: Settings | None = None, restart=None) -> ThreadingHTTPServer:
+          owner: Owner | None = None, settings: Settings | None = None, restart=None,
+          alerts: AlertsContext | None = None) -> ThreadingHTTPServer:
     httpd = ThreadingHTTPServer(("127.0.0.1", port),
-                                make_handler(hub, sessions, port, terminal, owner, settings, restart))
+                                make_handler(hub, sessions, port, terminal, owner, settings, restart, alerts))
     httpd.daemon_threads = True
     return httpd

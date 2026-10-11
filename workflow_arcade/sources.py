@@ -340,6 +340,7 @@ class ClaudeCodeWatcher:
     MAX_SEEN = 20_000
 
     def __init__(self, root: Path, claude_home: Path | None = None):
+        self.root = root
         self.dir = claude_code_project_dir(root, claude_home)
         self.tails: dict[Path, Tail] = {}
         self.seen: dict[str, None] = {}  # insertion-ordered, so trimming drops the oldest
@@ -355,15 +356,40 @@ class ClaudeCodeWatcher:
         # <session>.jsonl, plus <session>/subagents/*.jsonl for agents it starts
         return sorted([*self.dir.glob("*.jsonl"), *self.dir.glob("*/subagents/*.jsonl")])
 
-    def _event(self, line: str, subagent: bool) -> dict | None:
+    def _events(self, line: str, subagent: bool) -> list[dict]:
         if '"assistant"' not in line:  # cheap pre-filter: most lines are tool results
-            return None
+            return []
         try:
             r = json.loads(line)
         except ValueError:
-            return None
+            return []
         if not isinstance(r, dict) or r.get("type") != "assistant":
+            return []
+        out = [self._command(b, r.get("cwd"), subagent) for b in (r.get("message") or {}).get("content") or []
+               if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") == "Bash"]
+        turn = self._event(r, subagent)
+        return [e for e in [turn, *out] if e]
+
+    def _command(self, block: dict, cwd, subagent: bool) -> dict | None:
+        """A shell command the AI ran (its Bash tool). Masked like typed commands; never its output."""
+        bid, inp = block.get("id"), block.get("input") or {}
+        cmd = inp.get("command")
+        if not bid or bid in self.seen or not isinstance(cmd, str) or not cmd.strip():
             return None
+        self.seen[bid] = None
+        where = "?"
+        if isinstance(cwd, str) and cwd:
+            try:
+                rel = Path(cwd).resolve().relative_to(self.root)
+                where = "." if str(rel) == "." else rel.as_posix()
+            except (ValueError, OSError):
+                home = str(Path.home())
+                where = "~" + cwd[len(home):] if cwd.startswith(home) else cwd
+        return {"type": "command", "cmd": redact(cmd, 1000), "cwd": where[:300], "actor": "ai",
+                "agent": "Claude Code" + (" (subagent)" if subagent else ""),
+                "why": redact(str(inp.get("description") or ""), 200) or None}
+
+    def _event(self, r: dict, subagent: bool) -> dict | None:
         msg = r.get("message") or {}
         mid, model = msg.get("id"), msg.get("model")
         # One message is split over several lines (one per content block); count it once.
@@ -404,7 +430,5 @@ class ClaudeCodeWatcher:
                 self.tails[p] = t
             sub = p.parent.name == "subagents"
             for line in self.tails[p].lines():
-                ev = self._event(line, sub)
-                if ev:
-                    events.append(ev)
+                events.extend(self._events(line, sub))
         return events

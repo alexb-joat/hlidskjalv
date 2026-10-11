@@ -114,6 +114,19 @@ python3 -m workflow_arcade pair --open                          # pair your brow
 - The in-page terminal stays off at login unless you switched it on in Settings.
 - Logs: `journalctl --user -u workflow-arcade -f` (Linux), `~/.arcade/arcade.log` (macOS).
 
+## Alerts
+
+The **Alerts** view (bell icon) collects things you didn't do yourself, most severe first, with an unread count on the icon:
+
+| Source | What raises an alert |
+|---|---|
+| **Commands the AI ran** | A risky shell command an AI agent ran in this project on its own (from Claude Code's transcripts): `rm -rf`, `curl … \| sh`, `sudo`, `git push --force`, printing `.env`… The command shows up in the activity log either way, marked "run by AI". |
+| **Refused access** | Requests the Arcade turned away (another website, another host name, a wrong owner key, a used pairing link) and requests Switchboard refused for a wrong or missing API key (from its `logs/security.jsonl`). |
+| **Persistence changes** | Something set itself up to run later: login items (systemd user units, launchd agents, `~/.config/autostart`, the Windows Startup folder and Run keys), `crontab`, shell startup files (`.bashrc`, `.zshrc`…), SSH `authorized_keys` (fingerprints only, never keys), `~/.gitconfig` hooks and helpers, and this project's Git hooks. Only changes after the Arcade starts count; its own login item is marked "expected". |
+| **sudo and logins** | `sudo` use and failures, SSH logins and new login sessions, from the system journal (Linux, for members of the `adm` or `systemd-journal` group). |
+
+Alerts are kept in `~/.arcade/alerts.jsonl` (readable only by you), so they survive restarts. Mark them seen one by one or all at once. Pick the view (grouped by severity, the default; timeline; compact), filter and search; in Settings → Alerts switch sources on or off, choose from which severity a pop-up appears, and turn on browser notifications, a sound, or your own colour per severity. Secrets in commands and file changes are masked before they're shown or saved.
+
 ## Pairing a browser
 
 Watching needs nothing. Anything that **changes** something (settings, the terminal) needs the owner key, which a browser gets once:

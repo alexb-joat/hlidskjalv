@@ -13,7 +13,8 @@ import webbrowser
 from pathlib import Path
 
 from . import __version__
-from .server import Hub, list_sessions, serve
+from .alerts import Acks, Alerter, PersistenceWatcher, SwitchboardSecurityWatcher, SystemLogWatcher
+from .server import AlertsContext, Hub, list_sessions, serve
 from . import terminal as term
 from .auth import Owner, issue_pair_code, rotate_key, write_private
 from .settings import Settings
@@ -132,9 +133,17 @@ def watch(args, argv: list[str]) -> None:
     session_path = sessions / f"{time.strftime('%Y%m%d-%H%M%S')}-{name}.jsonl"
     hub = Hub(root.name, snapshot, session_path, meta)
 
+    # Alerts: things you didn't do yourself (see alerts.py). Each source can be switched off in Settings.
+    alerter = Alerter(hub.publish, settings, home / "alerts.jsonl")
+    persistence = PersistenceWatcher(root, alerter, expected=home / "expected.json")
+    syslog = SystemLogWatcher(alerter)
+    sb_security = SwitchboardSecurityWatcher(sb_path.parent / "security.jsonl" if sb_path else None, alerter)
+    alerts_ctx = AlertsContext(alerter, home / "alerts.jsonl", Acks(home / "alerts-ack.json"),
+                               lambda: {"available": syslog.available, "why": syslog.why})
+
     def loop():
         while True:
-            for source in (s for s in (files, git, cmds, ai, claude_code) if s):
+            for source in (s for s in (files, git, cmds, ai, claude_code, persistence, syslog, sb_security) if s):
                 try:
                     for ev in source.poll():
                         hub.publish(ev)
@@ -148,8 +157,9 @@ def watch(args, argv: list[str]) -> None:
         again = [a for a in argv if a != "--no-open"] + ["--no-open"]
         os.execv(sys.executable, [sys.executable, "-m", "workflow_arcade", *again])
 
-    shell = term.Terminal(root, owner) if meta["terminal"] else None
-    httpd = serve(hub, sessions, args.port, shell, owner, settings, restart)
+    shell = term.Terminal(root, owner, lambda sev, title, detail, fp: alerter.raise_(
+        sev, "refused_access", title, detail, fingerprint=fp)) if meta["terminal"] else None
+    httpd = serve(hub, sessions, args.port, shell, owner, settings, restart, alerts_ctx)
     write_private(home / "server.json", json.dumps({
         "port": args.port, "pid": os.getpid(), "folder": str(root), "version": __version__,
         "started": time.time()}))

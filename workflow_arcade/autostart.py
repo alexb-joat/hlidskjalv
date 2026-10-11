@@ -145,18 +145,23 @@ def _run(*args: str, timeout: float = 15) -> tuple[int, str]:
 def enable(folder: Path, port: int, home: Path) -> str:
     sysname = system()
     if sysname == "linux":
-        p = unit_path()
+        from .alerts import remember_expected
+        p, text = unit_path(), render_unit(folder, port)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(render_unit(folder, port), encoding="utf-8")
+        remember_expected(home, p, text.encode())  # our own login item: not a foreign one
+        p.write_text(text, encoding="utf-8")
         _run("systemctl", "--user", "daemon-reload")
         code, out = _run("systemctl", "--user", "enable", "--now", UNIT)
         return out if code else f"on: starts at login. Unit: {p}\nlogs: journalctl --user -u {UNIT} -f"
     if sysname == "darwin":
+        from .alerts import remember_expected
         p, log = plist_path(), home / "arcade.log"
+        text = render_plist(folder, port, log)
         p.parent.mkdir(parents=True, exist_ok=True)
+        remember_expected(home, p, text.encode())
         old = os.umask(0o077)
         try:
-            p.write_text(render_plist(folder, port, log), encoding="utf-8")
+            p.write_text(text, encoding="utf-8")
         finally:
             os.umask(old)
         domain = f"gui/{os.getuid()}"

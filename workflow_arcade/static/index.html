@@ -9,6 +9,7 @@
   --bg: #f6f6f4; --surface: #ffffff; --text: #1d1d1b; --accent: #3b5bdb; --accent-text: #ffffff;
   --ok: #2b8a3e; --info: #1971c2; --ai: #6741d9; --warn: #b35c00; --danger: #c92a2a; --docs: #8a6a1f;
   --web: #c2255c; --script: #5c940d; --asset: #3b5bdb; --str: #c2410c;
+  --sev-critical: #c92a2a; --sev-high: #d9480f; --sev-medium: #b35c00; --sev-info: #1971c2;
   --raised: color-mix(in srgb, var(--text) 5%, var(--surface));
   --line: color-mix(in srgb, var(--text) 13%, var(--surface));
   --muted: color-mix(in srgb, var(--text) 62%, var(--surface));
@@ -21,6 +22,7 @@
   --bg: #111112; --surface: #1a1a1c; --text: #ececea; --accent: #8ea6ff; --accent-text: #0e0e10;
   --ok: #69db7c; --info: #74c0fc; --ai: #b197fc; --warn: #ffc078; --danger: #ff8787; --docs: #e9c46a;
   --web: #ff9fcf; --script: #9be36a; --asset: #8fb0ff; --str: #ffb4a2;
+  --sev-critical: #ff6b6b; --sev-high: #ff922b; --sev-medium: #ffd43b; --sev-info: #74c0fc;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -290,6 +292,22 @@ details > summary { cursor: pointer; color: var(--muted); font-weight: 700; }
 #term { height: min(70vh, 640px); min-height: 280px; border-radius: calc(var(--r) * 0.833333); overflow: hidden; background: #0d0f12; padding: 6px; border: 1px solid var(--line); }
 .termoff { padding: 18px; display: grid; gap: 10px; }
 
+/* ---------- alerts */
+.alerts-bar { margin: 12px 0; align-items: center; }
+.alert-groups, .alert-list { display: grid; gap: 8px; }
+.alert-group { display: grid; gap: 8px; margin-bottom: 10px; }
+.alert { display: grid; grid-template-columns: 78px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: calc(10px * var(--pad)) calc(12px * var(--pad));
+  border-radius: var(--r); background: var(--surface); border: 1px solid var(--line); box-shadow: inset 4px 0 0 var(--c); }
+.alert:not(.seen):not(.expected) { background: color-mix(in srgb, var(--c) 8%, var(--surface)); border-color: color-mix(in srgb, var(--c) 40%, var(--line)); }
+.alert.seen, .alert.expected { opacity: .72; }
+.alert .sev { font: 700 calc(11px * var(--fz))/1.2 var(--body); letter-spacing: .08em; text-transform: uppercase; color: var(--c); padding-top: 3px; }
+.alert .t { font-weight: 700; overflow-wrap: anywhere; } .alert .s { font-size: calc(13px * var(--fz)); color: var(--muted); overflow-wrap: anywhere; }
+.alert .meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; align-items: center; }
+.alert time { font-size: calc(11px * var(--fz)); color: var(--muted); }
+.alert-list.compact .alert { padding-block: 6px; } .alert-list.compact .alert .meta { margin-top: 2px; }
+@media (max-width: 640px) { .alert { grid-template-columns: minmax(0, 1fr); } }
+.chip.byai { color: var(--ai); }
+
 /* ---------- dialogs, setup and Settings */
 .modal-back { position: fixed; inset: 0; z-index: 60; background: color-mix(in srgb, #000 45%, transparent); display: grid; place-items: center; padding: 16px; }
 .modal { width: min(560px, 100%); max-height: calc(100dvh - 32px); overflow: auto; background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: calc(var(--r) * 1.4); box-shadow: 0 24px 60px -20px #000; padding: calc(18px * var(--pad)); display: grid; gap: 12px; align-content: start; }
@@ -454,6 +472,17 @@ code { font: calc(12.5px * var(--fz))/1.45 var(--mono); overflow-wrap: anywhere;
       </div>
     </div>
     <div class="dgrid"><div class="dcol" id="details-main"></div><div class="dcol" id="details-side"></div></div>
+  </section>
+
+  <section class="view" id="view-alerts" role="tabpanel" aria-labelledby="tab-alerts" hidden>
+    <div class="intro">
+      <div class="title">
+        <div class="eyebrow">Alerts</div>
+        <h2>Things you didn't do yourself</h2>
+        <p>New login items and scheduled jobs, changed shell startup files or SSH keys, requests the Arcade or Switchboard refused, risky commands an AI agent ran, sudo and logins. Most severe first.</p>
+      </div>
+    </div>
+    <div id="alerts-slot"></div>
   </section>
 
   <section class="view" id="view-terminal" role="tabpanel" aria-labelledby="tab-terminal" hidden>
@@ -800,6 +829,7 @@ const EV = {
   command: { c: "var(--info)", why: "Commands act on your computer. Hover each piece to see what it does before approving the next one." },
   commit: { c: "var(--accent)", why: "A save point. You can always come back to this exact state." },
   branch: { c: "var(--ai)", why: "A branch is a parallel version of the project, handy for trying ideas safely." },
+  alert: { c: "var(--sev-high)", why: "Something happened that you didn't do yourself. Check it; mark it seen in Alerts." },
   ai_call: { c: "var(--ai)", why: "Switchboard picked this model for this step. Local models are free and private; cloud models cost money per token." },
 };
 function eventView(ev) {
@@ -811,8 +841,13 @@ function eventView(ev) {
     case "file_created": title = `Created ${name}`; sub = `${info.title}${ev.lines != null ? ` · ${ev.lines} lines` : ""}`; where = ev.path; break;
     case "file_changed": title = `Edited ${name}`; sub = ev.added != null ? `+${ev.added}  −${ev.removed} lines` : "Changed (binary or private file)"; where = ev.path; break;
     case "file_deleted": title = `Deleted ${name}`; sub = info.title; where = ev.path; break;
+    case "alert":
+      title = ev.title; sub = String(ev.detail || "").split("\n")[0]; where = ALERT_SOURCES[ev.source]?.label || ev.source; tone = SEV[ev.severity]?.n >= 2 ? "danger" : null;
+      chips.push(h("span", { class: "chip", style: `color: var(--sev-${ev.severity})` }, SEV[ev.severity]?.label || ev.severity));
+      break;
     case "command": {
-      const { line, ex } = cmdLine(ev.cmd); title = "Ran a command"; sub = ex.summary; extra = line;
+      const { line, ex } = cmdLine(ev.cmd); title = ev.actor === "ai" ? `${ev.agent || "AI"} ran a command` : "Ran a command"; sub = ev.why || ex.summary; extra = line;
+      if (ev.actor === "ai") chips.push(h("span", { class: "chip byai", tip: { title: "Run by AI", body: `${ev.agent || "An AI agent"} ran this itself, not you.`, why: ev.why ? `It said: ${ev.why}` : null } }, "run by AI"));
       where = "in " + (ev.cwd === "." ? "project root" : ev.cwd);
       for (const r of ex.risks) chips.push(h("span", { class: "chip " + (r.level === "danger" ? "bad" : "warn"), tip: { title: r.level === "danger" ? "Careful" : "Heads-up", body: r.text, tone: r.level === "danger" ? "danger" : "warn" } }, r.level === "danger" ? "Careful" : "Heads-up"));
       break;
@@ -865,7 +900,7 @@ function applyEvent(w, ev) {
   }
 }
 const XP_RULES = { file_created: 10, file_changed: 5, file_deleted: 2, command: 3, commit: 50, branch: 10, ai_call: 2 };
-const xpOf = ev => (XP_RULES[ev.type] || 0) + (ev.type === "ai_call" && ev.local ? 3 : 0);
+const xpOf = ev => ev.actor === "ai" ? 0 : (XP_RULES[ev.type] || 0) + (ev.type === "ai_call" && ev.local ? 3 : 0);
 
 /* =========================================================== world view */
 function makeWorldView(slot, src) {
@@ -1019,6 +1054,9 @@ function demoSession() {
     [480, { type: "command", cmd: "git commit -am \"Explain setup in README\"", cwd: "." }],
     [482, { type: "commit", sha: "d4e5f6a", message: "Explain setup in README", files_changed: 1, insertions: 14, deletions: 2 }],
     [500, { type: "command", cmd: "git push", cwd: "." }],
+    [520, { type: "command", cmd: "curl -s https://get.example.dev/setup.sh | bash", cwd: ".", actor: "ai", agent: "Claude Code", why: "Install the formatter" }],
+    [540, { type: "alert", severity: "high", source: "persistence", title: "Login services (systemd user units): added updater.service", detail: "~/.config/systemd/user/updater.service\nPrograms that start at login or on a timer.\n+ExecStart=/home/me/.cache/upd/run.sh", uid: "demo-1", expected: false }],
+    [560, { type: "alert", severity: "medium", source: "refused_access", title: "Switchboard refused a request (invalid or missing API key)", detail: "POST /v1/chat/completions from 127.0.0.1", uid: "demo-2", expected: false }],
   ];
   const snap = { type: "snapshot", ts: t0, project: "weather-bot (example)", files, git: true, branch: "main", commands_hook: true, switchboard: true };
   return [snap, ...steps.map(([dt, e], i) => ({ id: i + 1, ts: t0 + dt, ...e }))];
@@ -1052,11 +1090,11 @@ function startWorld(snap, events) {
   $("#project").textContent = snap.project + (snap.branch ? ` · ${snap.branch}` : "");
   sourceChips(snap);
   workXp = 0;
-  events.forEach((ev, i) => { applyEvent(world, ev); workXp += xpOf(ev); if (i >= events.length - 300) worldView.add(ev); });
+  events.forEach((ev, i) => { applyEvent(world, ev); workXp += xpOf(ev); if (i >= events.length - 300) worldView.add(ev); alertEvent(ev, false); });
   worldView.render(world); updateLevel();
 }
 function liveEvent(ev) {
-  applyEvent(world, ev); workXp += xpOf(ev); liveEvents.push(ev);
+  applyEvent(world, ev); workXp += xpOf(ev); liveEvents.push(ev); alertEvent(ev, true);
   worldView.render(world); worldView.add(ev, true); worldView.flash(ev); updateLevel();
   if (currentTab === "details") detailsChanged();
   if (ev.type === "commit" && world.stats.commits === 1) toast("First save point! +50 XP");
@@ -1360,7 +1398,8 @@ function eventPanel(ev, src) {
       break;
     case "command": {
       const ex = explainCommand(ev.cmd);
-      rows.push(["Folder", ev.cwd === "." ? "project root" : ev.cwd], ["In short", ex.summary]);
+      rows.push(["Folder", ev.cwd === "." ? "project root" : ev.cwd], ["In short", ex.summary],
+        ev.actor === "ai" && ["Run by", ev.agent || "an AI agent", "Not typed by you."], ev.why && ["It said", ev.why]);
       extra.push(h("div", { class: "eyebrow", text: "Piece by piece" }), cmdLine(ev.cmd).line,
         h("ul", { class: "dlist" }, ...ex.parts.map(pt => h("li", { class: pt.tip.tone === "danger" ? "bad" : "" }, h("b", { class: "tok " + pt.cls, text: pt.t }), h("small", { text: pt.tip.body })))));
       if (ex.risks.length) extra.push(h("ul", { class: "dlist" }, ...ex.risks.map(r => h("li", { class: r.level === "danger" ? "bad" : "warn" }, (r.level === "danger" ? "Careful: " : "Heads-up: ") + r.text))));
@@ -1368,6 +1407,17 @@ function eventPanel(ev, src) {
     }
     case "commit": rows.push(["Save point", ev.sha], ["Message", ev.message], ["Size", `${ev.files_changed || 0} files · +${ev.insertions || 0} −${ev.deletions || 0}`]); break;
     case "branch": rows.push(["Now on", ev.branch], ["Came from", ev.previous]); break;
+    case "alert": {
+      const what = { persistence: "If you didn't add this yourself, or you don't know the program, look at the file before your next login and remove what you don't recognise.",
+        refused_access: "Nothing got through. If it repeats and isn't one of your own old browser tabs or links, something on this computer is probing the Arcade or Switchboard.",
+        system_log: "If you didn't run this or log in, change your password and check who has access.",
+        ai_commands: "The AI ran this on its own. Check that it did what you asked; in Claude Code you can require approval for such commands." }[ev.source];
+      rows.push(["Severity", SEV[ev.severity]?.label || ev.severity], ["Source", ALERT_SOURCES[ev.source]?.label || ev.source, ALERT_SOURCES[ev.source]?.tip],
+        ev.expected && ["Expected", "yes", "The Arcade made this change itself."], ev.data && ev.data.path && ["Where", ev.data.path], ev.data && ev.data.cwd && ["Folder", ev.data.cwd]);
+      extra.push(h("pre", { class: "raw", text: ev.detail || "" }), what ? h("p", { class: "why", style: "margin:0;color:var(--text)", text: "What to do: " + what }) : null,
+        AL.acks.has(ev.uid) ? null : h("button", { type: "button", class: "btn", style: "justify-self:start", onclick: () => ackAlerts([ev.uid]) }, "Mark seen"));
+      break;
+    }
     case "ai_call": {
       const sub = ev.subscription, blocked = (ev.attempts || []).filter(a => a.error === "budget_blocked");
       rows.push(["Route", ev.route, sub ? "Claude Code talks to Anthropic directly; Switchboard didn't route this step." : "The kind of task Switchboard decided this was."],
@@ -1680,6 +1730,7 @@ function applyLayout(layout) {
     h("button", { type: "button", id: "open-settings", "aria-label": "Settings", tip: { title: "Settings", body: "Colours, background, layout, features, sources, autostart and pairing." }, onclick: () => openSettings() },
       icon("v-settings"), h("span", { class: "lbl", text: "Settings" })));
   if (!visibleViews().includes(currentTab)) showTab(visibleViews()[0]);
+  if (typeof paintAlertBadge === "function") paintAlertBadge();
 }
 function showTab(name) {
   if (!VIEWS[name] || !visibleViews().includes(name)) name = visibleViews()[0];
@@ -1973,6 +2024,134 @@ function dataPane() {
   ];
 }
 
+/* =========================================================== alerts */
+const SEV = { critical: { n: 3, label: "Critical" }, high: { n: 2, label: "High" }, medium: { n: 1, label: "Medium" }, info: { n: 0, label: "Info" } };
+const ALERT_SOURCES = {
+  ai_commands: { label: "Commands the AI ran", tip: "Risky shell commands an AI agent (Claude Code) ran in this project." },
+  refused_access: { label: "Refused access", tip: "Requests the Arcade or Switchboard turned away: other websites, wrong keys, other host names." },
+  persistence: { label: "Persistence changes", tip: "Something set itself up to run later: login items, scheduled jobs, shell startup files, SSH keys, Git hooks." },
+  system_log: { label: "sudo and logins", tip: "Administrator commands and logins, from the system journal." },
+};
+const AL = { list: new Map(), acks: new Set(), syslog: null, filter: { q: "", source: "", min: "info" } };
+ICONS.alert = ICONS["v-alerts"];
+const RISK_SEV = { danger: "high", caution: "medium" };
+/* A risky command run by an AI agent becomes an alert; the command itself stays in the activity log. */
+function alertFromCommand(ev) {
+  if (ev.type !== "command" || ev.actor !== "ai") return null;
+  const risks = explainCommand(ev.cmd).risks;
+  if (!risks.length) return null;
+  const worst = risks.some(r => r.level === "danger") ? "danger" : "caution";
+  return { uid: `cmd-${ev.ts}-${ev.cmd.length}`, type: "alert", severity: RISK_SEV[worst], source: "ai_commands", ts: ev.ts,
+    title: `${ev.agent || "An AI agent"} ran a risky command`, detail: `${ev.cmd}\n${risks.map(r => "• " + r.text).join("\n")}`,
+    expected: false, ev, data: { cwd: ev.cwd, why: ev.why } };
+}
+function addAlert(a, live) {
+  if (!a || AL.list.has(a.uid)) return;
+  AL.list.set(a.uid, a);  // kept even when its source is off, so switching it back on shows it
+  if (live && PREFS.alerts[a.source] !== false && !a.expected && SEV[a.severity].n >= SEV[PREFS.alerts.toast_min].n) notifyAlert(a);
+  paintAlertBadge();
+  if (currentTab === "alerts") renderAlerts();
+}
+function alertEvent(ev, live) { addAlert(ev.type === "alert" ? { ...ev, uid: ev.uid || `ev-${ev.id}-${ev.ts}` } : alertFromCommand(ev), live); }
+async function loadAlerts() {
+  if (mode === "demo") { AL.acks = new Set(store.get("demoAcks", [])); return; }
+  try {
+    const r = await (await fetch("/api/alerts", { cache: "no-store" })).json();
+    AL.acks = new Set(r.acks || []); AL.syslog = r.system_log;
+    for (const a of r.alerts || []) addAlert(a, false);
+  } catch {}
+  paintAlertBadge();
+}
+const unread = () => [...AL.list.values()].filter(a => PREFS.alerts[a.source] !== false && !a.expected && !AL.acks.has(a.uid));
+function paintAlertBadge() {
+  const b = $("#alerts-n"); if (!b) return;
+  const n = unread().length; b.hidden = !n; b.textContent = n > 99 ? "99+" : String(n);
+  const worst = unread().reduce((m, a) => Math.max(m, SEV[a.severity].n), -1);
+  b.style.background = worst >= 0 ? `var(--sev-${Object.keys(SEV).find(k => SEV[k].n === worst)})` : "";
+}
+async function ackAlerts(uids) {
+  uids.forEach(u => AL.acks.add(u)); paintAlertBadge(); renderAlerts(); if (currentTab === "details") renderDetails();
+  if (mode === "demo") return store.set("demoAcks", [...AL.acks]);
+  try { await OWNER.post("/api/alerts/ack", { ids: uids }); } catch (e) { toast("Not saved: " + e.message); }
+}
+let audioCtx = null;
+function notifyAlert(a) {
+  toast(`${SEV[a.severity].label}: ${a.title}`);
+  if (PREFS.alerts.notify && "Notification" in window && Notification.permission === "granted") {
+    try { new Notification(`Workflow Arcade · ${SEV[a.severity].label}`, { body: a.title, tag: a.uid }); } catch {}
+  }
+  if (PREFS.alerts.sound) {
+    try {
+      audioCtx = audioCtx || new AudioContext();
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.frequency.value = a.severity === "critical" ? 880 : a.severity === "high" ? 660 : 520;
+      g.gain.setValueAtTime(0.08, audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.35);
+      o.connect(g).connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + 0.36);
+    } catch {}
+  }
+}
+function alertCard(a, compact) {
+  const seen = AL.acks.has(a.uid);
+  const first = String(a.detail || "").split("\n")[0];
+  const el = h("article", { class: `alert sev-${a.severity}${seen ? " seen" : ""}${a.expected ? " expected" : ""}`, style: `--c: var(--sev-${a.severity})` },
+    h("div", { class: "sev", text: SEV[a.severity].label }),
+    h("div", { style: "min-width:0" },
+      h("div", { class: "t", text: a.title }),
+      compact ? null : h("div", { class: "s", text: first }),
+      h("div", { class: "meta" },
+        h("span", { class: "chip", tip: { title: ALERT_SOURCES[a.source]?.label || a.source, body: ALERT_SOURCES[a.source]?.tip || "" } }, ALERT_SOURCES[a.source]?.label || a.source),
+        a.expected ? h("span", { class: "chip ok", tip: { title: "Expected", body: "The Arcade made this change itself (for example its own login item)." } }, "expected") : null,
+        seen ? h("span", { class: "chip no" }, "seen") : null,
+        h("time", { "data-ts": a.ts, text: ago(a.ts) }))),
+    seen ? null : h("button", { type: "button", class: "btn small", onclick: e => { e.stopPropagation(); ackAlerts([a.uid]); } }, "Mark seen"));
+  return pickable(el, () => ({ kind: "event", ev: a, src: "live" }));
+}
+function renderAlerts() {
+  const slot = $("#alerts-slot"); if (!slot) return;
+  const P = PREFS.alerts, f = AL.filter;
+  const all = [...AL.list.values()].filter(a => PREFS.alerts[a.source] !== false);
+  const shown = all.filter(a => (!f.source || a.source === f.source) && SEV[a.severity].n >= SEV[f.min].n
+    && (!f.q || `${a.title} ${a.detail}`.toLowerCase().includes(f.q.toLowerCase())))
+    .sort((x, y) => (SEV[y.severity].n - SEV[x.severity].n) * (P.view === "timeline" ? 0 : 1) || y.ts - x.ts);
+  const q = h("input", { type: "search", placeholder: "Search alerts…", value: f.q, "aria-label": "Search alerts", oninput: debounce(e => { f.q = e.target.value; renderAlerts(); }, 200) });
+  const src = h("select", { "aria-label": "Source", onchange: e => { f.source = e.target.value; renderAlerts(); } },
+    h("option", { value: "", text: "All sources" }), ...Object.entries(ALERT_SOURCES).map(([k, s]) => h("option", { value: k, text: s.label, selected: f.source === k })));
+  const min = h("select", { "aria-label": "Lowest severity", onchange: e => { f.min = e.target.value; renderAlerts(); } },
+    ...Object.keys(SEV).reverse().map(k => h("option", { value: k, text: k === "info" ? "Every severity" : `${SEV[k].label} and up`, selected: f.min === k })));
+  const views = segCtl([["grouped", "Grouped"], ["timeline", "Timeline"], ["compact", "Compact"]], P.view, v => savePrefs({ alerts: { view: v } }).then(renderAlerts, e => toast(e.message)));
+  const unreadNow = shown.filter(a => !a.expected && !AL.acks.has(a.uid));
+  const bar = h("div", { class: "filter alerts-bar" }, q, src, min, views,
+    unreadNow.length ? h("button", { type: "button", class: "btn", onclick: () => ackAlerts(unreadNow.map(a => a.uid)) }, `Mark ${unreadNow.length} seen`) : null);
+  const sources = h("div", { class: "sources" }, ...Object.entries(ALERT_SOURCES).map(([k, s]) => {
+    const on = PREFS.alerts[k] !== false, sys = k === "system_log" && AL.syslog && !AL.syslog.available;
+    return h("span", { class: "chip " + (on && !sys ? "ok" : "no"), tip: { title: s.label, body: s.tip, warn: sys ? "Unavailable here: " + AL.syslog.why : on ? null : "Off: switch it on in Settings → Alerts." } }, (on && !sys ? "● " : "○ ") + s.label);
+  }));
+  let body;
+  if (!shown.length) body = h("div", { class: "panel empty" }, all.length ? "Nothing matches these filters." : "No alerts. When something you didn't do happens (a new login item, a refused request, a risky command an AI ran) it shows up here.");
+  else if (P.view === "grouped") body = h("div", { class: "alert-groups" }, ...Object.keys(SEV).map(k => {
+    const items = shown.filter(a => a.severity === k); if (!items.length) return null;
+    return h("section", { class: "alert-group" }, h("div", { class: "eyebrow", style: `color: var(--sev-${k})`, text: `${SEV[k].label} · ${items.length}` }), ...items.map(a => alertCard(a)));
+  }));
+  else body = h("div", { class: "alert-list" + (P.view === "compact" ? " compact" : "") }, ...shown.map(a => alertCard(a, P.view === "compact")));
+  fill(slot, sources, bar, body);
+}
+VIEWS.alerts = { label: "Alerts", tip: "Things you didn't do yourself: login items, refused requests, risky AI commands, sudo and logins.", onShow: renderAlerts };
+
+function alertsSection(draft, set) {
+  const out = Object.entries(ALERT_SOURCES).map(([k, s]) => field(s.label, s.tip + (k === "system_log" && AL.syslog && !AL.syslog.available ? ` Unavailable here: ${AL.syslog.why}.` : ""),
+    toggleCtl(draft.alerts[k], v => set("alerts." + k, v), "On")));
+  out.push(
+    field("Default view", "Grouped by severity is the recommended start.", segCtl([["grouped", "Grouped"], ["timeline", "Timeline"], ["compact", "Compact"]], draft.alerts.view, v => set("alerts.view", v))),
+    field("Pop-up from", "New alerts at or above this show a message.", segCtl(Object.keys(SEV).map(k => [k, SEV[k].label]), draft.alerts.toast_min, v => set("alerts.toast_min", v))),
+    field("Browser notifications", "Also when this tab isn't in front. Your browser asks once.", toggleCtl(draft.alerts.notify, async v => {
+      if (v && "Notification" in window && Notification.permission === "default") await Notification.requestPermission();
+      set("alerts.notify", v);
+    }, "On")),
+    field("Sound", "A short tone for pop-up alerts.", toggleCtl(draft.alerts.sound, v => set("alerts.sound", v), "On")),
+    ...Object.keys(SEV).map(k => field(`${SEV[k].label} colour`, null, colorCtl(draft.alerts.colors[k], getComputedStyle(document.documentElement).getPropertyValue(`--sev-${k}`).trim().startsWith("#") ? getComputedStyle(document.documentElement).getPropertyValue(`--sev-${k}`).trim() : "#888888", (v, e) => set(`alerts.colors.${k}`, v, !isDrag(e))))));
+  return out;
+}
+
 /* =========================================================== boot */
 if (store.get("hint-x", false)) $("#hint").hidden = true;
 $("#hint-x").addEventListener("click", () => { $("#hint").hidden = true; store.set("hint-x", true); });
@@ -1980,7 +2159,7 @@ renderLevels(); decode();
 applyPrefs();  // last-known settings first, so the page doesn't flash
 const startTab = /^#(live|replay|learn|details|terminal)$/.test(location.hash) ? location.hash.slice(1) : null;
 boot().then(async () => {
-  await loadPrefs();
+  await loadPrefs(); await loadAlerts();
   showTab(startTab || PREFS.layout.default_view);
   if (!PREFS.setup_done) openSetup();
 });
