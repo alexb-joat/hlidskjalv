@@ -223,6 +223,50 @@ h3 { font-size: 17px; margin: 0; font-weight: 800; text-wrap: balance; }
 .hint b { color: var(--sun); }
 .hint button { margin-left: auto; background: none; border: 0; color: var(--mist); cursor: pointer; text-decoration: underline; }
 
+/* ---------- details */
+.pickable, .pickable[data-tip] { cursor: pointer; }
+.dgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 980px) { .dgrid { grid-template-columns: minmax(0, 1fr); } }
+.dcol { display: grid; gap: 16px; min-width: 0; }
+.dpanel { padding: 16px; display: grid; gap: 12px; min-width: 0; }
+.dpanel > header { display: flex; gap: 10px; align-items: center; min-width: 0; }
+.dpanel > header .ico { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; color: var(--c, var(--mist)); background: color-mix(in srgb, var(--c, var(--mist)) 16%, transparent); flex: none; }
+.dpanel > header .ico svg { width: 20px; height: 20px; }
+.dpanel > header h2 { font-size: 19px; overflow-wrap: anywhere; }
+.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 14px; margin: 0; font-size: 14px; }
+.kv dt { color: var(--mist); font-weight: 700; }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+.kv dd small { display: block; color: var(--mist); font-size: 12.5px; }
+.dlist { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.dlist li { padding: 8px 10px; border-radius: 10px; background: var(--reef); font-size: 14px; overflow-wrap: anywhere; }
+.dlist li small { display: block; color: var(--mist); font-size: 12.5px; }
+.dlist li.bad { box-shadow: inset 3px 0 0 var(--coral); } .dlist li.warn { box-shadow: inset 3px 0 0 var(--sun); }
+.dlist li.ok { box-shadow: inset 3px 0 0 var(--kelp); } .dlist li.ai { box-shadow: inset 3px 0 0 var(--orchid); }
+.tablewrap { overflow-x: auto; }
+table.dt { width: 100%; border-collapse: collapse; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.dt th, .dt td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.dt th { color: var(--mist); font-weight: 800; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.dt .n { text-align: right; }
+.dt tr.pickable:hover td { background: var(--reef); }
+.filter { display: flex; flex-wrap: wrap; gap: 8px; }
+.filter input, .filter select { background: var(--abyss); border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; min-width: 0; flex: 1 1 150px; }
+.timeline { display: flex; flex-direction: column; gap: 6px; max-height: 62vh; overflow-y: auto; scrollbar-width: thin; }
+.trow { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 6px 9px; border-radius: 10px; background: var(--reef); border: 1px solid transparent; cursor: pointer; text-align: left; width: 100%; }
+.trow:hover, .trow.sel { border-color: var(--sun); }
+.trow svg { width: 16px; height: 16px; color: var(--c); }
+.trow .tt2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; font-size: 13.5px; }
+.trow time { font-size: 11px; color: var(--mist); font-variant-numeric: tabular-nums; }
+pre.raw { font: 12px/1.5 var(--mono); background: var(--abyss); border: 1px solid var(--line); border-radius: 10px; padding: 10px; overflow: auto; max-height: 280px; margin: 8px 0 0; }
+details > summary { cursor: pointer; color: var(--mist); font-weight: 700; }
+#tip .more { margin-top: 8px; font-size: 12px; color: var(--mist); }
+
+/* ---------- terminal */
+.termbox { padding: 10px; display: grid; gap: 8px; }
+.termbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.termbar .status { font-size: 13px; color: var(--mist); flex: 1 1 200px; min-width: 0; }
+#term { height: min(70vh, 640px); min-height: 280px; border-radius: 10px; overflow: hidden; background: #04131a; padding: 6px; }
+.termoff { padding: 18px; display: grid; gap: 10px; }
+
 @keyframes blink { 50% { opacity: .25; } }
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--c) 80%, transparent); } 70% { box-shadow: 0 0 0 14px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
 @keyframes spawn { from { transform: scale(.3); opacity: 0; } to { transform: none; opacity: 1; } }
@@ -231,7 +275,7 @@ h3 { font-size: 17px; margin: 0; font-weight: 800; text-wrap: balance; }
 @keyframes beam { to { transform: translateX(100%); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 @media (max-width: 640px) {
-  .tabs { margin-left: 0; width: 100%; } .tabs button { flex: 1; padding: 7px 6px; }
+  .tabs { margin-left: 0; width: 100%; } .tabs button { flex: 1 1 0; min-width: 0; padding: 7px 2px; font-size: 13.5px; }
   .level { max-width: none; }
   .tile { width: 62px; }
   .stats { grid-template-columns: 1fr 1fr; }
@@ -254,6 +298,8 @@ h3 { font-size: 17px; margin: 0; font-weight: 800; text-wrap: balance; }
       <button role="tab" id="tab-world" aria-selected="true" aria-controls="view-world">World</button>
       <button role="tab" id="tab-replay" aria-selected="false" aria-controls="view-replay">Replay</button>
       <button role="tab" id="tab-academy" aria-selected="false" aria-controls="view-academy">Academy</button>
+      <button role="tab" id="tab-details" aria-selected="false" aria-controls="view-details">Details</button>
+      <button role="tab" id="tab-terminal" aria-selected="false" aria-controls="view-terminal">Terminal</button>
     </nav>
   </div>
 </header>
@@ -269,7 +315,7 @@ h3 { font-size: 17px; margin: 0; font-weight: 800; text-wrap: balance; }
       <div class="sources" id="sources"></div>
     </div>
     <div class="hint" id="hint">
-      <span><b>Hover</b> over a tile, command or log entry for an explanation.</span>
+      <span><b>Hover</b> over a tile, command or log entry for an explanation. <b>Click</b> it for every detail.</span>
       <span><b>Glowing dot</b> means changed this session.</span>
       <span><b>Coral tiles</b> hold secrets. Never share them.</span>
       <button type="button" id="hint-x">Got it</button>
@@ -319,6 +365,28 @@ h3 { font-size: 17px; margin: 0; font-weight: 800; text-wrap: balance; }
     <div id="lesson-slot"></div>
     <div class="eyebrow" style="margin-top:22px">Badges</div>
     <div class="badges" id="badges"></div>
+  </section>
+
+  <section class="view" id="view-details" role="tabpanel" aria-labelledby="tab-details" hidden>
+    <div class="intro">
+      <div class="title">
+        <div class="eyebrow" id="details-eyebrow">Details</div>
+        <h2>Everything, in full</h2>
+        <p>Click anything in World or Replay (a log entry, a tile, an island, the model ribbon) to see every detail here. Below: where your tokens and money go, and how to spend less.</p>
+      </div>
+    </div>
+    <div class="dgrid"><div class="dcol" id="details-main"></div><div class="dcol" id="details-side"></div></div>
+  </section>
+
+  <section class="view" id="view-terminal" role="tabpanel" aria-labelledby="tab-terminal" hidden>
+    <div class="intro">
+      <div class="title">
+        <div class="eyebrow">Terminal</div>
+        <h2>Your shell, inside the Arcade</h2>
+        <p>A real terminal in the project folder. Commands typed here show up in the quest log like any other (with the shell hook installed).</p>
+      </div>
+    </div>
+    <div id="terminal-slot"></div>
   </section>
 </main>
 
@@ -620,6 +688,7 @@ function showTip(el) {
   if (t.why) tipEl.append(h("p", { class: "why", text: t.why }));
   if (t.warn) tipEl.append(h("p", { class: "warn", text: t.warn }));
   if (t.where) tipEl.append(h("div", { class: "where", text: t.where }));
+  if (el.classList.contains("pickable")) tipEl.append(h("div", { class: "more", text: matchMedia("(hover: none)").matches ? "Tap again for every detail." : "Click for every detail." }));
   tipEl.classList.add("on"); tipFor = el;
   const r = el.getBoundingClientRect(), w = tipEl.offsetWidth, hgt = tipEl.offsetHeight;
   let x = Math.min(Math.max(12, r.left + r.width / 2 - w / 2), innerWidth - w - 12);
@@ -627,11 +696,22 @@ function showTip(el) {
   tipEl.style.left = x + "px"; tipEl.style.top = y + "px";
 }
 function hideTip() { tipEl.classList.remove("on"); tipFor = null; }
+/* Anything pickable opens in the Details tab. On touch screens the first tap shows the tooltip, the second opens details. */
+function pickable(el, item) {
+  el.classList.add("pickable");
+  if (!el.hasAttribute("tabindex")) el.setAttribute("tabindex", "0");
+  el.addEventListener("click", e => {
+    if (e.pointerType === "touch" && tipFor !== el) return;  // the tooltip handler shows the tip first
+    e.stopPropagation(); openDetails(item());
+  });
+  el.addEventListener("keydown", e => { if (e.key === "Enter" && e.target === el) { e.preventDefault(); openDetails(item()); } });
+  return el;
+}
 document.addEventListener("mouseover", e => { const el = e.target.closest("[data-tip]"); if (el && el !== tipFor) showTip(el); else if (!el && tipFor) hideTip(); });
 document.addEventListener("focusin", e => { const el = e.target.closest("[data-tip]"); if (el) showTip(el); });
 document.addEventListener("focusout", hideTip);
 document.addEventListener("scroll", hideTip, true);
-document.addEventListener("click", e => { const el = e.target.closest("[data-tip]"); if (el && matchMedia("(hover: none)").matches) { tipFor === el ? hideTip() : showTip(el); } });
+document.addEventListener("click", e => { const el = e.target.closest("[data-tip]"); if (el && (e.pointerType === "touch" || matchMedia("(hover: none)").matches)) { tipFor === el ? hideTip() : showTip(el); } });
 
 /* =========================================================== explanations of events */
 const EV = {
@@ -663,11 +743,16 @@ function eventView(ev) {
     case "ai_call": {
       title = `AI step: ${ev.route}`; sub = `${ev.model}`; where = `route ${ev.route} → ${ev.model}`;
       chips.push(ev.local ? h("span", { class: "chip ok", tip: { title: "Local model", body: "Ran on your computer: free and private." } }, "local · free")
+        : ev.subscription ? h("span", { class: "chip", tip: { title: "Subscription", body: "Ran through Claude Code on your subscription: a flat plan, not billed per token, so there's no per-call cost to show." } }, "subscription")
         : h("span", { class: "chip ai", tip: { title: "Cloud model", body: "Ran at a provider and is billed per token.", why: ev.cost == null ? "Add prices in ~/.arcade/prices.json to see the cost." : null } }, "cloud · " + money(ev.cost)));
-      if (ev.tokens_in != null) chips.push(h("span", { class: "chip", tip: { title: "Tokens", body: `${ev.tokens_in} in (your request and context), ${ev.tokens_out} out (the answer). A token is about ¾ of a word.` } }, `${fmt(ev.tokens_in)} → ${fmt(ev.tokens_out)} tokens`));
+      if (ev.tokens_in != null) chips.push(h("span", { class: "chip", tip: { title: "Tokens", body: `${ev.tokens_in} in (your request and context), ${ev.tokens_out} out (the answer). A token is about ¾ of a word.`, why: ev.tokens_cached ? `${fmt(ev.tokens_cached)} of the input was cached context: re-read from earlier turns, cheaper and faster than new input.` : null } }, `${fmt(ev.tokens_in)} → ${fmt(ev.tokens_out)} tokens`));
+      const blocked = (ev.attempts || []).filter(a => a.error === "budget_blocked");
+      if (blocked.length) chips.push(h("span", { class: "chip warn", tip: { title: "Budget guard", body: `Your spending cap was reached (${blocked[0].reason || "budget"}), so Switchboard skipped ${blocked.map(a => a.model).join(", ")} and used a free local model instead.`, where: "Caps: ~/.arcade/budget.json" } }, "budget → local"));
       if (ev.sensitive && ev.sensitive.length) chips.push(h("span", { class: "chip ok", tip: { title: "Kept private", body: `Switchboard spotted: ${ev.sensitive.join(", ")}. It kept this request on a local model so it never left your computer.` } }, icon("shield"), "kept local"));
-      if (ev.fallbacks) chips.push(h("span", { class: "chip warn", tip: { title: "Fallback", body: `${ev.fallbacks} model(s) were busy or down, so Switchboard tried the next one.` } }, `${ev.fallbacks} fallback`));
-      if (ev.status && ev.status >= 400) { chips.push(h("span", { class: "chip bad" }, "failed " + ev.status)); tone = "danger"; }
+      const otherFails = (ev.fallbacks || 0) - blocked.length;
+      if (otherFails > 0) chips.push(h("span", { class: "chip warn", tip: { title: "Fallback", body: `${otherFails} model(s) were busy or down, so Switchboard tried the next one.` } }, `${otherFails} fallback`));
+      if (ev.status === 429 && blocked.length) { chips.push(h("span", { class: "chip bad", tip: { title: "Over budget", body: "The spending cap was reached and this route has no local model to fall back to, so the request was refused instead of billed.", where: "Caps: ~/.arcade/budget.json" } }, "over budget")); tone = "danger"; }
+      else if (ev.status && ev.status >= 400) { chips.push(h("span", { class: "chip bad" }, "failed " + ev.status)); tone = "danger"; }
       break;
     }
   }
@@ -679,7 +764,7 @@ function eventView(ev) {
 function newWorld(snapshot) {
   const files = new Map();
   for (const f of snapshot.files || []) files.set(f.path, { path: f.path, lines: f.lines, edits: 0, added: 0, removed: 0, created: false, gone: false, last: null });
-  return { snapshot, files, stats: { edits: 0, created: 0, deleted: 0, commands: 0, commits: 0, ai: 0, local: 0, tokens: 0, cost: 0, costKnown: false, risky: 0, keptLocal: 0, secrets: 0 } };
+  return { snapshot, files, stats: { edits: 0, created: 0, deleted: 0, commands: 0, commits: 0, ai: 0, local: 0, tokens: 0, cost: 0, costKnown: false, risky: 0, keptLocal: 0, secrets: 0, sub: 0 } };
 }
 function applyEvent(w, ev) {
   const s = w.stats;
@@ -694,7 +779,7 @@ function applyEvent(w, ev) {
   } else if (ev.type === "command") { s.commands++; if (explainCommand(ev.cmd).risks.some(r => r.level === "danger")) s.risky++; }
   else if (ev.type === "commit") s.commits++;
   else if (ev.type === "ai_call") {
-    s.ai++; if (ev.local) s.local++;
+    s.ai++; if (ev.local) s.local++; if (ev.subscription) s.sub++;
     s.tokens += (ev.tokens_in || 0) + (ev.tokens_out || 0);
     if (ev.cost != null) { s.cost += ev.cost; s.costKnown = true; }
     if (ev.sensitive && ev.sensitive.length && ev.local) s.keptLocal++;
@@ -704,9 +789,9 @@ const XP_RULES = { file_created: 10, file_changed: 5, file_deleted: 2, command: 
 const xpOf = ev => (XP_RULES[ev.type] || 0) + (ev.type === "ai_call" && ev.local ? 3 : 0);
 
 /* =========================================================== world view */
-function makeWorldView(slot) {
+function makeWorldView(slot, src) {
   const ribbon = h("div", { class: "ribbon", tip: { title: "Model ribbon", body: "Shows the last AI step: which route Switchboard chose and which model answered." } },
-    h("i", { class: "beam" }), icon("ai_call"), h("span", { class: "txt muted", text: "No AI steps yet. They appear here when your helper talks to a model through Switchboard." }));
+    h("i", { class: "beam" }), icon("ai_call"), h("span", { class: "txt muted", text: "No AI steps yet. They appear here when your helper talks to a model through Switchboard, or a Claude Code session runs in this folder." }));
   const stats = h("div", { class: "stats" });
   const map = h("div", { class: "map" });
   const entries = h("div", { class: "entries" });
@@ -714,7 +799,9 @@ function makeWorldView(slot) {
   const log = h("aside", { class: "panel log" }, h("div", { class: "log-head" }, h("h2", { text: "Quest log" }), count), entries);
   slot.append(h("div", { class: "grid" }, h("div", { style: "min-width:0" }, ribbon, stats, map), log));
   const tiles = new Map();
-  let shape = "";
+  let shape = "", lastAi = null;
+  pickable(ribbon, () => lastAi ? { kind: "event", ev: lastAi, src } : { kind: "overview", src });
+  pickable(stats, () => ({ kind: "overview", src }));
 
   function statBox(label, value, tip, extra) { return h("div", { class: "stat", tip }, h("b", { text: value }), h("span", { text: label }), extra || null); }
   function renderStats(w) {
@@ -724,7 +811,7 @@ function makeWorldView(slot) {
       statBox("new files", s.created, { title: "New files", body: "Files created this session." }),
       statBox("commands", s.commands, { title: "Commands", body: "Terminal commands run in this project.", warn: s.risky ? `${s.risky} needed extra care.` : null }),
       statBox("save points", s.commits, { title: "Save points", body: "Git commits. Each one is a state you can return to." }),
-      statBox("AI steps", s.ai, { title: "AI steps", body: `${s.local} local (free, private) and ${s.ai - s.local} cloud.` },
+      statBox("AI steps", s.ai, { title: "AI steps", body: `${s.local} local (free, private), ${s.ai - s.local - s.sub} cloud (per token)${s.sub ? `, ${s.sub} on a subscription (Claude Code)` : ""}.` },
         h("div", { class: "ratio" }, h("i", { style: `width:${share}%` }))),
       statBox("tokens", fmt(s.tokens), { title: "Tokens", body: "Total words-ish sent to and received from models." }),
       statBox("spend", s.costKnown ? money(s.cost) : "–", { title: "Spend", body: s.costKnown ? "Estimated from your prices file. Local models count as $0." : "Add model prices in ~/.arcade/prices.json to see spend." }),
@@ -739,7 +826,7 @@ function makeWorldView(slot) {
     for (const d of dirs) {
       const files = groups.get(d).sort((a, b) => a.path.localeCompare(b.path));
       const isle = h("section", { class: "island" }, h("header", {},
-        h("b", { tip: { title: d ? d + "/" : "Project root", body: folderHint(d), where: `${files.length} file${files.length === 1 ? "" : "s"}` }, tabindex: "0" }, d ? d + "/" : "project root"),
+        pickable(h("b", { tip: { title: d ? d + "/" : "Project root", body: folderHint(d), where: `${files.length} file${files.length === 1 ? "" : "s"}` }, tabindex: "0" }, d ? d + "/" : "project root"), () => ({ kind: "folder", dir: d, src })),
         h("span", { text: files.length })));
       const row = h("div", { class: "tiles" });
       const shown = files.slice(0, 48);
@@ -752,6 +839,7 @@ function makeWorldView(slot) {
             where: f.path,
           }) },
           h("span", { class: "g", text: info.glyph }), h("span", { class: "n", text: base(f.path) }), h("i", { class: "heat" }));
+        pickable(tile, () => ({ kind: "file", path: f.path, src }));
         tiles.set(f.path, tile); row.append(tile);
       }
       if (files.length > shown.length) row.append(h("span", { class: "more", text: `+${files.length - shown.length} more` }));
@@ -765,9 +853,11 @@ function makeWorldView(slot) {
   }
   function flash(ev) {
     if (ev.type === "ai_call") {
+      lastAi = ev;
       ribbon.classList.remove("cast"); void ribbon.offsetWidth; ribbon.classList.add("cast");
       const txt = $(".txt", ribbon); txt.classList.remove("muted");
-      txt.textContent = `${ev.route} → ${ev.model} · ${ev.local ? "local, free" : "cloud" + (ev.cost != null ? ", " + money(ev.cost) : "")}${ev.sensitive && ev.sensitive.length ? " · kept private" : ""}`;
+      const billing = ev.local ? "local, free" : ev.subscription ? "subscription" : "cloud" + (ev.cost != null ? ", " + money(ev.cost) : "");
+      txt.textContent = `${ev.route} → ${ev.model} · ${billing}${ev.sensitive && ev.sensitive.length ? " · kept private" : ""}`;
       return;
     }
     const tile = ev.path && tiles.get(ev.path);
@@ -786,7 +876,7 @@ function makeWorldView(slot) {
       tip: { title: v.title, body: v.sub, why: c.why, where: v.where || null } },
       h("div", { class: "ico" }, icon(ev.type)),
       h("div", { style: "min-width:0" }, h("div", { class: "t", text: v.title }), h("div", { class: "s", text: v.sub }), v.extra, h("div", { class: "meta" }, ...v.chips, time)));
-    return el;
+    return pickable(el, () => ({ kind: "event", ev, src }));
   }
   function add(ev, mark) {
     const el = entry(ev);
@@ -795,7 +885,7 @@ function makeWorldView(slot) {
     count.textContent = `${entries.children.length} event${entries.children.length === 1 ? "" : "s"}`;
     if (mark) { entries.querySelectorAll(".now").forEach(e => e.classList.remove("now")); el.classList.add("now"); }
   }
-  function clear() { entries.replaceChildren(); count.textContent = "0 events"; shape = ""; $(".txt", ribbon).textContent = "No AI steps yet."; }
+  function clear() { entries.replaceChildren(); count.textContent = "0 events"; shape = ""; lastAi = null; $(".txt", ribbon).textContent = "No AI steps yet."; }
   return { render, flash, add, clear, entries };
 }
 setInterval(() => document.querySelectorAll("time[data-ts]").forEach(t => t.textContent = ago(+t.dataset.ts)), 10000);
@@ -824,19 +914,19 @@ function demoSession() {
   const t0 = Date.now() / 1000 - 30 * 60;
   const files = ["README.md", "notes/ideas.md", ".gitignore"].map(p => ({ path: p, size: 300, lines: p === ".gitignore" ? 4 : 12, sensitive: false }));
   const steps = [
-    [0, { type: "ai_call", route: "quick", model: "llama3.2:3b", local: true, status: 200, latency_ms: 900, tokens_in: 412, tokens_out: 96, cost: 0, sensitive: [], fallbacks: 0 }],
+    [0, { type: "ai_call", route: "quick", model: "llama3.2:3b", local: true, status: 200, latency_ms: 900, tokens_in: 412, tokens_out: 96, cost: 0, sensitive: [], fallbacks: 0, reasons: ["no strong signal -> default route quick"] }],
     [40, { type: "command", cmd: "python3 -m venv .venv", cwd: "." }],
     [55, { type: "command", cmd: "source .venv/bin/activate", cwd: "." }],
-    [70, { type: "ai_call", route: "code", model: "claude-sonnet", local: false, status: 200, latency_ms: 6200, tokens_in: 3120, tokens_out: 840, cost: 0.0219, sensitive: [], fallbacks: 0 }],
+    [70, { type: "ai_call", route: "code", model: "claude-sonnet", local: false, status: 200, latency_ms: 6200, tokens_in: 3120, tokens_out: 840, cost: 0.0219, sensitive: [], fallbacks: 0, reasons: ["keywords matched route code (score 3)", "tools present -> needs tool calling"] }],
     [90, { type: "file_created", path: "bot/weather.py", lines: 42, added: 42, removed: 0 }],
     [95, { type: "file_created", path: "bot/__init__.py", lines: 1, added: 1, removed: 0 }],
     [100, { type: "file_created", path: "requirements.txt", lines: 2, added: 2, removed: 0 }],
     [130, { type: "command", cmd: "pip install -r requirements.txt", cwd: "." }],
     [170, { type: "file_created", path: ".env", sensitive: true }],
-    [190, { type: "ai_call", route: "code", model: "qwen2.5-coder:7b", local: true, status: 200, latency_ms: 3100, tokens_in: 1980, tokens_out: 410, cost: 0, sensitive: ["api_key"], fallbacks: 0 }],
+    [190, { type: "ai_call", route: "code", model: "qwen2.5-coder:7b", local: true, status: 200, latency_ms: 3100, tokens_in: 1980, tokens_out: 410, cost: 0, sensitive: ["api_key"], fallbacks: 0, reasons: ["sensitive content (api_key) -> local models only", "keywords matched route code (score 2)", "skip claude-sonnet: cloud model blocked (local-only)"] }],
     [215, { type: "file_changed", path: "bot/weather.py", lines: 56, added: 18, removed: 4 }],
     [240, { type: "command", cmd: "python bot/weather.py Belgrade", cwd: "." }],
-    [270, { type: "ai_call", route: "code", model: "claude-sonnet", local: false, status: 200, latency_ms: 5400, tokens_in: 2650, tokens_out: 620, cost: 0.0173, sensitive: [], fallbacks: 1 }],
+    [270, { type: "ai_call", route: "code", model: "claude-sonnet", local: false, status: 200, latency_ms: 5400, tokens_in: 2650, tokens_out: 620, cost: 0.0173, sensitive: [], fallbacks: 1, reasons: ["session pinned to code"], attempts: [{ model: "gpt", status: 503 }] }],
     [290, { type: "file_created", path: "tests/test_weather.py", lines: 25, added: 25, removed: 0 }],
     [310, { type: "command", cmd: "python -m pytest -q", cwd: "." }],
     [330, { type: "file_changed", path: "bot/weather.py", lines: 58, added: 3, removed: 1 }],
@@ -846,7 +936,7 @@ function demoSession() {
     [395, { type: "command", cmd: "git add .", cwd: "." }],
     [410, { type: "command", cmd: "git commit -m \"First working weather bot\"", cwd: "." }],
     [412, { type: "commit", sha: "a1b2c3d", message: "First working weather bot", files_changed: 6, insertions: 130, deletions: 0 }],
-    [440, { type: "ai_call", route: "writing", model: "llama3.2:3b", local: true, status: 200, latency_ms: 1500, tokens_in: 830, tokens_out: 360, cost: 0, sensitive: [], fallbacks: 0 }],
+    [440, { type: "ai_call", route: "writing", model: "llama3.2:3b", local: true, status: 200, latency_ms: 1500, tokens_in: 830, tokens_out: 360, cost: 0, sensitive: [], fallbacks: 1, reasons: ["keywords matched route writing (score 1)"], attempts: [{ model: "claude-sonnet", error: "budget_blocked", reason: "daily cap reached ($1.0213 >= $1.00)" }] }],
     [455, { type: "file_changed", path: "README.md", lines: 24, added: 14, removed: 2 }],
     [480, { type: "command", cmd: "git commit -am \"Explain setup in README\"", cwd: "." }],
     [482, { type: "commit", sha: "d4e5f6a", message: "Explain setup in README", files_changed: 1, insertions: 14, deletions: 2 }],
@@ -857,8 +947,8 @@ function demoSession() {
 }
 
 /* =========================================================== live / demo world */
-const worldView = makeWorldView($("#world-slot"));
-let world = null, mode = "demo";
+const worldView = makeWorldView($("#world-slot"), "live");
+let world = null, mode = "demo", liveEvents = [];
 function setMode(m) {
   mode = m; const el = $("#mode");
   el.className = "mode " + (m === "live" ? "live" : m === "off" ? "off" : "demo");
@@ -875,10 +965,12 @@ function sourceChips(snap) {
     chip(snap.git, "Git", "Watching save points and branches.", { body: "This folder isn't a Git project yet. Run git init to start saving points.", where: "git init" }),
     chip(snap.commands_hook, "Terminal", "Recording commands typed in this project's folder. Start a command with a space to keep it private.", { body: "Add the small shell hook to see commands here.", where: "python -m workflow_arcade hook bash >> ~/.bashrc" }),
     chip(snap.switchboard, "AI", "Reading Switchboard's log: route, model, tokens. Never your prompts.", { body: "Start the Arcade with --switchboard-log to see AI steps.", where: "--switchboard-log ~/switchboard/logs/decisions.jsonl" }),
+    chip(snap.claude_code, "Claude Code", "Reading Claude Code's own session transcripts for this folder: model and tokens only, never text.", { body: "No Claude Code sessions for this folder yet. Run claude here and its steps appear.", where: "claude" }),
+    chip(snap.terminal, "Shell", "The Terminal tab runs a real shell in this folder.", { body: "The in-browser terminal is off. Start the Arcade with --terminal to switch it on.", where: "python -m workflow_arcade watch <folder> --terminal" }),
   );
 }
 function startWorld(snap, events) {
-  world = newWorld(snap); worldView.clear();
+  world = newWorld(snap); worldView.clear(); liveEvents = [...events];
   $("#project").textContent = snap.project + (snap.branch ? ` · ${snap.branch}` : "");
   sourceChips(snap);
   workXp = 0;
@@ -886,8 +978,9 @@ function startWorld(snap, events) {
   worldView.render(world); updateLevel();
 }
 function liveEvent(ev) {
-  applyEvent(world, ev); workXp += xpOf(ev);
+  applyEvent(world, ev); workXp += xpOf(ev); liveEvents.push(ev);
   worldView.render(world); worldView.add(ev, true); worldView.flash(ev); updateLevel();
+  if (currentTab === "details") detailsChanged();
   if (ev.type === "commit" && world.stats.commits === 1) toast("First save point! +50 XP");
 }
 async function boot() {
@@ -926,7 +1019,7 @@ function runDemo() {
 }
 
 /* =========================================================== replay */
-const replayView = makeWorldView($("#replay-slot"));
+const replayView = makeWorldView($("#replay-slot"), "replay");
 let rp = { events: [], idx: 0, timer: null, speed: 1 };
 async function loadSessions() {
   const sel = $("#rp-session"); sel.replaceChildren();
@@ -1092,18 +1185,275 @@ function renderBadges() {
   badgesReady = true;
 }
 
+/* =========================================================== details */
+const detail = { item: null, filter: "", type: "" };
+const eventsOf = src => src === "replay" ? rp.events.slice(0, rp.idx) : liveEvents;
+const kv = rows => h("dl", { class: "kv" }, ...rows.filter(Boolean).flatMap(([k, v, note]) => [h("dt", { text: k }), h("dd", {}, v, note ? h("small", { text: note }) : null)]));
+const when = ts => new Date(ts * 1000).toLocaleString();
+const panel = (eyebrow, title, ...kids) => h("section", { class: "panel dpanel" }, h("div", {}, h("div", { class: "eyebrow", text: eyebrow }), title ? h("h3", { text: title }) : null), ...kids);
+function openDetails(item) { detail.item = item; showTab("details"); }
+let detailsTimer = null;
+function detailsChanged() { clearTimeout(detailsTimer); detailsTimer = setTimeout(renderDetails, 400); }  // batch bursts of live events
+
+function aiSummary(evs) {
+  const by = new Map(), routes = new Map();
+  const t = { calls: 0, cloud: 0, sub: 0, local: 0, cost: 0, unpriced: 0, blocked: 0, tin: 0, cached: 0, subIn: 0, subCached: 0 };
+  for (const e of evs) {
+    if (e.type !== "ai_call") continue;
+    const m = by.get(e.model) || { model: e.model, local: e.local, sub: !!e.subscription, calls: 0, tin: 0, tout: 0, cached: 0, cost: 0, priced: 0, lat: 0, latN: 0, failed: 0, routes: new Set() };
+    m.calls++; m.tin += e.tokens_in || 0; m.tout += e.tokens_out || 0; m.cached += e.tokens_cached || 0;
+    if (e.cost != null) { m.cost += e.cost; m.priced++; }
+    if (e.latency_ms != null) { m.lat += e.latency_ms; m.latN++; }
+    if (e.status >= 400) m.failed++;
+    m.routes.add(e.route); by.set(e.model, m);
+    const r = routes.get(e.route) || { route: e.route, cloud: 0, local: 0, cost: 0 };
+    if (e.local) r.local++; else if (!e.subscription) { r.cloud++; r.cost += e.cost || 0; }
+    routes.set(e.route, r);
+    t.calls++; t.tin += e.tokens_in || 0; t.cached += e.tokens_cached || 0;
+    if (e.local) t.local++; else if (e.subscription) { t.sub++; t.subIn += e.tokens_in || 0; t.subCached += e.tokens_cached || 0; }
+    else { t.cloud++; if (e.cost != null) t.cost += e.cost; else if (e.tokens_in != null) t.unpriced++; }
+    t.blocked += (e.attempts || []).filter(a => a.error === "budget_blocked").length;
+  }
+  return { models: [...by.values()].sort((a, b) => b.cost - a.cost || b.tin - a.tin), routes: [...routes.values()], t };
+}
+function billingOf(m) { return m.local ? "local · free" : m.sub ? "subscription" : "cloud · per token"; }
+function efficiencyTips(sum) {
+  const { t, routes } = sum, tips = [];
+  if (!t.calls) return [["", "No AI steps yet in this session. Tips about cost appear here once there are some."]];
+  if (t.cloud + t.local) tips.push(["ok", `${Math.round((t.local / Math.max(1, t.local + t.cloud)) * 100)}% of Switchboard's AI steps ran on free local models.`, "Every step a local model can handle well is a step you don't pay for, and it never leaves your computer."]);
+  for (const r of routes.filter(r => r.cloud).sort((a, b) => b.cost - a.cost).slice(0, 3))
+    tips.push(["warn", `Route ${r.route}: ${r.cloud} cloud call${r.cloud === 1 ? "" : "s"}${r.cost ? ` (${money(r.cost)})` : ""}, ${r.local} local.`,
+      "If routine prompts land here, list a local model first for this route; Switchboard falls back to the cloud model if it fails. See which local models fit your computer:", "python -m switchboard hardware"]);
+  if (t.unpriced) tips.push(["warn", `${t.unpriced} cloud call${t.unpriced === 1 ? " has" : "s have"} no price, so spend and the budget guard can't count ${t.unpriced === 1 ? "it" : "them"}.`, "Add each cloud model's price per million tokens:", "~/.arcade/prices.json"]);
+  if (t.blocked) tips.push(["ok", `The budget guard kept ${t.blocked} call${t.blocked === 1 ? "" : "s"} off paid models.`, "Caps live in a small file; edits apply immediately:", "~/.arcade/budget.json"]);
+  if (t.sub && t.subIn) tips.push(["ai", `Claude Code: ${Math.round((t.subCached / t.subIn) * 100)}% of its input was cached context (${fmt(t.subCached)} of ${fmt(t.subIn)} tokens).`,
+    "Each turn re-reads the whole conversation. Starting a fresh session (or /clear) for a new task keeps that context, and your plan's usage, small."]);
+  return tips;
+}
+function overviewPanels(src) {
+  const evs = eventsOf(src), sum = aiSummary(evs), { t } = sum;
+  const table = sum.models.length ? h("div", { class: "tablewrap" }, h("table", { class: "dt" },
+    h("thead", {}, h("tr", {}, h("th", { text: "Model" }), h("th", { text: "Runs on" }), h("th", { class: "n", text: "Calls" }), h("th", { class: "n", text: "In" }), h("th", { class: "n", text: "Cached" }), h("th", { class: "n", text: "Out" }), h("th", { class: "n", text: "Cost" }), h("th", { class: "n", text: "Avg time" }))),
+    h("tbody", {}, ...sum.models.map(m => pickable(h("tr", { tip: { title: m.model, body: `${billingOf(m)}. Routes: ${[...m.routes].join(", ")}.` } },
+      h("td", { text: m.model }), h("td", { text: billingOf(m) }), h("td", { class: "n", text: m.calls }), h("td", { class: "n", text: fmt(m.tin) }), h("td", { class: "n", text: m.cached ? fmt(m.cached) : "–" }),
+      h("td", { class: "n", text: fmt(m.tout) }), h("td", { class: "n", text: m.local ? "$0" : m.sub ? "plan" : m.priced ? money(m.cost) : "?" }),
+      h("td", { class: "n", text: m.latN ? (m.lat / m.latN / 1000).toFixed(1) + "s" : "–" })), () => ({ kind: "model", model: m.model, src })))))) : h("p", { class: "muted", text: "No AI steps yet." });
+  const tips = h("ul", { class: "dlist" }, ...efficiencyTips(sum).map(([tone, a, b, code]) => h("li", { class: tone }, a, b ? h("small", { text: b }) : null, code ? h("div", { class: "cmd", text: code }) : null)));
+  return [
+    panel("Cost efficiency", `${t.calls} AI step${t.calls === 1 ? "" : "s"} · ${!t.cloud ? "$0 spent" : t.unpriced ? `${money(t.cost)} known spend, ${t.unpriced} unpriced` : `${money(t.cost)} spent`}`, tips),
+    panel("By model", null, table),
+  ];
+}
+function timelinePanel(src) {
+  const evs = eventsOf(src);
+  const list = h("div", { class: "timeline" });
+  const q = h("input", { type: "search", placeholder: "Search titles, files, commands, models…", value: detail.filter, "aria-label": "Search events" });
+  const types = h("select", { "aria-label": "Event type" }, h("option", { value: "", text: "All events" }),
+    ...[["ai_call", "AI steps"], ["command", "Commands"], ["file_", "Files"], ["commit", "Save points"], ["branch", "Branches"]].map(([v, l]) => h("option", { value: v, text: l, selected: detail.type === v })));
+  function fill() {
+    const needle = detail.filter.toLowerCase();
+    const rows = [];
+    for (let i = evs.length - 1; i >= Math.max(0, evs.length - 5000) && rows.length < 400; i--) {  // newest 5000 searched
+      const ev = evs[i];
+      if (detail.type && !ev.type.startsWith(detail.type)) continue;
+      const v = eventView(ev);
+      if (needle && !`${v.title} ${v.sub} ${v.where} ${ev.cmd || ""} ${ev.model || ""}`.toLowerCase().includes(needle)) continue;
+      const sel = detail.item && detail.item.kind === "event" && detail.item.ev === ev;
+      rows.push(h("button", { type: "button", class: "trow" + (sel ? " sel" : ""), style: `--c:${(EV[ev.type] || EV.command).c}`, onclick: () => { detail.item = { kind: "event", ev, src }; renderDetails(); } },
+        icon(ev.type), h("span", { class: "tt2", text: v.title + (v.sub ? " · " + v.sub : "") }), h("time", { text: new Date(ev.ts * 1000).toLocaleTimeString() })));
+    }
+    list.replaceChildren(...(rows.length ? rows : [h("p", { class: "muted", text: evs.length ? "Nothing matches." : "No events yet." })]));
+  }
+  q.addEventListener("input", () => { detail.filter = q.value; fill(); });
+  types.addEventListener("change", () => { detail.type = types.value; fill(); });
+  fill();
+  return panel(src === "replay" ? "Replay timeline (up to the current position)" : "Timeline", `${evs.length} event${evs.length === 1 ? "" : "s"}`, h("div", { class: "filter" }, q, types), list);
+}
+function eventPanel(ev, src) {
+  const v = eventView(ev), c = EV[ev.type] || EV.command, rows = [], extra = [];
+  rows.push(["When", when(ev.ts), ago(ev.ts)]);
+  if (ev.path) { const info = fileInfo(ev.path); rows.push(["File", ev.path, `${info.title}${info.what ? ": " + info.what : ""}`]); }
+  switch (ev.type) {
+    case "file_created": case "file_changed": case "file_deleted":
+      if (ev.lines != null) rows.push(["Lines now", ev.lines]);
+      if (ev.added != null) rows.push(["Change", `+${ev.added} −${ev.removed}`, "Lines added and removed in this step."]);
+      else if (ev.type !== "file_deleted") rows.push(["Change", "not counted", "Binary, large or private file: its contents are never read."]);
+      break;
+    case "command": {
+      const ex = explainCommand(ev.cmd);
+      rows.push(["Folder", ev.cwd === "." ? "project root" : ev.cwd], ["In short", ex.summary]);
+      extra.push(h("div", { class: "eyebrow", text: "Piece by piece" }), cmdLine(ev.cmd).line,
+        h("ul", { class: "dlist" }, ...ex.parts.map(pt => h("li", { class: pt.tip.tone === "danger" ? "bad" : "" }, h("b", { class: "tok " + pt.cls, text: pt.t }), h("small", { text: pt.tip.body })))));
+      if (ex.risks.length) extra.push(h("ul", { class: "dlist" }, ...ex.risks.map(r => h("li", { class: r.level === "danger" ? "bad" : "warn" }, (r.level === "danger" ? "Careful: " : "Heads-up: ") + r.text))));
+      break;
+    }
+    case "commit": rows.push(["Save point", ev.sha], ["Message", ev.message], ["Size", `${ev.files_changed || 0} files · +${ev.insertions || 0} −${ev.deletions || 0}`]); break;
+    case "branch": rows.push(["Now on", ev.branch], ["Came from", ev.previous]); break;
+    case "ai_call": {
+      const sub = ev.subscription, blocked = (ev.attempts || []).filter(a => a.error === "budget_blocked");
+      rows.push(["Route", ev.route, sub ? "Claude Code talks to Anthropic directly; Switchboard didn't route this step." : "The kind of task Switchboard decided this was."],
+        ["Model", ev.model],
+        ["Runs on", ev.local ? "your computer" : sub ? "Anthropic, on your subscription" : "a cloud provider", ev.local ? "Free and private: nothing left your computer." : sub ? "A flat plan: no per-call bill, but usage counts toward your plan's limits." : "Billed per token."],
+        ["Status", ev.status == null ? "–" : String(ev.status), ev.status >= 400 ? "Failed." : "Answered."],
+        ev.latency_ms != null && ["Time", (ev.latency_ms / 1000).toFixed(2) + " s"],
+        ["Tokens in", ev.tokens_in != null ? ev.tokens_in.toLocaleString() : "not reported", "Your request plus all the context sent with it."],
+        ev.tokens_cached != null && ["of which cached", ev.tokens_cached.toLocaleString(), "Context re-read from earlier turns: cheaper and faster than new input."],
+        ["Tokens out", ev.tokens_out != null ? ev.tokens_out.toLocaleString() : "not reported", "The answer. Output tokens usually cost several times more than input."],
+        ["Cost", ev.local ? "$0" : sub ? "included in plan" : ev.cost != null ? money(ev.cost) : "unknown", !ev.local && !sub && ev.cost == null ? "Add this model's prices to ~/.arcade/prices.json." : null],
+        ev.sensitive && ev.sensitive.length && ["Kept private", ev.sensitive.join(", "), "Switchboard spotted private data and kept this request on a local model."]);
+      if (ev.reasons && ev.reasons.length) extra.push(h("div", { class: "eyebrow", text: "Why this model" }), h("ul", { class: "dlist" }, ...ev.reasons.map(r => h("li", { class: "ai", text: r }))));
+      else if (!sub) extra.push(h("p", { class: "muted", text: "Switchboard's reasons for this choice show here for steps logged by a current Switchboard." }));
+      if (ev.attempts && ev.attempts.length) extra.push(h("div", { class: "eyebrow", text: "Tried first" }), h("ul", { class: "dlist" }, ...ev.attempts.map(a =>
+        a.error === "budget_blocked" ? h("li", { class: "warn" }, `${a.model}: skipped, over budget`, h("small", { text: (a.reason || "") + ". Caps: ~/.arcade/budget.json" }))
+        : a.status ? h("li", { class: "bad" }, `${a.model}: answered ${a.status}`, h("small", { text: a.status === 429 ? "Rate-limited: too many requests." : a.status >= 500 ? "The provider had a problem." : "Not usable for this request." }))
+        : h("li", { class: "bad" }, `${a.model}: couldn't connect`, h("small", { text: a.error || "" })))));
+      if (blocked.length && ev.status === 429) extra.push(h("p", { class: "warn", text: "Refused rather than billed: the route has no local model to fall back to. Add one, or raise the cap." }));
+      break;
+    }
+  }
+  return h("section", { class: "panel dpanel", style: `--c:${c.c}` },
+    h("header", {}, h("div", { class: "ico" }, icon(ev.type)), h("div", { style: "min-width:0" }, h("div", { class: "eyebrow", text: src === "replay" ? "Replay · event" : "Event" }), h("h2", { text: v.title }))),
+    v.sub ? h("p", { class: "muted", style: "margin:0", text: v.sub }) : null,
+    v.chips.length ? h("div", { class: "meta", style: "display:flex;flex-wrap:wrap;gap:6px" }, ...v.chips) : null,
+    kv(rows), ...extra,
+    h("p", { class: "why", style: "margin:0;color:var(--kelp)", text: c.why }),
+    h("details", {}, h("summary", { text: "Raw event (exactly what the Arcade recorded)" }), h("pre", { class: "raw", text: JSON.stringify(ev, null, 2) })));
+}
+function relatedList(evs, src, empty) {
+  return evs.length ? h("ul", { class: "dlist" }, ...evs.slice(-60).reverse().map(ev => { const v = eventView(ev);
+    return pickable(h("li", { style: `box-shadow: inset 3px 0 0 ${(EV[ev.type] || EV.command).c}` }, v.title, h("small", { text: `${v.sub ? v.sub + " · " : ""}${ago(ev.ts)}` })), () => ({ kind: "event", ev, src })); }))
+    : h("p", { class: "muted", text: empty });
+}
+function filePanel(path, src) {
+  const evs = eventsOf(src), info = fileInfo(path), name = base(path).toLowerCase();
+  const own = evs.filter(e => e.path === path), cmds = evs.filter(e => e.type === "command" && e.cmd.toLowerCase().includes(name));
+  const add = own.reduce((n, e) => n + (e.added || 0), 0), rem = own.reduce((n, e) => n + (e.removed || 0), 0);
+  const lines = [...own].reverse().find(e => e.lines != null)?.lines ?? world?.files.get(path)?.lines;
+  return h("section", { class: "panel dpanel k-" + info.kind },
+    h("header", {}, h("div", { class: "ico", text: info.glyph }), h("div", { style: "min-width:0" }, h("div", { class: "eyebrow", text: KINDS[info.kind] }), h("h2", { text: base(path) }))),
+    kv([["Path", path], ["What it is", info.title, info.what], lines != null && ["Lines", lines], ["This session", `${own.length} change${own.length === 1 ? "" : "s"}`, own.length ? `+${add} −${rem} lines in total` : "Not touched yet."],
+      info.kind === "secret" && ["Careful", "Secret file", "Its contents are never read or shown. Keep it out of Git, chats and screenshots."]]),
+    h("div", { class: "eyebrow", text: "History" }), relatedList(own, src, "No changes this session."),
+    cmds.length ? h("div", { class: "eyebrow", text: "Commands that mention it" }) : null, cmds.length ? relatedList(cmds, src) : null);
+}
+function folderPanel(dir, src) {
+  const evs = eventsOf(src).filter(e => e.path && dirOf(e.path) === dir);
+  const files = world ? [...world.files.values()].filter(f => dirOf(f.path) === dir) : [];
+  const busiest = files.filter(f => f.edits).sort((a, b) => b.edits - a.edits).slice(0, 8);
+  return panel("Island", dir ? dir + "/" : "Project root",
+    kv([["What it is", folderHint(dir)], ["Files", files.length], ["Changes this session", evs.length]]),
+    busiest.length ? h("ul", { class: "dlist" }, ...busiest.map(f => pickable(h("li", {}, base(f.path), h("small", { text: `${f.edits}× · +${f.added} −${f.removed}` })), () => ({ kind: "file", path: f.path, src })))) : null,
+    h("div", { class: "eyebrow", text: "History" }), relatedList(evs, src, "Nothing changed here yet."));
+}
+function modelPanel(model, src) {
+  const evs = eventsOf(src).filter(e => e.type === "ai_call" && e.model === model);
+  const m = aiSummary(evs).models[0];
+  if (!m) return panel("Model", model, h("p", { class: "muted", text: "No calls in this view." }));
+  return panel("Model", model,
+    kv([["Runs on", billingOf(m)], ["Calls", m.calls, m.failed ? `${m.failed} failed` : null], ["Routes", [...m.routes].join(", ")],
+      ["Tokens", `${fmt(m.tin)} in · ${fmt(m.tout)} out`, m.cached ? `${fmt(m.cached)} of the input was cached context` : null],
+      ["Cost", m.local ? "$0" : m.sub ? "included in plan" : m.priced ? money(m.cost) : "unknown", !m.local && !m.sub && m.priced < m.calls ? "Some calls have no price in ~/.arcade/prices.json." : null],
+      m.latN && ["Average time", (m.lat / m.latN / 1000).toFixed(2) + " s"]]),
+    h("div", { class: "eyebrow", text: "Calls" }), relatedList(evs, src));
+}
+function renderDetails() {
+  const it = detail.item, src = (it && it.src) || "live";
+  $("#details-eyebrow").textContent = src === "replay" ? "Details · replay" : mode === "demo" ? "Details · example session" : "Details · live";
+  const main = !it || it.kind === "overview" ? panel("Nothing picked yet", "Click anything to see it here",
+      h("p", { class: "muted", style: "margin:0", text: "In World or Replay, click a quest-log entry, a file tile, an island name, the model ribbon or the stats. On a touch screen, tap twice." }))
+    : it.kind === "event" ? eventPanel(it.ev, src) : it.kind === "file" ? filePanel(it.path, src)
+    : it.kind === "folder" ? folderPanel(it.dir, src) : modelPanel(it.model, src);
+  $("#details-main").replaceChildren(main, timelinePanel(src));
+  $("#details-side").replaceChildren(...overviewPanels(src));
+}
+
+/* =========================================================== terminal */
+const TERM = { term: null, fit: null, ws: null, loading: null, pair: null, status: null };
+{ const m = location.hash.match(/^#pair=([\w-]{20,})$/); if (m) { TERM.pair = m[1]; history.replaceState(null, "", location.pathname + location.search); } }
+function loadVendor() {
+  if (TERM.loading) return TERM.loading;
+  const add = (tag, attrs) => new Promise((ok, fail) => { const el = h(tag, attrs); el.onload = ok; el.onerror = fail; document.head.append(el); });
+  TERM.loading = add("link", { rel: "stylesheet", href: "/static/vendor/xterm.css" })
+    .then(() => add("script", { src: "/static/vendor/xterm.js" })).then(() => add("script", { src: "/static/vendor/addon-fit.js" }));
+  return TERM.loading;
+}
+function termStatus(text) { if (TERM.status) TERM.status.textContent = text; }
+function renderTerminal() {
+  const slot = $("#terminal-slot"), snap = world && world.snapshot;
+  if (mode === "demo" || !snap || !snap.terminal) {
+    if (slot.dataset.state === "off") return;
+    slot.dataset.state = "off";
+    return slot.replaceChildren(h("section", { class: "panel termoff" },
+      h("h3", { text: mode === "demo" ? "Not available in the example" : "The terminal is switched off" }),
+      h("p", { class: "muted", style: "margin:0", text: "It's off by default because a shell in a web page can do anything you can. Start the Arcade with --terminal to switch it on (Linux and macOS):" }),
+      h("div", { class: "cmd", text: "python3 -m workflow_arcade watch ~/projects/my-app --terminal" }),
+      h("ul", { class: "dlist" },
+        h("li", { class: "ok" }, "Only this page can connect", h("small", { text: "Other websites and other users on this computer are refused: the Arcade checks the page's origin and a secret key made fresh at every start." })),
+        h("li", { class: "ok" }, "Paired once per start", h("small", { text: "The link the Arcade opens carries a one-time pairing code. After the first use it's worthless, even if someone copies it." })),
+        h("li", { class: "warn" }, "It's a real shell", h("small", { text: "Commands run as you, in the project folder. Use the Academy's command decoder when you're unsure what a command does." })))));
+  }
+  if (slot.dataset.state === "on") { requestAnimationFrame(() => TERM.fit && TERM.fit.fit()); return; }
+  slot.dataset.state = "on";
+  const box = h("div", { id: "term" });
+  TERM.status = h("span", { class: "status", text: "Loading…" });
+  slot.replaceChildren(h("section", { class: "panel termbox" },
+    h("div", { class: "termbar" }, TERM.status,
+      h("button", { class: "btn", type: "button", onclick: () => { TERM.term && TERM.term.clear(); } }, "Clear"),
+      h("button", { class: "btn primary", type: "button", onclick: () => termConnect(true) }, "New shell")), box));
+  loadVendor().then(() => {
+    const term = new Terminal({ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 13.5, cursorBlink: true, scrollback: 5000,
+      theme: { background: "#04131a", foreground: "#e6f2ef", cursor: "#ffcc4d", selectionBackground: "#1d4f5c" } });
+    const fit = new FitAddon.FitAddon(); term.loadAddon(fit); term.open(box); fit.fit();
+    TERM.term = term; TERM.fit = fit;
+    const enc = new TextEncoder();
+    term.onData(d => { if (TERM.ws && TERM.ws.readyState === 1) TERM.ws.send(enc.encode(d)); });
+    term.onResize(({ cols, rows }) => { if (TERM.ws && TERM.ws.readyState === 1) TERM.ws.send(JSON.stringify({ size: [cols, rows] })); });
+    addEventListener("resize", () => { if (currentTab === "terminal") fit.fit(); });
+    termConnect(false);
+  }).catch(() => termStatus("Couldn't load the terminal files from the Arcade."));
+}
+function termConnect(fresh) {
+  const term = TERM.term; if (!term) return;
+  if (TERM.ws) { TERM.ws.onclose = null; TERM.ws.close(); TERM.ws = null; }
+  if (fresh) term.reset();
+  const token = store.get("termToken", null);
+  if (!TERM.pair && !token) return termStatus("Not paired. Open the one-time link printed where you started the Arcade.");
+  const ws = new WebSocket(`ws://${location.host}/api/term`); ws.binaryType = "arraybuffer"; TERM.ws = ws;
+  termStatus("Connecting…");
+  ws.onopen = () => { ws.send(JSON.stringify({ ...(TERM.pair ? { pair: TERM.pair } : { token }), size: [term.cols, term.rows] })); TERM.pair = null; };
+  ws.onmessage = m => {
+    if (typeof m.data !== "string") { termStatus(`Shell in ${world.snapshot.project} · runs as you`); return term.write(new Uint8Array(m.data)); }
+    let msg; try { msg = JSON.parse(m.data); } catch { return; }
+    if (msg.token) store.set("termToken", msg.token);
+    if (msg.exit != null) term.write(`\r\n\x1b[2m[shell ended with code ${msg.exit}. Press New shell for another.]\x1b[0m\r\n`);
+    if (msg.error) term.write(`\r\n\x1b[31m${msg.error}\x1b[0m\r\n`);
+  };
+  ws.onclose = e => {
+    if (TERM.ws !== ws) return;
+    TERM.ws = null;
+    if (e.code === 1008) { store.set("termToken", null); termStatus("This browser isn't paired with the running Arcade. Restart it and use the new link it prints (links work once)."); }
+    else if (e.code === 1013) termStatus("Too many terminals open. Close another Arcade tab first.");
+    else termStatus("Disconnected. Press New shell to start another.");
+  };
+  term.focus();
+}
+
 /* =========================================================== tabs & boot */
+const TABS = ["world", "replay", "academy", "details", "terminal"];
+let currentTab = "world";
 function showTab(name) {
-  for (const t of ["world", "replay", "academy"]) {
+  for (const t of TABS) {
     $("#tab-" + t).setAttribute("aria-selected", String(t === name));
     $("#view-" + t).hidden = t !== name;
   }
-  store.set("tab", name); hideTip();
+  currentTab = name; store.set("tab", name); hideTip();
+  if (name === "details") { renderDetails(); scrollTo({ top: 0 }); }
+  if (name === "terminal") renderTerminal();
 }
-for (const t of ["world", "replay", "academy"]) $("#tab-" + t).addEventListener("click", () => showTab(t));
-const startTab = /^#(world|replay|academy)$/.test(location.hash) ? location.hash.slice(1) : store.get("tab", "world");
-showTab(["world", "replay", "academy"].includes(startTab) ? startTab : "world");
+for (const t of TABS) $("#tab-" + t).addEventListener("click", () => showTab(t));
+const startTab = /^#(world|replay|academy|details)$/.test(location.hash) ? location.hash.slice(1) : store.get("tab", "world");
 if (store.get("hint-x", false)) $("#hint").hidden = true;
 $("#hint-x").addEventListener("click", () => { $("#hint").hidden = true; store.set("hint-x", true); });
-renderLevels(); decode(); boot();
+renderLevels(); decode();
+boot().then(() => showTab(TABS.includes(startTab) ? startTab : "world"));
 </script>

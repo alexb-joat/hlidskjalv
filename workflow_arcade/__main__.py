@@ -13,7 +13,8 @@ from pathlib import Path
 
 from . import __version__
 from .server import Hub, list_sessions, serve
-from .sources import CommandWatcher, FileWatcher, GitWatcher, SwitchboardWatcher, load_prices
+from . import terminal as term
+from .sources import ClaudeCodeWatcher, CommandWatcher, FileWatcher, GitWatcher, SwitchboardWatcher, load_prices
 
 HOOKS = {
     "bash": r'''
@@ -107,6 +108,7 @@ def watch(args) -> None:
     git = GitWatcher(root)
     cmds = CommandWatcher(root, home / "commands.log")
     ai = SwitchboardWatcher(sb_path, load_prices(home / "prices.json"))
+    claude_code = ClaudeCodeWatcher(root)
 
     snapshot = files.snapshot()
     git.prime()
@@ -115,6 +117,8 @@ def watch(args) -> None:
         "git": git.available(), "branch": git.branch,
         "commands_hook": (home / "commands.log").exists(),
         "switchboard": bool(sb_path and sb_path.exists()),
+        "claude_code": claude_code.available(),
+        "terminal": bool(args.terminal and term.supported()),
         "truncated": files.truncated, "version": __version__,
     }
     session_path = sessions / f"{time.strftime('%Y%m%d-%H%M%S')}-{name}.jsonl"
@@ -122,7 +126,7 @@ def watch(args) -> None:
 
     def loop():
         while True:
-            for source in (files, git, cmds, ai):
+            for source in (files, git, cmds, ai, claude_code):
                 try:
                     for ev in source.poll():
                         hub.publish(ev)
@@ -131,16 +135,28 @@ def watch(args) -> None:
             time.sleep(args.interval)
 
     threading.Thread(target=loop, daemon=True).start()
-    httpd = serve(hub, sessions, args.port)
+    shell = term.Terminal(root) if meta["terminal"] else None
+    httpd = serve(hub, sessions, args.port, shell)
     url = f"http://127.0.0.1:{args.port}/"
     print(f"Workflow Arcade is watching {root}")
     print(f"  open {url}   (Ctrl+C to stop)")
+    if shell:
+        url += f"#pair={shell.pair_code}"
+        print("  terminal: ON (a real shell in this folder, in the Terminal tab)")
+        if args.no_open:
+            print(f"  pair your browser with this one-time link: {url}")
+        else:
+            print(f"  your browser is being paired; the link works once. If that fails, open: {url}")
+    elif args.terminal:
+        print("  note: the in-browser terminal needs Linux or macOS; it stays off on this system")
     if files.truncated:
         print("  note: more than 5000 files; showing the first 5000")
     if not meta["commands_hook"]:
         print("  tip: terminal commands aren't recorded yet; see README > Record terminal commands")
     if sb_log and not meta["switchboard"]:
         print(f"  note: Switchboard log not found yet at {sb_path}; it appears after the first AI call")
+    if not meta["claude_code"]:
+        print("  tip: no Claude Code session transcripts found for this folder yet; run `claude` here to see its AI steps too")
     if not args.no_open:
         webbrowser.open(url)
     try:
@@ -161,6 +177,8 @@ def main(argv: list[str] | None = None) -> None:
     w.add_argument("--interval", type=float, default=1.0, help="seconds between checks")
     w.add_argument("--keep", type=int, default=50, help="how many past sessions to keep for Replay")
     w.add_argument("--no-open", action="store_true", help="don't open the browser")
+    w.add_argument("--terminal", action="store_true",
+                   help="also allow a real shell in the browser (Terminal tab); off by default")
 
     h = sub.add_parser("hook", help="print the shell snippet that records terminal commands")
     h.add_argument("shell", choices=sorted(HOOKS))

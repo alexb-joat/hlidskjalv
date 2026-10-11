@@ -14,8 +14,10 @@ Made for people who are new to coding and work with an AI helper in VS Code.
 | **World** | Live map of the project and a quest log of everything that happens, with "Careful" badges on risky commands |
 | **Replay** | Every session is saved on your computer; scrub through it like a game replay |
 | **Academy** | Five short levels (terminal, Python, Git, working with AI, Switchboard), a command decoder and badges |
+| **Details** | Click anything (a log entry, a file tile, an island, the model ribbon) for every detail: why a model was picked, tokens, cost, what each piece of a command does, a file's history. Plus where your tokens and money go, and how to spend less |
+| **Terminal** | Optional: a real shell in the project folder, inside the page (off unless you start with `--terminal`) |
 
-It only **watches**: it never changes your files, never runs anything from your project, and never sends anything anywhere. No dependencies beyond Python itself.
+It only **watches**: it never changes your files, never runs anything from your project, and never sends anything anywhere. The one exception is the optional terminal, which you switch on yourself. No dependencies beyond Python itself.
 
 ## Start (2 minutes)
 
@@ -64,6 +66,10 @@ python3 -m workflow_arcade watch ~/projects/my-app --switchboard-log ~/switchboa
 
 For costs, copy `prices.example.json` to `~/.arcade/prices.json` and fill in each cloud model's price per million tokens from the provider's pricing page.
 
+If you also use the [Claude Code](https://claude.com/claude-code) CLI in the same folder, its AI steps show up too — read-only, from its own session transcripts (`~/.claude/projects/...`), not from Switchboard. Model and token counts only, never prompt or response text. Since Claude Code runs on your subscription rather than per-token billing, those steps are labeled "subscription" instead of a dollar cost.
+
+The **Details** tab explains each AI step in full: Switchboard's reasons for the route and model, models it skipped (busy, down, or over your spending cap), tokens in, cached and out, and cost. Its cost-efficiency panel totals spend per model and points at the cheapest next step, for example a route that keeps sending routine prompts to a paid model.
+
 ### Connect VS Code to Switchboard (Cline)
 
 [Cline](https://marketplace.visualstudio.com/items?itemName=saoudrizwan.claude-dev) is a free, open-source AI coding helper for VS Code that asks before every edit and command.
@@ -79,10 +85,24 @@ For costs, copy `prices.example.json` to `~/.arcade/prices.json` and fill in eac
 
 Cline's requests carry a large instruction block, and small local models (3B–8B) often struggle to follow it for multi-step edits. Keep a strong cloud model first in Switchboard's `code` route, and let local models take the quick and writing routes.
 
+## Terminal in the page (optional, Linux and macOS)
+
+```bash
+python3 -m workflow_arcade watch ~/projects/my-app --terminal
+```
+
+The **Terminal** tab then runs your normal shell in the project folder, as you. Commands typed there land in the quest log like any other (with the shell hook installed). A shell in a web page can do anything you can, so it's off by default and locked down when on:
+
+- Only the Arcade's own page can connect. Other websites are refused by an Origin check, and other users or programs on the computer by a secret key made fresh at every start.
+- Your browser gets that key by trading a **one-time pairing code** from the link the Arcade opens. Once used, the link is worthless, even if someone copied it. To use another browser, restart the Arcade and open the new link it prints.
+- At most four shells at a time; each one is closed when its tab disconnects.
+
+The terminal display is [xterm.js](https://xtermjs.org/) (MIT), shipped unmodified in `workflow_arcade/static/vendor/` with its npm checksums. Windows isn't supported yet.
+
 ## Privacy and security
 
 - Listens on `127.0.0.1` only and rejects requests with any other `Host` header, so other devices and websites can't reach it.
-- Read-only: no endpoint changes anything; it never executes project files.
+- Read-only: no endpoint changes anything and it never executes project files. The opt-in terminal above is the only exception.
 - File **contents** never leave your computer and are never shown; only names and line counts. Files that look secret (`.env`, `*.pem`, `id_rsa`, `*secret*`, `*credential*`…) aren't even read.
 - Git is run with repository hooks and fsmonitor switched off, so a cloned repo can't make it run anything.
 - Sessions live in `~/.arcade/sessions` (owner-only permissions); the last 50 are kept (`--keep` to change).
@@ -90,7 +110,7 @@ Cline's requests carry a large instruction block, and small local models (3B–8
 
 ## Try it without installing
 
-The page opens in a demo session when it isn't connected to a running Arcade, so you can explore World, Replay and Academy with example data.
+The page opens in a demo session when it isn't connected to a running Arcade, so you can explore World, Replay, Academy and Details with example data.
 
 ## Development
 
