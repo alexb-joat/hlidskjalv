@@ -1,4 +1,4 @@
-"""python -m workflow_arcade [watch|hook|sessions]"""
+"""python -m hlidskjalv [watch|hook|sessions]"""
 
 from __future__ import annotations
 
@@ -13,21 +13,21 @@ import webbrowser
 from pathlib import Path
 
 from . import __version__
-from .alerts import Acks, Alerter, PersistenceWatcher, SwitchboardSecurityWatcher, SystemLogWatcher
+from .alerts import Acks, Alerter, PersistenceWatcher, TrioditisSecurityWatcher, SystemLogWatcher
 from .server import AlertsContext, Hub, UsageContext, list_sessions, serve
 from .usage import ClaudeUsage
 from . import terminal as term
 from .auth import Owner, issue_pair_code, rotate_key, write_private
 from .settings import Settings
-from .sources import ClaudeCodeWatcher, CommandWatcher, FileWatcher, GitWatcher, SwitchboardWatcher, load_prices
+from .sources import ClaudeCodeWatcher, CommandWatcher, FileWatcher, GitWatcher, TrioditisWatcher, load_prices
 
 HOOKS = {
     "bash": r'''
-# --- Workflow Arcade: record terminal commands (local file, owner-only) ---
+# --- Hlidskjalv: record terminal commands (local file, owner-only) ---
 # Commands that start with a space are not recorded (Ubuntu's default HISTCONTROL).
 __arcade_last=$(HISTTIMEFORMAT= builtin history 1 | awk '{print $1}')
 __arcade_log() {
-  local h n c f="${ARCADE_HOME:-$HOME/.arcade}/commands.log"
+  local h n c f="${HLIDSKJALV_HOME:-${ARCADE_HOME:-$HOME/.hlidskjalv}}/commands.log"
   h=$(HISTTIMEFORMAT= builtin history 1) || return
   read -r n c <<<"$h"
   { [ -z "$c" ] || [ "$n" = "$__arcade_last" ]; } && return
@@ -36,14 +36,14 @@ __arcade_log() {
   printf '%s\t%s\t%s\n' "$(date +%s)" "$PWD" "$c" >> "$f"
 }
 case ";$PROMPT_COMMAND;" in *";__arcade_log;"*) ;; *) PROMPT_COMMAND="__arcade_log${PROMPT_COMMAND:+;$PROMPT_COMMAND}";; esac
-# --- end Workflow Arcade ---
+# --- end Hlidskjalv ---
 ''',
     "zsh": r'''
-# --- Workflow Arcade: record terminal commands (local file, owner-only) ---
+# --- Hlidskjalv: record terminal commands (local file, owner-only) ---
 setopt HIST_IGNORE_SPACE   # commands starting with a space are not recorded
 __arcade_last=$(fc -l -1 2>/dev/null | awk '{print $1}')
 __arcade_log() {
-  local h n c f="${ARCADE_HOME:-$HOME/.arcade}/commands.log"
+  local h n c f="${HLIDSKJALV_HOME:-${ARCADE_HOME:-$HOME/.hlidskjalv}}/commands.log"
   h=$(fc -l -1 2>/dev/null) || return
   read -r n c <<<"$h"
   [[ -z "$c" || "$n" == "$__arcade_last" ]] && return
@@ -52,32 +52,44 @@ __arcade_log() {
   printf '%s\t%s\t%s\n' "$(date +%s)" "$PWD" "$c" >> "$f"
 }
 autoload -Uz add-zsh-hook && add-zsh-hook precmd __arcade_log
-# --- end Workflow Arcade ---
+# --- end Hlidskjalv ---
 ''',
     "powershell": r'''
-# --- Workflow Arcade: record terminal commands (local file in your profile folder) ---
+# --- Hlidskjalv: record terminal commands (local file in your profile folder) ---
 # Commands that start with a space are not recorded.
-$global:__ArcadeLastId = -1
-$global:__ArcadeOriginalPrompt = $function:prompt
+$global:__HlidskjalvLastId = -1
+$global:__HlidskjalvOriginalPrompt = $function:prompt
 function global:prompt {
   $h = Get-History -Count 1
-  if ($h -and $h.Id -ne $global:__ArcadeLastId -and -not $h.CommandLine.StartsWith(' ')) {
-    $global:__ArcadeLastId = $h.Id
-    $dir = if ($env:ARCADE_HOME) { $env:ARCADE_HOME } else { Join-Path $HOME '.arcade' }
+  if ($h -and $h.Id -ne $global:__HlidskjalvLastId -and -not $h.CommandLine.StartsWith(' ')) {
+    $global:__HlidskjalvLastId = $h.Id
+    $dir = if ($env:HLIDSKJALV_HOME) { $env:HLIDSKJALV_HOME } elseif ($env:ARCADE_HOME) { $env:ARCADE_HOME } else { Join-Path $HOME '.hlidskjalv' }
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
     $ts = [DateTimeOffset]::Now.ToUnixTimeSeconds()
     $line = "$ts`t$($PWD.Path)`t$($h.CommandLine -replace "`r?`n", ' ')"
     Add-Content -Path (Join-Path $dir 'commands.log') -Value $line -Encoding utf8
   }
-  & $global:__ArcadeOriginalPrompt
+  & $global:__HlidskjalvOriginalPrompt
 }
-# --- end Workflow Arcade ---
+# --- end Hlidskjalv ---
 ''',
 }
 
 
-def arcade_home() -> Path:
-    home = Path(os.environ.get("ARCADE_HOME") or Path.home() / ".arcade")
+def data_home() -> Path:
+    """$HLIDSKJALV_HOME (or the pre-rename $ARCADE_HOME), else ~/.hlidskjalv. An old ~/.arcade
+    folder is moved there once, with a symlink left behind so installed shell hooks keep working."""
+    env = os.environ.get("HLIDSKJALV_HOME") or os.environ.get("ARCADE_HOME")
+    if env:
+        home = Path(env)
+    else:
+        home, old = Path.home() / ".hlidskjalv", Path.home() / ".arcade"
+        if not home.exists() and old.is_dir() and not old.is_symlink():
+            try:
+                os.rename(old, home)
+                os.symlink(home, old, target_is_directory=True)
+            except OSError:
+                home = home if home.exists() else old
     home.mkdir(parents=True, exist_ok=True)
     (home / "sessions").mkdir(exist_ok=True)
     if os.name == "posix":
@@ -103,7 +115,7 @@ def check_folder(folder: Path) -> None:
 def watch(args, argv: list[str]) -> None:
     root = Path(args.folder).expanduser().resolve()
     check_folder(root)
-    home = arcade_home()
+    home = data_home()
     sessions = home / "sessions"
     prune(sessions, max(args.keep - 1, 0))
     owner = Owner(home)
@@ -111,13 +123,13 @@ def watch(args, argv: list[str]) -> None:
     prefs = settings.data
 
     # Command-line flags win; otherwise Settings decide.
-    sb_log = (args.switchboard_log or os.environ.get("ARCADE_SWITCHBOARD_LOG")
-              or prefs["sources"]["switchboard_log"])
+    sb_log = (args.trioditis_log or (os.environ.get("HLIDSKJALV_TRIODITIS_LOG") or os.environ.get("ARCADE_SWITCHBOARD_LOG"))
+              or prefs["sources"]["trioditis_log"])
     sb_path = Path(sb_log).expanduser().resolve() if sb_log else None
     files = FileWatcher(root)
     git = GitWatcher(root)
     cmds = CommandWatcher(root, home / "commands.log")
-    ai = SwitchboardWatcher(sb_path, load_prices(home / "prices.json"))
+    ai = TrioditisWatcher(sb_path, load_prices(home / "prices.json"))
     claude_code = ClaudeCodeWatcher(root) if prefs["sources"]["claude_code"] else None
 
     snapshot = files.snapshot()
@@ -126,7 +138,7 @@ def watch(args, argv: list[str]) -> None:
     meta = {
         "git": git.available(), "branch": git.branch,
         "commands_hook": (home / "commands.log").exists(),
-        "switchboard": bool(sb_path and sb_path.exists()),
+        "trioditis": bool(sb_path and sb_path.exists()),
         "claude_code": bool(claude_code and claude_code.available()),
         "terminal": bool((args.terminal or prefs["features"]["terminal"]) and term.supported()),
         "truncated": files.truncated, "version": __version__,
@@ -138,7 +150,7 @@ def watch(args, argv: list[str]) -> None:
     alerter = Alerter(hub.publish, settings, home / "alerts.jsonl")
     persistence = PersistenceWatcher(root, alerter, expected=home / "expected.json")
     syslog = SystemLogWatcher(alerter)
-    sb_security = SwitchboardSecurityWatcher(sb_path.parent / "security.jsonl" if sb_path else None, alerter)
+    sb_security = TrioditisSecurityWatcher(sb_path.parent / "security.jsonl" if sb_path else None, alerter)
     alerts_ctx = AlertsContext(alerter, home / "alerts.jsonl", Acks(home / "alerts-ack.json"),
                                lambda: {"available": syslog.available, "why": syslog.why})
 
@@ -156,7 +168,7 @@ def watch(args, argv: list[str]) -> None:
     def restart():
         """Start over with the same command line (new settings apply); same PID under systemd."""
         again = [a for a in argv if a != "--no-open"] + ["--no-open"]
-        os.execv(sys.executable, [sys.executable, "-m", "workflow_arcade", *again])
+        os.execv(sys.executable, [sys.executable, "-m", "hlidskjalv", *again])
 
     shell = term.Terminal(root, owner, lambda sev, title, detail, fp: alerter.raise_(
         sev, "refused_access", title, detail, fingerprint=fp)) if meta["terminal"] else None
@@ -166,12 +178,12 @@ def watch(args, argv: list[str]) -> None:
         "port": args.port, "pid": os.getpid(), "folder": str(root), "version": __version__,
         "started": time.time()}))
     url = f"http://127.0.0.1:{args.port}/"
-    print(f"Workflow Arcade is watching {root}")
+    print(f"Hlidskjalv is watching {root}")
     print(f"  open {url}   (Ctrl+C to stop)")
     if not args.no_open:
         url += f"#pair={owner.launch_code()}"  # one use: pairs this browser for settings and the terminal
     else:
-        print("  to pair a browser (needed for settings and the terminal): python3 -m workflow_arcade pair")
+        print("  to pair a browser (needed for settings and the terminal): python3 -m hlidskjalv pair")
     if shell:
         print("  terminal: ON (a real shell in this folder, in the Terminal tab)")
     elif args.terminal or prefs["features"]["terminal"]:
@@ -180,8 +192,8 @@ def watch(args, argv: list[str]) -> None:
         print("  note: more than 5000 files; showing the first 5000")
     if not meta["commands_hook"]:
         print("  tip: terminal commands aren't recorded yet; see README > Record terminal commands")
-    if sb_log and not meta["switchboard"]:
-        print(f"  note: Switchboard log not found yet at {sb_path}; it appears after the first AI call")
+    if sb_log and not meta["trioditis"]:
+        print(f"  note: Trioditis log not found yet at {sb_path}; it appears after the first AI call")
     if claude_code and not meta["claude_code"]:
         print("  tip: no Claude Code session transcripts found for this folder yet; run `claude` here to see its AI steps too")
     if not args.no_open:
@@ -193,14 +205,14 @@ def watch(args, argv: list[str]) -> None:
 
 
 def pair(args) -> None:
-    home = arcade_home()
+    home = data_home()
     if args.rotate:
         rotate_key(home)
         print("New owner key: every browser is un-paired.")
     try:
         port = int(json.loads((home / "server.json").read_text(encoding="utf-8"))["port"])
     except (OSError, ValueError, KeyError, TypeError):
-        port = int(os.environ.get("ARCADE_PORT", "8788"))
+        port = int(os.environ.get("HLIDSKJALV_PORT") or os.environ.get("ARCADE_PORT") or "8788")
     url = f"http://127.0.0.1:{port}/#pair={issue_pair_code(home)}"
     print(f"Open this once, within 10 minutes, in the browser to pair:\n  {url}")
     if args.open:
@@ -208,28 +220,29 @@ def pair(args) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    ap = argparse.ArgumentParser(prog="workflow-arcade", description="A game-like live view of your coding workflow.")
+    ap = argparse.ArgumentParser(prog="hlidskjalv", description="A game-like live view of your coding workflow.")
     ap.add_argument("--version", action="version", version=__version__)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    w = sub.add_parser("watch", help="watch a project folder and open the Arcade")
+    w = sub.add_parser("watch", help="watch a project folder and open Hlidskjalv")
     w.add_argument("folder", nargs="?", default=".")
-    w.add_argument("--port", type=int, default=int(os.environ.get("ARCADE_PORT", "8788")))
-    w.add_argument("--switchboard-log", help="path to Switchboard's logs/decisions.jsonl")
+    w.add_argument("--port", type=int, default=int(os.environ.get("HLIDSKJALV_PORT") or os.environ.get("ARCADE_PORT") or "8788"))
+    w.add_argument("--trioditis-log", "--switchboard-log", dest="trioditis_log",  # old name: one more version
+                   help="path to Trioditis' logs/decisions.jsonl")
     w.add_argument("--interval", type=float, default=1.0, help="seconds between checks")
     w.add_argument("--keep", type=int, default=50, help="how many past sessions to keep for Replay")
     w.add_argument("--no-open", action="store_true", help="don't open the browser")
     w.add_argument("--terminal", action="store_true",
                    help="also allow a real shell in the browser (Terminal tab); off by default")
 
-    pr = sub.add_parser("pair", help="print a one-time link that pairs a browser with the running Arcade")
+    pr = sub.add_parser("pair", help="print a one-time link that pairs a browser with the running Hlidskjalv")
     pr.add_argument("--open", action="store_true", help="also open it in the browser")
     pr.add_argument("--rotate", action="store_true", help="new owner key first: un-pairs every browser")
 
-    a = sub.add_parser("autostart", help="start the Arcade at login: enable <folder> | disable | status")
+    a = sub.add_parser("autostart", help="start Hlidskjalv at login: enable <folder> | disable | status")
     a.add_argument("action", choices=["enable", "disable", "status"])
     a.add_argument("folder", nargs="?", help="project folder to watch (for enable)")
-    a.add_argument("--port", type=int, default=int(os.environ.get("ARCADE_PORT", "8788")))
+    a.add_argument("--port", type=int, default=int(os.environ.get("HLIDSKJALV_PORT") or os.environ.get("ARCADE_PORT") or "8788"))
 
     h = sub.add_parser("hook", help="print the shell snippet that records terminal commands")
     h.add_argument("shell", choices=sorted(HOOKS))
@@ -243,14 +256,14 @@ def main(argv: list[str] | None = None) -> None:
         pair(args)
     elif args.cmd == "autostart":
         from . import autostart
-        home = arcade_home()
+        home = data_home()
         if args.action == "enable":
             if not args.folder:
-                sys.exit("Which folder? python3 -m workflow_arcade autostart enable ~/projects/my-app")
+                sys.exit("Which folder? python3 -m hlidskjalv autostart enable ~/projects/my-app")
             folder = Path(args.folder).expanduser().resolve()
             check_folder(folder)
             print(autostart.enable(folder, args.port, home))
-            print("Pair a browser: python3 -m workflow_arcade pair --open")
+            print("Pair a browser: python3 -m hlidskjalv pair --open")
         elif args.action == "disable":
             print(autostart.disable())
         else:
@@ -258,7 +271,7 @@ def main(argv: list[str] | None = None) -> None:
     elif args.cmd == "hook":
         print(HOOKS[args.shell].strip())
     elif args.cmd == "sessions":
-        for s in list_sessions(arcade_home() / "sessions"):
+        for s in list_sessions(data_home() / "sessions"):
             print(f"{s['id']}  {s['bytes']:>8} bytes")
 
 

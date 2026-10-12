@@ -9,14 +9,14 @@ import time
 import unittest
 from pathlib import Path
 
-from workflow_arcade.__main__ import HOOKS, check_folder
-from workflow_arcade.redact import redact
-from workflow_arcade import terminal as term
-from workflow_arcade.auth import Owner, issue_pair_code, rotate_key
-from workflow_arcade.settings import Settings, SettingsError, defaults, merge
-from workflow_arcade.server import Hub, read_session, serve
-from workflow_arcade.sources import (
-    ClaudeCodeWatcher, CommandWatcher, FileWatcher, SwitchboardWatcher, claude_code_project_dir,
+from hlidskjalv.__main__ import HOOKS, check_folder
+from hlidskjalv.redact import redact
+from hlidskjalv import terminal as term
+from hlidskjalv.auth import Owner, issue_pair_code, rotate_key
+from hlidskjalv.settings import Settings, SettingsError, defaults, merge
+from hlidskjalv.server import Hub, read_session, serve
+from hlidskjalv.sources import (
+    ClaudeCodeWatcher, CommandWatcher, FileWatcher, TrioditisWatcher, claude_code_project_dir,
 )
 
 
@@ -99,7 +99,7 @@ class CommandAndAiTest(unittest.TestCase):
     def test_ai_calls_with_prices(self):
         log = Path(tempfile.mkdtemp()) / "decisions.jsonl"
         log.write_text("")
-        w = SwitchboardWatcher(log, {"big": {"input": 3, "output": 15}})
+        w = TrioditisWatcher(log, {"big": {"input": 3, "output": 15}})
         recs = [
             {"route": "code", "model": "big", "local": False, "usage": {"prompt_tokens": 1000, "completion_tokens": 100}},
             {"route": "quick", "model": "small", "local": True, "sensitive": ["email"], "usage": None},
@@ -119,8 +119,8 @@ class ClaudeCodeWatcherTest(unittest.TestCase):
     def test_project_dir_encoding(self):
         got = claude_code_project_dir(Path("/home/alexb/projects/hello-test"), self.claude_home)
         self.assertEqual(got, self.claude_home / "projects" / "-home-alexb-projects-hello-test")
-        got = claude_code_project_dir(Path("/home/alexb/Workflow Arcade/my.app"), self.claude_home)
-        self.assertEqual(got.name, "-home-alexb-Workflow-Arcade-my-app")
+        got = claude_code_project_dir(Path("/home/alexb/My Projects/my.app"), self.claude_home)
+        self.assertEqual(got.name, "-home-alexb-My-Projects-my-app")
 
     def test_subagents_and_synthetic_messages(self):
         proj_dir = claude_code_project_dir(self.root, self.claude_home)
@@ -196,7 +196,7 @@ class TailTest(unittest.TestCase):
     def test_skips_a_line_longer_than_one_read(self):
         log = Path(tempfile.mkdtemp()) / "t.jsonl"
         log.write_text("")
-        from workflow_arcade.sources import READ_MAX, Tail
+        from hlidskjalv.sources import READ_MAX, Tail
         t = Tail(log)
         with log.open("a") as f:
             f.write("x" * (READ_MAX + 10) + "\n" + '{"ok": 1}\n')
@@ -206,11 +206,11 @@ class TailTest(unittest.TestCase):
         self.assertEqual(got, ['{"ok": 1}'])
 
 
-class SwitchboardDetailsTest(unittest.TestCase):
+class TrioditisDetailsTest(unittest.TestCase):
     def test_reasons_and_budget_blocks_are_carried(self):
         log = Path(tempfile.mkdtemp()) / "decisions.jsonl"
         log.write_text("")
-        w = SwitchboardWatcher(log, {})
+        w = TrioditisWatcher(log, {})
         rec = {"route": "code", "model": "coder", "local": True, "status": 200,
                "reasons": ["keywords matched route code (score 2)", "x" * 500],
                "failed_attempts": [{"model": "big", "error": "budget_blocked", "reason": "daily cap reached"},
@@ -424,7 +424,7 @@ class SettingsTest(unittest.TestCase):
         """The page carries its own copy of the defaults (for the demo and the first paint)."""
         import re
         from importlib import resources
-        page = resources.files("workflow_arcade").joinpath("static/index.html").read_text(encoding="utf-8")
+        page = resources.files("hlidskjalv").joinpath("static/index.html").read_text(encoding="utf-8")
         embedded = re.search(r"/\*DEFAULTS\*/(.*?)/\*END\*/", page, re.S).group(1)
         self.assertEqual(json.loads(embedded), defaults())
 
@@ -456,7 +456,7 @@ class WriteApiTest(unittest.TestCase):
         headers = {"Host": host or f"127.0.0.1:{self.port}", "Origin": origin or f"http://127.0.0.1:{self.port}",
                    "Content-Type": ctype, "Content-Length": str(len(data))}
         if key:
-            headers["X-Arcade-Key"] = key
+            headers["X-Hlidskjalv-Key"] = key
         c.request("POST", path, body=data, headers=headers)
         r = c.getresponse()
         out = (r.status, json.loads(r.read() or b"{}"))
@@ -507,7 +507,7 @@ class WriteApiTest(unittest.TestCase):
 
 class AutostartTest(unittest.TestCase):
     def test_unit_is_hardened_and_quotes_paths(self):
-        from workflow_arcade import autostart as a
+        from hlidskjalv import autostart as a
         unit = a.render_unit(Path("/home/me/My Project"), 8790)
         self.assertIn("ExecStart=", unit)
         self.assertIn("'/home/me/My Project' --no-open --port 8790", unit)
@@ -516,12 +516,12 @@ class AutostartTest(unittest.TestCase):
         self.assertNotIn("--terminal", unit)  # the terminal follows Settings, never the login item
 
     def test_plist_escapes(self):
-        from workflow_arcade import autostart as a
+        from hlidskjalv import autostart as a
         plist = a.render_plist(Path("/Users/me/a&b"), 8788, Path("/tmp/log"))
         self.assertIn("<string>/Users/me/a&amp;b</string>", plist)
 
     def test_status_reads_systemd_without_changing_anything(self):
-        from workflow_arcade import autostart as a
+        from hlidskjalv import autostart as a
         calls = []
 
         def fake(*args, timeout=15):
@@ -557,7 +557,7 @@ class AutostartTest(unittest.TestCase):
             c.request("POST", "/api/autostart", body=b"{}", headers=hdr)
             r = c.getresponse(); r.read()
             self.assertEqual(r.status, 401)
-            c.request("POST", "/api/autostart", body=b"{}", headers={**hdr, "X-Arcade-Key": owner.key})
+            c.request("POST", "/api/autostart", body=b"{}", headers={**hdr, "X-Hlidskjalv-Key": owner.key})
             r = c.getresponse()
             self.assertEqual(r.status, 200)
             self.assertIn("policy", json.loads(r.read()))
@@ -569,13 +569,13 @@ class AutostartTest(unittest.TestCase):
 
 class AlertsTest(unittest.TestCase):
     def setUp(self):
-        from workflow_arcade.alerts import Alerter
+        from hlidskjalv.alerts import Alerter
         self.got = []
         self.dir = Path(tempfile.mkdtemp())
         self.alerter = Alerter(self.got.append, None, self.dir / "alerts.jsonl")
 
     def test_repeats_fold_and_history_is_private(self):
-        from workflow_arcade.alerts import read_history
+        from hlidskjalv.alerts import read_history
         for _ in range(3):
             self.alerter.raise_("high", "refused_access", "Blocked", "Host: x", fingerprint="h")
         self.assertEqual(len(self.got), 1)
@@ -584,7 +584,7 @@ class AlertsTest(unittest.TestCase):
             self.assertEqual((self.dir / "alerts.jsonl").stat().st_mode & 0o777, 0o600)
 
     def test_switched_off_sources_stay_quiet(self):
-        from workflow_arcade.alerts import Alerter
+        from hlidskjalv.alerts import Alerter
         s = Settings(self.dir / "s.json")
         s.update({"alerts": {"persistence": False}})
         a = Alerter(self.got.append, s)
@@ -592,7 +592,7 @@ class AlertsTest(unittest.TestCase):
         self.assertIsNotNone(a.raise_("high", "refused_access", "y"))
 
     def test_persistence_changes(self):
-        from workflow_arcade.alerts import PersistenceWatcher, remember_expected
+        from hlidskjalv.alerts import PersistenceWatcher, remember_expected
         home, root = self.dir / "home", self.dir / "proj"
         (home / ".ssh").mkdir(parents=True)
         (root / ".git" / "hooks").mkdir(parents=True)
@@ -621,7 +621,7 @@ class AlertsTest(unittest.TestCase):
         self.assertIn("SHA256:", ssh["detail"])
         self.assertNotIn(key, ssh["detail"])  # fingerprints only, never the key
 
-        self.got.clear()  # a change the Arcade made itself is marked expected
+        self.got.clear()  # a change Hlidskjalv made itself is marked expected
         data = b"ours\n"
         remember_expected(self.dir, home / ".bashrc", data)
         (home / ".bashrc").write_bytes(data)
@@ -630,7 +630,7 @@ class AlertsTest(unittest.TestCase):
         self.assertEqual(self.got[0]["severity"], "info")
 
     def test_system_journal(self):
-        from workflow_arcade.alerts import SystemLogWatcher
+        from hlidskjalv.alerts import SystemLogWatcher
         lines = []
 
         def runner(args):
@@ -649,11 +649,11 @@ class AlertsTest(unittest.TestCase):
         self.assertEqual(self.got[0]["detail"], "/usr/bin/apt update")
         self.assertEqual(w.cursor, "c4")
 
-    def test_switchboard_refusals(self):
-        from workflow_arcade.alerts import SwitchboardSecurityWatcher
+    def test_trioditis_refusals(self):
+        from hlidskjalv.alerts import TrioditisSecurityWatcher
         log = self.dir / "security.jsonl"
         log.write_text("")
-        w = SwitchboardSecurityWatcher(log, self.alerter)
+        w = TrioditisSecurityWatcher(log, self.alerter)
         with log.open("a") as f:
             f.write(json.dumps({"method": "POST", "path": "/v1/chat/completions", "client": "192.168.1.5", "reason": "invalid or missing API key"}) + "\n")
         w.poll()
@@ -679,13 +679,13 @@ class AlertsTest(unittest.TestCase):
         self.assertIn("rm -rf build", cmds[0]["cmd"])
 
     def test_refused_requests_raise_alerts_and_acks_need_the_key(self):
-        from workflow_arcade.alerts import Acks
-        from workflow_arcade.server import AlertsContext
+        from hlidskjalv.alerts import Acks
+        from hlidskjalv.server import AlertsContext
         home = Path(tempfile.mkdtemp())
         port = free_port()
         owner = Owner(home)
         hub = Hub("demo", [], None, {})
-        from workflow_arcade.alerts import Alerter
+        from hlidskjalv.alerts import Alerter
         alerter = Alerter(hub.publish, None, home / "alerts.jsonl")
         ctx = AlertsContext(alerter, home / "alerts.jsonl", Acks(home / "acks.json"), lambda: {"available": False, "why": "test"})
         httpd = serve(hub, home, port, None, owner, Settings(home / "s.json"), None, ctx)
@@ -696,7 +696,7 @@ class AlertsTest(unittest.TestCase):
             c.request("POST", "/api/settings", body=b"{}", headers=hdr); c.getresponse().read()
             c.request("GET", "/", headers={"Host": "rebind.example:8788"}); c.getresponse().read()
             titles = [e["title"] for e in hub.events if e["type"] == "alert"]
-            self.assertIn("A web page tried to change the Arcade", titles)
+            self.assertIn("A web page tried to change Hlidskjalv", titles)
             self.assertIn("Blocked a request for another host name", titles)
             c.request("GET", "/api/alerts", headers={"Host": f"127.0.0.1:{port}"})
             got = json.loads(c.getresponse().read())
@@ -706,7 +706,7 @@ class AlertsTest(unittest.TestCase):
             body = json.dumps({"ids": [uid]}).encode()
             c.request("POST", "/api/alerts/ack", body=body, headers={**ok, "Content-Length": str(len(body))})
             self.assertEqual(c.getresponse().status, 401)
-            c.request("POST", "/api/alerts/ack", body=body, headers={**ok, "Content-Length": str(len(body)), "X-Arcade-Key": owner.key})
+            c.request("POST", "/api/alerts/ack", body=body, headers={**ok, "Content-Length": str(len(body)), "X-Hlidskjalv-Key": owner.key})
             r = c.getresponse()
             self.assertEqual(json.loads(r.read())["acks"], [uid])
             c.close()
@@ -716,9 +716,9 @@ class AlertsTest(unittest.TestCase):
 
 
 class UsageTest(unittest.TestCase):
-    def test_budget_reads_switchboard_metrics_read_only(self):
+    def test_budget_reads_trioditis_metrics_read_only(self):
         import sqlite3
-        from workflow_arcade.usage import budget
+        from hlidskjalv.usage import budget
         home = Path(tempfile.mkdtemp())
         self.assertFalse(budget(home)["available"])
         con = sqlite3.connect(home / "metrics.db")
@@ -736,7 +736,7 @@ class UsageTest(unittest.TestCase):
         self.assertEqual((b["unpriced_today"], b["unpriced_models"]), (1, ["gpt"]))
 
     def test_claude_usage_per_session(self):
-        from workflow_arcade.usage import ClaudeUsage
+        from hlidskjalv.usage import ClaudeUsage
         d = Path(tempfile.mkdtemp())
         (d / "s1" / "subagents").mkdir(parents=True)
 
@@ -780,7 +780,7 @@ class ServerTest(unittest.TestCase):
     def test_page_and_state(self):
         status, body, r = self.get("/")
         self.assertEqual(status, 200)
-        self.assertIn(b"Workflow Arcade", body)
+        self.assertIn(b"Hlidskjalv", body)
         self.assertIn("frame-ancestors 'none'", r.getheader("Content-Security-Policy"))
         self.hub.publish({"type": "command", "cmd": "ls", "cwd": "."})
         status, body, _ = self.get("/api/state")

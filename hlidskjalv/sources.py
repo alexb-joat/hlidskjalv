@@ -1,4 +1,4 @@
-"""Event sources: files in the project, Git, terminal commands and Switchboard calls.
+"""Event sources: files in the project, Git, terminal commands and Trioditis calls.
 
 Every source is read-only. None of them executes anything from the project,
 and file *contents* never leave this module: only names and line counts do.
@@ -256,8 +256,8 @@ def load_prices(path: Path) -> dict:
     return {k: v for k, v in data.items() if isinstance(v, dict) and not k.startswith("_")}
 
 
-class SwitchboardWatcher:
-    """AI calls from Switchboard's decision log (metadata only — no prompt text)."""
+class TrioditisWatcher:
+    """AI calls from Trioditis's decision log (metadata only — no prompt text)."""
 
     def __init__(self, log: Path | None, prices: dict):
         self.tail = Tail(log)
@@ -300,7 +300,7 @@ class SwitchboardWatcher:
 
 
 def _attempt(a) -> dict:
-    """One failed or skipped model from Switchboard's log, e.g. a budget block."""
+    """One failed or skipped model from Trioditis's log, e.g. a budget block."""
     if not isinstance(a, dict):
         return {"model": str(a)[:60]}
     out = {"model": str(a.get("model") or "?")[:60]}
@@ -330,7 +330,7 @@ class ClaudeCodeWatcher:
     """AI turns from Claude Code's own session transcripts (metadata only).
 
     Claude Code talks to Anthropic directly on your subscription, not through
-    Switchboard, so those calls never reach Switchboard's decision log. This
+    Trioditis, so those calls never reach Trioditis's decision log. This
     tails Claude Code's per-session JSONL transcripts for the watched project
     instead (including its subagents' transcripts) and reports each finished
     assistant turn: model and token counts only. Prompt and response text are

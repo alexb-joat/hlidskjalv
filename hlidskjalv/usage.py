@@ -1,8 +1,8 @@
 """Cost and usage, for the Details view. All read-only, metadata only.
 
 - budget(): today's and this month's cloud spend against the caps, from
-  Switchboard's ~/.arcade/metrics.db (opened read-only) and budget.json.
-- hardware(): Switchboard's local-model report, ~/.arcade/hardware.json.
+  Trioditis's ~/.hlidskjalv/metrics.db (opened read-only) and budget.json.
+- hardware(): Trioditis's local-model report, ~/.hlidskjalv/hardware.json.
 - claude_usage(): per Claude Code session for this project: turns, tokens
   in / cached / out, the biggest context of any one turn, models, and how
   many shell commands the AI ran. Never prompt or response text.
@@ -16,7 +16,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
-DEFAULT_CAPS = {"daily_usd": 1.0, "monthly_usd": 15.0}  # Switchboard's defaults (switchboard_metrics/guard.py)
+DEFAULT_CAPS = {"daily_usd": 1.0, "monthly_usd": 15.0}  # Trioditis's defaults (trioditis_metrics/guard.py)
 
 
 def _start_of_day(now: float) -> float:

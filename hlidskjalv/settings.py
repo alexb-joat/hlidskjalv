@@ -1,4 +1,4 @@
-"""Settings in ~/.arcade/settings.json: one schema, validated on every write.
+"""Settings in ~/.hlidskjalv/settings.json: one schema, validated on every write.
 
 The page reads them with GET /api/settings and changes them with POST
 /api/settings (owner key required, see auth.py). A POST carries only the
@@ -71,7 +71,7 @@ SCHEMA: dict = {
         "colors": {s: ("color", None) for s in SEVERITIES},
     },
     "sources": {
-        "switchboard_log": ("path", None),
+        "trioditis_log": ("path", None),
         "claude_code": ("bool", True),
     },
     "usage": {
@@ -80,7 +80,7 @@ SCHEMA: dict = {
 }
 
 # Changing these only takes effect after a restart (POST /api/restart).
-RESTART_KEYS = {("features", "terminal"), ("sources", "switchboard_log"), ("sources", "claude_code")}
+RESTART_KEYS = {("features", "terminal"), ("sources", "trioditis_log"), ("sources", "claude_code")}
 
 
 class SettingsError(ValueError):
@@ -164,6 +164,9 @@ class Settings:
         if not isinstance(raw, dict):
             return base
         raw.pop("version", None)
+        src = raw.get("sources")
+        if isinstance(src, dict) and "switchboard_log" in src and "trioditis_log" not in src:
+            src["trioditis_log"] = src.pop("switchboard_log")  # renamed in 0.3
 
         def keep(cur, change, schema):
             for k, v in change.items():

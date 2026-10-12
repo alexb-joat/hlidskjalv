@@ -4,7 +4,7 @@ Off unless switched on (`watch --terminal`, or Settings). A shell in a web
 page is remote code execution by design, so every connection must pass all of these:
 
 - the server binds loopback only and checks the Host header (DNS rebinding);
-- the Origin header must be this Arcade's own origin. Browsers don't apply
+- the Origin header must be this Hlidskjalv's own origin. Browsers don't apply
   CORS to WebSockets, so this is what stops other websites from connecting;
 - the first message must carry the owner key (auth.py). Loopback ports are
   reachable by every user and process on the computer, so Origin alone is not
@@ -117,7 +117,7 @@ class WebSocket:
 
 
 class Terminal:
-    """Shells for one Arcade launch: who may open them, the folder they start in, the slot count."""
+    """Shells for one Hlidskjalv launch: who may open them, the folder they start in, the slot count."""
 
     def __init__(self, root, owner, on_refused=None):
         self.root = str(root)
@@ -156,7 +156,7 @@ class Terminal:
             self.slots.release()
 
     def _bridge(self, ws: WebSocket, size) -> None:
-        env = {**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor", "ARCADE_TERMINAL": "1", "PWD": self.root}
+        env = {**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor", "HLIDSKJALV_TERMINAL": "1", "PWD": self.root}
         try:
             if pty is not None:
                 shell = PosixShell(self.shell(), self.root, env, size)

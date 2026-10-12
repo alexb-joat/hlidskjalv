@@ -1,15 +1,15 @@
 """The owner key: who may change settings, use the terminal and acknowledge alerts.
 
-Everything the Arcade shows is readable by any local process (it binds
+Everything Hlidskjalv shows is readable by any local process (it binds
 loopback, like any dev server). Anything that *changes* something needs the
 owner key, which a browser gets once by redeeming a pairing code:
 
-- The key is 32 random bytes in ~/.arcade/owner.key (owner-only). It survives
-  restarts, so an autostarted Arcade doesn't need re-pairing at every login.
+- The key is 32 random bytes in ~/.hlidskjalv/owner.key (owner-only). It survives
+  restarts, so an autostarted Hlidskjalv doesn't need re-pairing at every login.
   `pair --rotate` replaces it and un-pairs every browser.
 - Pairing codes work once and expire after PAIR_TTL_S. They come from the link
-  the Arcade opens at launch, or from `python -m workflow_arcade pair`, which
-  writes one to ~/.arcade/pair (owner-only), so only your own user can pair a
+  Hlidskjalv opens at launch, or from `python -m hlidskjalv pair`, which
+  writes one to ~/.hlidskjalv/pair (owner-only), so only your own user can pair a
   browser. Launch links are visible to other users in /proc/<pid>/cmdline,
   which is why they must stop working once used.
 """
@@ -71,7 +71,7 @@ class Owner:
         return len(key) >= 40 and _same(given, key)
 
     def launch_code(self) -> str:
-        """A one-time code for the link the Arcade opens itself."""
+        """A one-time code for the link Hlidskjalv opens itself."""
         code = new_token()
         with self._lock:
             self._launch = (code, time.time())
@@ -101,7 +101,7 @@ class Owner:
 
 
 def issue_pair_code(home: Path) -> str:
-    """For the `pair` command: a fresh one-time code the running Arcade will accept."""
+    """For the `pair` command: a fresh one-time code the running Hlidskjalv will accept."""
     code = new_token()
     write_private(home / "pair", code)
     return code

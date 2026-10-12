@@ -1,4 +1,4 @@
-"""Local web server: serves the Arcade page and streams events to it.
+"""Local web server: serves Hlidskjalv page and streams events to it.
 
 Security: binds loopback only, rejects foreign Host headers (DNS rebinding)
 and never serves anything from the watched project. Reading is open to the
@@ -104,7 +104,7 @@ def read_session(folder: Path, sid: str) -> list[dict] | None:
 
 
 class UsageContext:
-    """What the cost and usage endpoints read: ~/.arcade and Claude Code's transcripts for this project."""
+    """What the cost and usage endpoints read: ~/.hlidskjalv and Claude Code's transcripts for this project."""
 
     def __init__(self, home: Path, claude):
         self.home, self.claude = home, claude
@@ -133,14 +133,14 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
     page = (b'<!doctype html><html lang="en"><head><meta charset="utf-8">'
             b'<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
             b'<link rel="icon" href="data:,"></head><body>'
-            + resources.files("workflow_arcade").joinpath("static/index.html").read_bytes()
+            + resources.files("hlidskjalv").joinpath("static/index.html").read_bytes()
             + b"</body></html>")
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
     allowed_origins = {"http://" + h for h in allowed_hosts}
     policy = csp(port)
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "arcade"
+        server_version = "hlidskjalv"
         sys_version = ""
 
         def log_message(self, *args):  # keep the terminal quiet
@@ -177,7 +177,7 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
             origin = self.headers.get("Origin")
             if origin in allowed_origins:
                 return False
-            refused("high", f"A web page tried to {what}", f"Origin: {str(origin)[:100]!r}. Only this Arcade's own page may do that.",
+            refused("high", f"A web page tried to {what}", f"Origin: {str(origin)[:100]!r}. Only this Hlidskjalv's own page may do that.",
                     "origin-" + str(origin)[:60])
             self._json({"error": "forbidden origin"}, HTTPStatus.FORBIDDEN)
             return True
@@ -198,7 +198,7 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
             elif url.path == "/api/sessions":
                 self._json(list_sessions(sessions))
             elif url.path.startswith("/static/vendor/") and url.path[15:] in VENDOR:
-                data = resources.files("workflow_arcade").joinpath("static/vendor/" + url.path[15:]).read_bytes()
+                data = resources.files("hlidskjalv").joinpath("static/vendor/" + url.path[15:]).read_bytes()
                 self._headers(200, VENDOR[url.path[15:]], len(data))
                 self.wfile.write(data)
             elif url.path == "/api/term":
@@ -274,7 +274,7 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
             if path not in ("/api/pair", "/api/ping", "/api/settings", "/api/restart", "/api/autostart",
                             "/api/alerts/ack") or owner is None:
                 return self._json({"error": "read-only"}, HTTPStatus.METHOD_NOT_ALLOWED)
-            if self._foreign_origin("change the Arcade"):
+            if self._foreign_origin("change Hlidskjalv"):
                 return
             if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
                 return self._json({"error": "send JSON"}, HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
@@ -294,8 +294,8 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                     refused("medium", "A pairing code was refused", "It was wrong, already used or expired. Opening an old pairing link twice does this too.", "pair")
                     return self._json({"error": "pairing code is wrong, used or expired"}, HTTPStatus.FORBIDDEN)
                 return self._json({"key": key})
-            if not owner.check(self.headers.get("X-Arcade-Key")):
-                if self.headers.get("X-Arcade-Key"):
+            if not owner.check(self.headers.get("X-Hlidskjalv-Key")):
+                if self.headers.get("X-Hlidskjalv-Key"):
                     refused("medium", "A request with a wrong owner key was refused",
                             f"{path}. A browser paired before `pair --rotate` does this once; anything else is someone guessing.", "key")
                 return self._json({"error": "this browser isn't paired"}, HTTPStatus.UNAUTHORIZED)
