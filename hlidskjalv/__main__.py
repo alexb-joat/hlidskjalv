@@ -17,6 +17,7 @@ from . import __version__
 from .alerts import Acks, Alerter, PersistenceWatcher, TrioditisSecurityWatcher, SystemLogWatcher
 from .cost_alerts import CostWatcher
 from .server import NICE_HOST, AlertsContext, Hub, Progress, UsageContext, list_sessions, load_history, serve
+from .sso import PROVIDERS, Sso, SsoError
 from .sync import Syncer, start_worker
 from .usage import ClaudeUsage
 from . import terminal as term
@@ -184,7 +185,8 @@ def watch(args, argv: list[str]) -> None:
         usage_ctx.claude.plan = ClaudeUsage(claude_code.dir, all_projects=True)  # account-wide windows, cached separately
     syncer = Syncer(home, settings, progress, alerter)  # settings, XP and Learn progress between your computers (opt-in)
     start_worker(syncer)
-    httpd = serve(hub, sessions, args.port, shell, owner, settings, restart, alerts_ctx, usage_ctx, syncer)
+    sso = Sso(home, alerter)  # sign in with GitHub or Google to pair (opt-in)
+    httpd = serve(hub, sessions, args.port, shell, owner, settings, restart, alerts_ctx, usage_ctx, syncer, sso)
     write_private(home / "server.json", json.dumps({
         "port": args.port, "pid": os.getpid(), "folder": str(root), "version": __version__,
         "started": time.time()}))
@@ -312,6 +314,39 @@ def two_factor(args) -> None:
         print("  " + "  ".join(codes))
 
 
+def sso_cmd(args) -> None:
+    """Sign in with GitHub or Google: status | configure | link | unlink."""
+    sso = Sso(data_home())
+    if args.action == "status":
+        for p, st in sso.status().items():
+            print(f"{st['name']}: " + ("not set up" if not st["configured"] else f"linked as {st['linked']}" if st["linked"] else "set up, nothing linked"))
+        return
+    provider = (args.provider or "").lower()
+    if provider not in PROVIDERS:
+        sys.exit("Which provider? github or google")
+    try:
+        if args.action == "configure":
+            secret = None
+            if PROVIDERS[provider]["secret"]:
+                import getpass
+                secret = getpass.getpass(f"{PROVIDERS[provider]['name']} client secret (shown nowhere): ")
+            sso.configure(provider, args.client_id or input("Client id: "), secret)
+            print(f"{PROVIDERS[provider]['name']} is set up. Link your account: python3 -m hlidskjalv sso link {provider}")
+        elif args.action == "unlink":
+            sso.unlink(provider)
+            print("Unlinked.")
+        else:
+            flow = sso.start(provider, "link")
+            print(f"Open {flow['uri']} and enter this code: {flow['user_code']}   (valid {flow['expires_in'] // 60} min)")
+            while (st := sso.poll(flow["id"]))["status"] == "pending":
+                time.sleep(2)
+            if st["status"] != "ok":
+                sys.exit(f"Not linked: {st['why']}")
+            print(f"Linked as {st['identity']}. Any browser on this computer can now pair by signing in with {PROVIDERS[provider]['name']}.")
+    except SsoError as e:
+        sys.exit(f"Not done: {e}")
+
+
 def sync_cmd(args) -> None:
     """Sync between computers: status, or push and pull now."""
     home = data_home()
@@ -378,6 +413,11 @@ def main(argv: list[str] | None = None) -> None:
     sy = sub.add_parser("sync", help="settings, XP and Learn progress between your computers: status | now")
     sy.add_argument("action", choices=["status", "now"])
 
+    so = sub.add_parser("sso", help="sign in with GitHub or Google to pair: status | configure | link | unlink")
+    so.add_argument("action", choices=["status", "configure", "link", "unlink"])
+    so.add_argument("provider", nargs="?", help="github or google")
+    so.add_argument("client_id", nargs="?", help="for configure: the OAuth app's client id")
+
     a = sub.add_parser("autostart", help="start Hlidskjalv at login: enable <folder> | disable | status")
     a.add_argument("action", choices=["enable", "disable", "status"])
     a.add_argument("folder", nargs="?", help="project folder to watch (for enable)")
@@ -399,6 +439,8 @@ def main(argv: list[str] | None = None) -> None:
         two_factor(args)
     elif args.cmd == "sync":
         sync_cmd(args)
+    elif args.cmd == "sso":
+        sso_cmd(args)
     elif args.cmd == "status":
         print(status_text(data_home()))
     elif args.cmd == "autostart":

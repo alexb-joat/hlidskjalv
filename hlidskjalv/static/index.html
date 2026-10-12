@@ -352,6 +352,7 @@ details > summary { cursor: pointer; color: var(--muted); font-weight: 700; }
 .pwrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0; }
 .pwrow input[type=password] { flex: 1 1 160px; min-width: 0; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r); padding: 8px 10px; }
 .field input.otp, .pwrow input.otp { width: 150px; flex: 0 0 150px; font-family: var(--mono); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r); padding: 8px 10px; }
+.devcode { font: 700 calc(28px * var(--fz))/1.2 var(--mono); letter-spacing: .12em; padding: 10px 14px; background: var(--raised); border-radius: var(--r); width: max-content; user-select: all; }
 .qr { width: 208px; height: 208px; background: #fff; border-radius: calc(var(--r) * .5); padding: 4px; } .qr svg { width: 100%; height: 100%; display: block; }
 .codes { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; font-family: var(--mono); }
 .codes span { padding: 6px 8px; background: var(--raised); border-radius: calc(var(--r) * .5); text-align: center; }
@@ -2390,9 +2391,11 @@ function pairingPane(set, render) {
         paired ? h("button", { type: "button", class: "btn small", onclick: async () => { await OWNER.logout(); toast("Logged out here."); render(); } }, "Log out") : null)),
     h("p", { class: "muted", text: "Watching needs nothing. Changing settings and using the terminal need this browser to be paired." }),
     !paired && mode !== "demo" ? field("Pair with the password", OWNER.passwordSet ? "The one set in this Hlidskjalv. Five wrong tries lock this for a minute." : "No password is set yet: pair once with the link below, then set one here.", OWNER.passwordSet ? loginRow : null) : null,
+    !paired && mode !== "demo" ? field("Sign in with a provider", "The account linked in this Hlidskjalv, with that provider's own protections in front.", ssoPairButtons(render)) : null,
     paired ? field("Session length", "How long a paired browser stays paired without activity.", rangeCtl(15, 1440, 15, minutes, v => spanMin(v * 60000), v => set("security.session_minutes", v))) : null,
     paired ? field(OWNER.passwordSet ? "Password" : "Set a password", "Lets any browser on this computer pair by typing it, instead of a one-time link.", pwForm) : null,
     OWNER.passwordSet ? twoFactor : null,
+    paired ? field("Sign in with GitHub or Google", "An alternative to the password for browsers on this computer: link your account once, then sign in there to pair. Needs the internet and an OAuth app of your own.", ssoManage(render)) : null,
     mode !== "demo" ? field("Forgot your password?", "There is no reset email: Hlidskjalv has no account server. The recovery is this computer itself, because anyone who can use your user account here already owns everything in it.",
       h("details", { class: "recover" }, h("summary", { text: "What to do" }),
         h("p", { class: "muted", text: "Open a terminal on this computer, in the Hlidskjalv folder, and run one of these:" }),
@@ -2405,6 +2408,63 @@ function pairingPane(set, render) {
     mode !== "demo" ? field("Address", "The same page under a name. Works in Chrome, Edge and Firefox as is; Safari needs 127.0.0.1. Pairing is per address.",
       h("a", { href: `http://hlidskjalv.localhost:${location.port || 80}/`, text: `http://hlidskjalv.localhost:${location.port || 80}/` })) : null,
   ];
+}
+/* Sign in with GitHub or Google (device flow): show the code and the link, wait for the provider's answer. */
+function deviceFlow(provider, purpose) {
+  return new Promise(async res => {
+    let flow;
+    try { flow = await (purpose === "link" ? withStepUp(() => OWNER.post("/api/sso/start", { provider, purpose })) : OWNER.post("/api/sso/start", { provider, purpose })); }
+    catch (e) { toast("Couldn't start: " + e.message); return res(null); }
+    const note = h("p", { class: "muted", style: "margin:0", text: "Waiting for " + flow.provider + "…" });
+    const box = h("div", { class: "fields" },
+      h("p", { style: "margin:0", text: `1. Open ${flow.provider} and enter this code:` }),
+      h("div", { class: "devcode", text: flow.user_code }),
+      h("a", { class: "btn primary", href: flow.uri, target: "_blank", rel: "noopener", text: `Open ${flow.provider}` }),
+      h("p", { class: "muted", style: "margin:0", text: `2. Confirm there. The code is valid for ${Math.round(flow.expires_in / 60)} minutes.` }), note);
+    let done = false;
+    const m = openModal(purpose === "link" ? `Link your ${flow.provider} account` : `Sign in with ${flow.provider}`, box, { onClose: () => { if (!done) { done = true; res(null); } } });
+    const closeFn = () => (m && m.close ? m.close() : document.querySelector(".modal-back")?.remove());
+    const tick = async () => {
+      if (done) return;
+      let st; try { st = await (await fetch("/api/sso/poll?id=" + encodeURIComponent(flow.id), { cache: "no-store" })).json(); } catch { st = { status: "error", why: "lost contact with Hlidskjalv" }; }
+      if (st.status === "pending") return setTimeout(tick, 3000);
+      done = true; closeFn();
+      if (st.status === "ok") { if (st.token) OWNER.accept(st); if (st.token) OWNER.fresh = true; return res(st); }
+      toast(`Not signed in: ${st.why || st.status}`); res(null);
+    };
+    setTimeout(tick, 3000);
+  });
+}
+function ssoPairButtons(render) {
+  const box = h("div", { class: "pwrow" });
+  fetch("/api/sso", { cache: "no-store" }).then(r => r.json()).then(d => {
+    const ps = Object.entries(d.providers || {}).filter(([, p]) => p.available);
+    if (!ps.length) { box.closest(".field")?.remove(); return; }
+    fill(box, ...ps.map(([k, p]) => h("button", { type: "button", class: "btn", onclick: async () => { const st = await deviceFlow(k, "pair"); if (st) { toast(`Paired as ${st.identity}.`); render(); } } }, `Sign in with ${p.name}`)));
+  }).catch(() => box.closest(".field")?.remove());
+  return box;
+}
+function ssoManage(render) {
+  const box = h("div", { class: "fields" }, h("p", { class: "muted", text: "Loading…" }));
+  OWNER.post("/api/sso/info").then(d => {
+    fill(box, ...Object.entries(d.providers).map(([k, p]) => {
+      if (!p.configured) {
+        const cid = h("input", { type: "text", placeholder: `${p.name} client id`, spellcheck: "false", "aria-label": `${p.name} client id` });
+        const sec = p.needs_secret ? h("input", { type: "password", autocomplete: "off", placeholder: "Client secret", "aria-label": `${p.name} client secret` }) : null;
+        return field(p.name, `Needs an OAuth app registered under your own ${p.name} account (see the README). Each sign-in tells ${p.name} that you use Hlidskjalv.`,
+          h("form", { class: "pwrow", onsubmit: async e => { e.preventDefault();
+            try { await withStepUp(() => OWNER.post("/api/sso/configure", { provider: k, client_id: cid.value, client_secret: sec ? sec.value : null })); toast(`${p.name} is set up.`); render(); }
+            catch (err) { toast("Not saved: " + err.message); } } }, cid, sec, h("button", { type: "submit", class: "btn" }, "Save")));
+      }
+      if (!p.linked) return field(p.name, "Set up. Link the account that may pair browsers here.",
+        h("button", { type: "button", class: "btn primary", onclick: async () => { const st = await deviceFlow(k, "link"); if (st) { toast(`Linked as ${st.identity}.`); render(); } } }, `Link my ${p.name} account`));
+      return field(p.name, `Browsers on this computer can pair by signing in with ${p.name} as this account; it counts as a second factor.`,
+        h("div", { class: "pwrow" }, h("span", { class: "chip ok", text: `linked: ${p.linked}` }),
+          h("button", { type: "button", class: "btn small", onclick: async () => { if (!confirm(`Unlink ${p.linked}?`)) return;
+            try { await withStepUp(() => OWNER.post("/api/sso/unlink", { provider: k })); toast("Unlinked."); render(); } catch (err) { toast("Not changed: " + err.message); } } }, "Unlink")));
+    }));
+  }).catch(e => fill(box, h("p", { class: "risk caution", text: "Couldn't read the sign-in setup: " + e.message })));
+  return box;
 }
 function setupTwoFactor(render) {
   const box = h("div", { class: "fields" });

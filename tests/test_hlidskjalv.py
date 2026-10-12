@@ -1416,3 +1416,142 @@ class SyncTest(unittest.TestCase):
             self.assertEqual(post("/api/sync/now", {}, tok)[0], 200)  # harmless when off
         finally:
             httpd.shutdown(); httpd.server_close()
+
+
+class FakeProvider:
+    """GitHub's device flow, in-process: start, pending a few polls, then a token and an identity."""
+
+    def __init__(self, who=None, pending=2, grant=True):
+        self.who, self.pending, self.grant, self.calls = who or {"id": 42, "login": "alexb"}, pending, grant, []
+
+    def __call__(self, req, timeout=0):
+        import io
+        from urllib.parse import parse_qs
+        url, method = req.full_url, req.get_method()
+        form = parse_qs(req.data.decode()) if req.data else {}
+        self.calls.append((method, url.split("/")[-1], form.get("client_id", [None])[0]))
+        body = {}
+        if url.endswith("/device"):
+            body = {"device_code": "dev-123", "user_code": "ABCD-EFGH", "verification_uri": "https://example.test/device", "expires_in": 60, "interval": 0}
+        elif url.endswith("/token"):
+            if form.get("device_code") != ["dev-123"]:
+                body = {"error": "incorrect_device_code"}
+            elif self.pending > 0:
+                self.pending -= 1; body = {"error": "authorization_pending"}
+            elif not self.grant:
+                body = {"error": "access_denied"}
+            else:
+                body = {"access_token": "tok-abc", "token_type": "bearer"}
+        elif url.endswith("/identity"):
+            assert req.get_header("Authorization") == "Bearer tok-abc"
+            body = dict(self.who)
+        class R(io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+        return R(json.dumps(body).encode())
+
+
+class SsoTest(unittest.TestCase):
+    def setUp(self):
+        from hlidskjalv import sso as M
+        self.M = M
+        self.home = Path(tempfile.mkdtemp())
+        self.patches = [mock.patch.object(M, "POLL_MIN_S", 0.01), mock.patch.dict(os.environ, {"HLIDSKJALV_SSO_FAKE": "http://fake.test"})]
+        for p in self.patches: p.start()
+
+    def tearDown(self):
+        for p in self.patches: p.stop()
+
+    def wait(self, sso, fid):
+        for _ in range(200):
+            st = sso.poll(fid)
+            if st["status"] != "pending":
+                return st
+            time.sleep(0.01)
+        self.fail("flow never finished")
+
+    def test_link_then_pair_only_the_linked_account(self):
+        M = self.M
+        sso = M.Sso(self.home)
+        self.assertEqual(sso.available()["github"]["available"], False)
+        with self.assertRaises(M.SsoError):
+            sso.start("github", "pair")  # not set up
+        with self.assertRaises(M.SsoError):
+            sso.configure("google", "cid")  # Google wants its (public) client secret too
+        sso.configure("github", "cid-1")
+        with self.assertRaises(M.SsoError):
+            sso.start("github", "pair")  # set up but nothing linked
+        fake = FakeProvider()
+        with mock.patch.object(M.request, "urlopen", fake):
+            flow = sso.start("github", "link")
+            self.assertEqual((flow["user_code"], flow["uri"], flow["provider"]), ("ABCD-EFGH", "https://example.test/device", "GitHub"))
+            st = self.wait(sso, flow["id"])
+        self.assertEqual((st["status"], st["identity"]), ("ok", "alexb"))
+        self.assertEqual(sso.linked("github"), {"id": "42", "name": "alexb"})
+        self.assertEqual(M.Sso(self.home).linked("github")["name"], "alexb")  # persisted, owner-only
+        if os.name == "posix":
+            self.assertEqual((self.home / "sso.json").stat().st_mode & 0o777, 0o600)
+        self.assertTrue(all(cid == "cid-1" for m, which, cid in fake.calls if which in ("device", "token")))
+        self.assertTrue(sso.available()["github"]["available"])
+        with mock.patch.object(M.request, "urlopen", FakeProvider()):
+            flow = sso.start("github", "pair")
+            st = self.wait(sso, flow["id"])
+        self.assertEqual(st["status"], "ok")
+        self.assertEqual(sso.consume(flow["id"])["identity"], "alexb")
+        self.assertIsNone(sso.consume(flow["id"]))  # once
+        with mock.patch.object(M.request, "urlopen", FakeProvider(who={"id": 7, "login": "mallory"})):
+            st = self.wait(sso, sso.start("github", "pair")["id"])
+        self.assertEqual(st["status"], "refused")
+        with mock.patch.object(M.request, "urlopen", FakeProvider(grant=False)):
+            st = self.wait(sso, sso.start("github", "pair")["id"])
+        self.assertEqual(st["status"], "denied")
+        self.assertIsNone(sso.poll("nope"))
+        sso.unlink("github")
+        self.assertIsNone(sso.linked("github")); self.assertTrue(sso.configured("github"))
+
+    def test_sign_in_endpoints(self):
+        M = self.M
+        from hlidskjalv.server import Progress
+        port = free_port()
+        owner, settings = Owner(self.home), Settings(self.home / "settings.json")
+        sso = M.Sso(self.home)
+        httpd = serve(Hub("demo", [], None, {}), self.home / "sessions", port, None, owner, settings, None, None, None, None, sso)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            def post(path, body, key=None):
+                c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+                data = json.dumps(body).encode()
+                hdr = {"Host": f"127.0.0.1:{port}", "Origin": f"http://127.0.0.1:{port}", "Content-Type": "application/json", "Content-Length": str(len(data))}
+                if key: hdr["X-Hlidskjalv-Key"] = key
+                c.request("POST", path, body=data, headers=hdr); r = c.getresponse(); out = (r.status, json.loads(r.read() or b"{}")); c.close(); return out
+            def get(path):
+                c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+                c.request("GET", path, headers={"Host": f"127.0.0.1:{port}"}); r = c.getresponse(); out = (r.status, json.loads(r.read())); c.close(); return out
+            self.assertEqual(get("/api/sso")[1]["providers"]["github"]["available"], False)
+            self.assertEqual(post("/api/sso/start", {"provider": "github", "purpose": "pair"})[0], 400)  # not set up: refused, no session needed
+            self.assertEqual(post("/api/sso/configure", {"provider": "github", "client_id": "cid-1"})[0], 401)  # configuring needs a session
+            tok = owner.start_session()
+            self.assertEqual(post("/api/sso/configure", {"provider": "github", "client_id": "cid-1"}, tok)[1]["providers"]["github"]["configured"], True)
+            with mock.patch.object(M.request, "urlopen", FakeProvider()):
+                status, flow = post("/api/sso/start", {"provider": "github", "purpose": "link"}, tok)
+                self.assertEqual((status, flow["user_code"]), (200, "ABCD-EFGH"))
+                for _ in range(200):
+                    st = get(f"/api/sso/poll?id={flow['id']}")[1]
+                    if st["status"] != "pending": break
+                    time.sleep(0.01)
+            self.assertEqual((st["status"], st.get("token")), ("ok", None))  # linking issues no session
+            self.assertEqual(get("/api/sso")[1]["providers"]["github"]["available"], True)
+            with mock.patch.object(M.request, "urlopen", FakeProvider()):
+                status, flow = post("/api/sso/start", {"provider": "github", "purpose": "pair"})  # no session: the point of pairing
+                self.assertEqual(status, 200)
+                for _ in range(200):
+                    st = get(f"/api/sso/poll?id={flow['id']}")[1]
+                    if st["status"] != "pending": break
+                    time.sleep(0.01)
+            self.assertEqual(st["status"], "ok")
+            self.assertTrue(owner.check(st["token"]) and owner.fresh_factor(st["token"]))
+            self.assertNotIn("token", get(f"/api/sso/poll?id={flow['id']}")[1])  # handed over once
+            self.assertEqual(get("/api/sso/poll?id=nope")[0], 404)
+            self.assertEqual(post("/api/sso/unlink", {"provider": "github"}, tok)[1]["providers"]["github"]["linked"], None)
+        finally:
+            httpd.shutdown(); httpd.server_close()

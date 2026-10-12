@@ -24,6 +24,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .auth import Owner, write_private
+from .sso import SsoError
 from .sync import SyncError
 from .settings import Settings, SettingsError
 from .terminal import Terminal, WebSocket, accept_key
@@ -226,7 +227,7 @@ class AlertsContext:
 
 def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None = None,
                  owner: Owner | None = None, settings: Settings | None = None, restart=None,
-                 alerts: AlertsContext | None = None, usage: UsageContext | None = None, syncer=None):
+                 alerts: AlertsContext | None = None, usage: UsageContext | None = None, syncer=None, sso=None):
     def refused(severity: str, title: str, detail: str, fp: str):
         if alerts:
             alerts.alerter.raise_(severity, "refused_access", title, detail[:300], fingerprint=fp)
@@ -353,6 +354,19 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                             "totp": bool(owner and owner.totp_enabled()), "system": platform.system()})
             elif url.path == "/api/sync":
                 self._json(syncer.status() if syncer else {"configured": False, "available": False})
+            elif url.path == "/api/sso":  # which providers can pair a browser: what an unpaired page may know
+                self._json({"providers": sso.available() if sso else {}})
+            elif url.path == "/api/sso/poll":
+                flow = sso.poll((q.get("id") or [""])[0]) if sso else None
+                if flow is None:
+                    return self._json({"error": "unknown sign-in"}, HTTPStatus.NOT_FOUND)
+                if flow["status"] == "ok" and flow["purpose"] == "pair" and owner is not None:
+                    done = sso.consume((q.get("id") or [""])[0])
+                    if done:
+                        flow["token"] = owner.start_session(second_factor=True)
+                        flow["expires_in"] = int(owner.ttl_s)
+                        flow["password_set"] = owner.has_password()
+                self._json(flow)
             elif url.path == "/api/session":
                 events = read_session(sessions, (q.get("id") or [""])[0])
                 if events is None:
@@ -406,7 +420,8 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
             path = urlparse(self.path).path
             if path not in ("/api/pair", "/api/ping", "/api/logout", "/api/password", "/api/settings", "/api/restart",
                             "/api/autostart", "/api/alerts/ack", "/api/2fa/begin", "/api/2fa/confirm", "/api/2fa/disable",
-                            "/api/2fa/verify", "/api/sync/setup", "/api/sync/now", "/api/sync/off", "/api/progress") or owner is None:
+                            "/api/2fa/verify", "/api/sync/setup", "/api/sync/now", "/api/sync/off", "/api/progress",
+                            "/api/sso/start", "/api/sso/configure", "/api/sso/unlink", "/api/sso/info") or owner is None:
                 return self._json({"error": "read-only"}, HTTPStatus.METHOD_NOT_ALLOWED)
             if self._foreign_origin("change Hlidskjalv"):
                 return
@@ -442,6 +457,14 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                         refused("medium", "A pairing code was refused", "It was wrong, already used or expired. Opening an old pairing link twice does this too.", "pair")
                         return self._json({"error": "pairing code is wrong, used or expired"}, HTTPStatus.FORBIDDEN)
                 return self._json({"token": token, "expires_in": int(owner.ttl_s), "password_set": owner.has_password()})
+            if path == "/api/sso/start" and body.get("purpose") != "link":  # pairing: no session yet, by design
+                if sso is None:
+                    return self._json({"error": "sign-in isn't available here"}, HTTPStatus.NOT_FOUND)
+                try:
+                    return self._json(sso.start(str(body.get("provider") or ""), "pair"))
+                except SsoError as e:
+                    refused("info", "A provider sign-in couldn't start", str(e), "sso-start")
+                    return self._json({"error": str(e)}, HTTPStatus.BAD_REQUEST)
             given = self.headers.get("X-Hlidskjalv-Key")
             if not owner.check(given):
                 if given:
@@ -458,6 +481,23 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                     return None
                 return self._json({"error": "second-factor code needed", "step_up": True}, HTTPStatus.FORBIDDEN)
 
+            if path.startswith("/api/sso/"):
+                if sso is None:
+                    return self._json({"error": "sign-in isn't available here"}, HTTPStatus.NOT_FOUND)
+                if path == "/api/sso/info":
+                    return self._json({"providers": sso.status()})
+                if (r := step_up_needed()) is not None:  # linking, configuring and unlinking are security changes
+                    return r
+                try:
+                    if path == "/api/sso/start":
+                        return self._json(sso.start(str(body.get("provider") or ""), "link"))
+                    if path == "/api/sso/configure":
+                        sso.configure(str(body.get("provider") or ""), body.get("client_id"), body.get("client_secret"))
+                    elif path == "/api/sso/unlink":
+                        sso.unlink(str(body.get("provider") or ""))
+                except SsoError as e:
+                    return self._json({"error": str(e)}, HTTPStatus.BAD_REQUEST)
+                return self._json({"providers": sso.status()})
             if path == "/api/progress":  # finished Learn levels, kept here so sync can carry them
                 academy = body.get("academy")
                 if hub.progress is not None and isinstance(academy, dict):
@@ -587,10 +627,10 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
 
 def serve(hub: Hub, sessions: Path, port: int, terminal: Terminal | None = None,
           owner: Owner | None = None, settings: Settings | None = None, restart=None,
-          alerts: AlertsContext | None = None, usage: UsageContext | None = None, syncer=None) -> ThreadingHTTPServer:
+          alerts: AlertsContext | None = None, usage: UsageContext | None = None, syncer=None, sso=None) -> ThreadingHTTPServer:
     if owner is not None and settings is not None:
         owner.ttl_provider = lambda: settings.data["security"]["session_minutes"] * 60
     httpd = ThreadingHTTPServer(("127.0.0.1", port),
-                                make_handler(hub, sessions, port, terminal, owner, settings, restart, alerts, usage, syncer))
+                                make_handler(hub, sessions, port, terminal, owner, settings, restart, alerts, usage, syncer, sso))
     httpd.daemon_threads = True
     return httpd
