@@ -37,6 +37,13 @@ class CostWatcher:
             caps = p.get("caps") or {}
             self._cap(f"{name}: daily cap", p.get("today", 0.0), caps.get("daily_usd"), "day", day, name)
             self._cap(f"{name}: monthly cap", p.get("month", 0.0), caps.get("monthly_usd"), "month", month, name)
+        n = int(b.get("unpriced_today") or 0)
+        if n and getattr(self, "_unpriced_day", None) != day:
+            self._unpriced_day = day
+            self.alerter.raise_("info", "cost", f"{n} cloud call{'s' if n != 1 else ''} today without a price",
+                                "Those models aren't in ~/.hlidskjalv/prices.json, so they count as $0 toward the caps (unless "
+                                "assume_unpriced_usd is set in budget.json). Add their prices to see real spend.",
+                                fingerprint=f"unpriced-{day}", expected=True)
         for lim in b.get("limits") or []:
             if lim.get("remaining") == 0 and lim.get("reset_at") and lim["reset_at"] > time.time():
                 self.alerter.raise_("medium", "cost", f"{lim['provider']}: {str(lim['name']).replace('_', ' ')} limit used up",
