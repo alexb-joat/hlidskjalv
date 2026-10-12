@@ -306,6 +306,9 @@ details > summary { cursor: pointer; color: var(--muted); font-weight: 700; }
 .split { display: inline-flex; gap: 2px; height: 12px; vertical-align: middle; min-width: 6px; max-width: calc(100% - 52px); }
 .split i { display: block; height: 100%; min-width: 2px; }
 .split i:first-child { border-radius: 0; } .split i:last-child { border-radius: 0 4px 4px 0; }
+.split.wide { display: flex; width: 100%; height: 12px; margin: 4px 0; }
+.fam-opus { background: var(--ai); } .fam-sonnet { background: var(--info); } .fam-haiku { background: var(--ok); } .fam-fable { background: var(--accent); } .fam-other, .fam-mythos { background: var(--muted); }
+.win { display: grid; gap: 4px; }
 .barval { margin-left: 6px; color: var(--muted); font-variant-numeric: tabular-nums; font-size: calc(12.5px * var(--fz)); }
 
 /* ---------- alerts */
@@ -1518,12 +1521,20 @@ function demoUsage() {
   const now = Date.now();
   const iso = d => new Date(now - d * 3600e3).toISOString();
   return {
-    budget: { available: true, caps: { daily_usd: 1, monthly_usd: 15 }, today: 0.81, month: 6.4, unpriced_today: 0, unpriced_models: [], calls_today: { total: 42, local: 31 } },
+    budget: { available: true, caps: { daily_usd: 1, monthly_usd: 15 }, today: 0.81, month: 6.4, unpriced_today: 0, unpriced_models: [], calls_today: { total: 42, local: 31 },
+      providers: { anthropic: { today: 0.61, month: 4.9, calls_month: 58, caps: { monthly_usd: 10 } }, openrouter: { today: 0.2, month: 1.5, calls_month: 12, caps: {} } },
+      limits: [{ provider: "anthropic", name: "requests", limit: 1000, remaining: 998, reset_at: now / 1000 + 40, seen: now / 1000 - 30 },
+               { provider: "anthropic", name: "input_tokens", limit: 2000000, remaining: 1940000, reset_at: now / 1000 + 12, seen: now / 1000 - 30 }] },
+    accounts: { available: true, providers: { openrouter: { kind: "credits", label: "OpenRouter balance", used: 25.75, limit: 100.5, remaining: 74.75, period: "prepaid", source: "https://openrouter.ai/api/v1/credits", checked_at: now / 1000 - 120 },
+      anthropic: { error: "needs an Admin API key (organizations only) in admin_key_env" } } },
     hardware: { available: true, budget: { gb: 11.2, rule: "70% of 16 GB RAM, keeping at least 4 GB for the OS and apps" },
       hardware: { cpu: "Example CPU, 16 cores", ram_total: 16e9, gpus: [{ name: "Integrated GPU", shared: true }] },
       installed: [{ name: "llama3.2:3b", size_gb: 2, need_gb: 2.4, fits: true }, { name: "qwen2.5-coder:7b", size_gb: 4.7, need_gb: 5.6, fits: true }],
       suggestions: [{ route: "writing", action: "use-installed", model_tag: "llama3.2:3b", reasons: ["route writing starts at a paid cloud model; putting the installed local model first costs $0", "llama3.2:3b needs ~2.4 GB; you have ~11.2 GB usable -> fits"], yaml: "routes:\n  writing:\n    models: [local-general, claude-sonnet]" }] },
-    claude: { available: true, sessions: [
+    claude: { available: true, windows: { available: true, scope: "all projects", week_anchored: false,
+        session: { active: true, resets_at: now / 1000 + 39 * 60, turns: 41, in: 9_400_000, cached: 9_100_000, out: 52_000, by_family: { opus: 8_900_000, fable: 552_000 } },
+        week: { active: true, resets_at: now / 1000 + 4 * 86400, turns: 232, in: 54_300_000, cached: 52_000_000, out: 300_000, by_family: { opus: 50_000_000, fable: 4_600_000 } } },
+      sessions: [
       { id: "demo-a", turns: 198, in: 52_226_432, cached: 51_621_014, out: 291_268, peak: 504_656, commands: 166, subagent_turns: 25, first: iso(5), last: iso(1), models: { "claude-opus": 198 } },
       { id: "demo-b", turns: 34, in: 2_100_000, cached: 1_850_000, out: 41_000, peak: 88_000, commands: 12, subagent_turns: 0, first: iso(30), last: iso(28), models: { "claude-sonnet": 34 } },
     ] },
@@ -1534,16 +1545,18 @@ function loadUsage(force) {
   if (!force && USAGE.data && Date.now() - USAGE.at < 30000) return Promise.resolve(USAGE.data);
   if (USAGE.loading) return USAGE.loading;
   const get = p => fetch(p, { cache: "no-store" }).then(r => r.json()).catch(() => ({ available: false }));
-  USAGE.loading = Promise.all([get("/api/budget"), get("/api/hardware"), get("/api/claude-usage")]).then(([budget, hardware, claude]) => {
-    USAGE.data = { budget, hardware, claude }; USAGE.at = Date.now(); USAGE.loading = null; return USAGE.data;
+  USAGE.loading = Promise.all([get("/api/budget"), get("/api/hardware"), get("/api/claude-usage"), get("/api/accounts")]).then(([budget, hardware, claude, accounts]) => {
+    USAGE.data = { budget, hardware, claude, accounts }; USAGE.at = Date.now(); USAGE.loading = null; return USAGE.data;
   });
   return USAGE.loading;
 }
 /* A meter: one ratio against a limit. The fill carries the state (accent, warning, danger), the track is a
    lighter step of the same colour, and the state is also written out, never colour alone. */
-function meter(label, value, cap, period) {
+function meter(label, value, cap, period, balance) {
   const pct = cap > 0 ? value / cap : 0;
-  const [tone, state] = pct >= 1 ? ["danger", "Cap reached: cloud models are skipped and local ones answer"] : pct >= 0.75 ? ["warn", "Close to the cap"] : ["accent", "Under the cap"];
+  const [tone, state] = balance
+    ? (pct >= 1 ? ["danger", "Used up: top up before the next cloud call"] : pct >= 0.75 ? ["warn", `${money(cap - value)} left`] : ["accent", `${money(cap - value)} left`])
+    : (pct >= 1 ? ["danger", "Cap reached: cloud models are skipped and local ones answer"] : pct >= 0.75 ? ["warn", "Close to the cap"] : ["accent", "Under the cap"]);
   return h("div", { class: "meter", style: `--m: var(--${tone})`, role: "meter", "aria-label": label, "aria-valuemin": "0", "aria-valuemax": String(cap), "aria-valuenow": String(value),
       tip: { title: label, body: `${money(value)} spent ${period}, cap ${money(cap)} (${Math.round(pct * 100)}%).`, why: state } },
     h("div", { class: "meter-top" }, h("b", { text: label }), h("span", { text: `${money(value)} of ${money(cap)}` })),
@@ -1606,9 +1619,70 @@ function claudePanel(c) {
 }
 function usagePanels() {
   const slot = h("div", { class: "dcol" }, panel("Cost and usage", "Loading…"));
-  loadUsage().then(d => fill(slot, budgetPanel(d.budget), claudePanel(d.claude), hardwarePanel(d.hardware)))
+  loadUsage().then(d => fill(slot, budgetPanel(d.budget), providersPanel(d.budget, d.accounts), planPanel(d.claude), claudePanel(d.claude), hardwarePanel(d.hardware)))
     .catch(() => fill(slot, panel("Cost and usage", "Couldn't load")));
   return slot;
+}
+
+/* =========================================================== providers: spend, balances, rate limits */
+const PROVIDER_NAMES = { anthropic: "Anthropic", openai: "OpenAI", openrouter: "OpenRouter", ollama: "Ollama" };
+const pname = k => PROVIDER_NAMES[k] || k;
+function countdown(ts) {
+  const s = Math.round(ts - Date.now() / 1000);
+  if (s <= 0) return "now";
+  return s < 90 ? s + " s" : s < 5400 ? Math.round(s / 60) + " min" : s < 172800 ? (s / 3600).toFixed(1) + " h" : (s / 86400).toFixed(1) + " d";
+}
+function providersPanel(b, acct) {
+  const names = new Set([...Object.keys((b && b.providers) || {}), ...Object.keys((acct && acct.providers) || {}),
+    ...((b && b.limits) || []).map(l => l.provider)]);
+  if (!names.size) return panel("Providers", "Nothing yet",
+    h("p", { class: "muted", style: "margin:0", text: "Once Trioditis (0.3+) routes a call to a cloud provider, this shows that provider's spend against its own cap, the rate limits it reported, and, where an account adapter exists, your balance." }));
+  const cards = [...names].sort().map(name => {
+    const sp = (b && b.providers && b.providers[name]) || { today: 0, month: 0, calls_month: 0, caps: {} };
+    const a = acct && acct.providers && acct.providers[name];
+    const lims = ((b && b.limits) || []).filter(l => l.provider === name);
+    const rows = [];
+    if (sp.caps.monthly_usd != null) rows.push(meter("This month", sp.month, sp.caps.monthly_usd, "this month"));
+    if (sp.caps.daily_usd != null) rows.push(meter("Today", sp.today, sp.caps.daily_usd, "today"));
+    if (sp.caps.monthly_usd == null && sp.caps.daily_usd == null)
+      rows.push(kv([["Spend", `${money(sp.month)} this month · ${money(sp.today)} today`, `${sp.calls_month} call${sp.calls_month === 1 ? "" : "s"} this month, counted by Trioditis. No cap of its own: add one in ~/.hlidskjalv/budget.json under "providers".`]]));
+    if (a && !a.error) {
+      if (a.limit != null && a.remaining != null) rows.push(meter(a.label || "Account", a.used, a.limit, a.period === "prepaid" ? "of what you bought" : "this " + a.period, a.kind === "credits"));
+      else rows.push(kv([[a.label || "Account", `${money(a.used)} used` + (a.period === "month" ? " this month" : ""), a.note || null]]));
+      rows.push(h("small", { class: "muted", text: `From ${a.source ? new URL(a.source).host : "the provider"} · checked ${ago(a.checked_at)}` + (a.free_tier ? " · free tier" : "") }));
+    } else if (a && a.error) {
+      rows.push(h("small", { class: "muted", text: "Account not read: " + a.error }));
+    }
+    if (lims.length) rows.push(h("ul", { class: "dlist" }, ...lims.map(l => {
+      const pct = l.limit ? Math.round((l.remaining / l.limit) * 100) : null;
+      return h("li", { class: pct != null && pct < 10 ? "warn" : "" }, `${l.name.replace(/_/g, " ")}: ${l.remaining != null ? fmt(l.remaining) : "?"}${l.limit ? " of " + fmt(l.limit) : ""} left`,
+        h("small", { text: `${l.reset_at ? "Refills " + (l.reset_at > Date.now() / 1000 ? "in " + countdown(l.reset_at) : "already") : ""} · reported ${ago(l.seen)}` }));
+    })));
+    return h("section", { class: "svc" }, h("header", {}, h("b", { text: pname(name) })), ...rows);
+  });
+  return panel("Providers", "Spend, balances and rate limits", ...cards);
+}
+
+/* Claude plan windows, estimated from the transcripts on this computer. */
+function planPanel(c) {
+  const w = c && c.windows;
+  if (!w || !w.available) return null;
+  const anchorNote = w.week_anchored ? "Weekly window anchored to the reset time you entered in Settings." : "The weekly window is derived from the first turn found here.";
+  const block = (key, title) => {
+    const x = w[key];
+    if (!x) return null;
+    const fams = Object.entries(x.by_family || {});
+    const total = x.in + x.out;
+    return h("div", { class: "win" },
+      h("div", { class: "meter-top" }, h("b", { text: title }), h("span", { text: x.active ? "resets in " + countdown(x.resets_at) : "no active window" })),
+      x.active ? h("div", { class: "split wide" }, ...fams.map(([f, n], i) => h("i", { class: "fam fam-" + f, style: `flex:${n}`, tip: { title: f[0].toUpperCase() + f.slice(1) + " models", body: `${n.toLocaleString()} tokens in this window (${Math.round((n / Math.max(1, total)) * 100)}%).` } }))) : null,
+      h("small", { class: "muted", text: x.active ? `${x.turns} turn${x.turns === 1 ? "" : "s"} · ${fmt(x.in)} in (${Math.round((x.cached / Math.max(1, x.in)) * 100)}% re-read) · ${fmt(x.out)} out` : "Starts with your next message." }));
+  };
+  const legend = h("div", { class: "legend" }, ...["opus", "sonnet", "haiku", "fable", "other"].map(f => h("span", {}, h("i", { class: "fam fam-" + f }), f[0].toUpperCase() + f.slice(1))));
+  return panel("Claude plan", "Usage in the same windows as the official meter",
+    block("session", "Session (5 h)"), block("week", "Weekly (7 d)"), legend,
+    h("ul", { class: "dlist" }, h("li", { class: "warn" }, "An estimate, not the official percentage.",
+      h("small", { text: `Counted from Claude Code transcripts on this computer (${w.scope}). Anthropic doesn't publish how the caps are counted, and usage in the claude.ai apps or on other machines shares the same limits but leaves no transcripts here, so reset times can differ from the official panel. ${anchorNote}` }))));
 }
 
 /* =========================================================== owner key & settings */
@@ -1709,7 +1783,7 @@ function termConnect(fresh) {
 
 /* =========================================================== settings: defaults, look, background */
 // Same as settings.defaults() on the server; a test keeps the two identical.
-const DEFAULT_PREFS = /*DEFAULTS*/{"setup_done":false,"look":{"mode":"system","palette":"neutral","accent":null,"surface":null,"text":null,"font":"system","font_size":15,"density":"comfortable","radius":12,"animations":true,"background":{"type":"solid","colors":[],"angle":135,"particles":{"density":60,"speed":1.0,"size":2.0,"color":null,"links":true}}},"layout":{"nav_position":"top","nav_labels":false,"views":["live","replay","learn","details","terminal","alerts"],"hidden":[],"default_view":"live"},"features":{"terminal":false,"xp":true},"alerts":{"ai_commands":true,"refused_access":true,"persistence":true,"system_log":true,"view":"grouped","toast_min":"high","notify":false,"sound":false,"colors":{"info":null,"medium":null,"high":null,"critical":null}},"sources":{"trioditis_log":null,"claude_code":true},"usage":{"fresh_threshold":150000}}/*END*/;
+const DEFAULT_PREFS = /*DEFAULTS*/{"setup_done":false,"look":{"mode":"system","palette":"neutral","accent":null,"surface":null,"text":null,"font":"system","font_size":15,"density":"comfortable","radius":12,"animations":true,"background":{"type":"solid","colors":[],"angle":135,"particles":{"density":60,"speed":1.0,"size":2.0,"color":null,"links":true}}},"layout":{"nav_position":"top","nav_labels":false,"views":["live","replay","learn","details","terminal","alerts"],"hidden":[],"default_view":"live"},"features":{"terminal":false,"xp":true},"alerts":{"ai_commands":true,"refused_access":true,"persistence":true,"system_log":true,"view":"grouped","toast_min":"high","notify":false,"sound":false,"colors":{"info":null,"medium":null,"high":null,"critical":null}},"sources":{"trioditis_log":null,"claude_code":true},"usage":{"fresh_threshold":150000,"week_anchor":null}}/*END*/;
 const clone = o => JSON.parse(JSON.stringify(o));
 function deepMerge(base, change) {
   const out = clone(base);
@@ -2008,6 +2082,9 @@ function featuresSection(draft, set) {
     field("Levels and XP", "Points for real work, levels and badges.", toggleCtl(draft.features.xp, v => set("features.xp", v), "On")),
     field("Long-context warning", "Flag Claude Code sessions where one turn carries more context than this (Details → Claude Code usage).",
       rangeCtl(10000, 1000000, 10000, draft.usage.fresh_threshold, v => fmt(v) + " tokens", v => set("usage.fresh_threshold", v))),
+    field("Weekly plan reset", "When your Claude plan's weekly window resets, as the official usage panel shows it. Other apps and machines share that window but leave no transcripts here, so Hlidskjalv can't work it out alone. Leave empty to estimate.",
+      h("div", { class: "colorctl" }, h("input", { type: "datetime-local", value: (draft.usage.week_anchor || "").slice(0, 16), onchange: e => set("usage.week_anchor", e.target.value || null) }),
+        h("button", { type: "button", class: "btn small", onclick: () => set("usage.week_anchor", null) }, "Estimate"))),
   ];
 }
 function sourcesSection(draft, set) {

@@ -173,6 +173,8 @@ def watch(args, argv: list[str]) -> None:
     shell = term.Terminal(root, owner, lambda sev, title, detail, fp: alerter.raise_(
         sev, "refused_access", title, detail, fingerprint=fp)) if meta["terminal"] else None
     usage_ctx = UsageContext(home, ClaudeUsage(claude_code.dir) if claude_code else None)
+    if usage_ctx.claude:
+        usage_ctx.claude.plan = ClaudeUsage(claude_code.dir, all_projects=True)  # account-wide windows, cached separately
     httpd = serve(hub, sessions, args.port, shell, owner, settings, restart, alerts_ctx, usage_ctx)
     write_private(home / "server.json", json.dumps({
         "port": args.port, "pid": os.getpid(), "folder": str(root), "version": __version__,

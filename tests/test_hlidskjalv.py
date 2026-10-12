@@ -757,6 +757,71 @@ class UsageTest(unittest.TestCase):
         self.assertIs(u.report()["sessions"][0]["turns"], 3)  # cached parse gives the same answer
 
 
+class PlanWindowsTest(unittest.TestCase):
+    def _turn(self, ts, model="claude-opus-5-5", cached=100, out=7, mid=None):
+        return json.dumps({"type": "assistant", "timestamp": ts, "message": {"id": mid or ts, "model": model, "content": [{"type": "text"}],
+                           "usage": {"input_tokens": 10, "cache_read_input_tokens": cached, "cache_creation_input_tokens": 0, "output_tokens": out}}})
+
+    def test_windows_follow_the_first_turn_rule_across_projects(self):
+        from hlidskjalv.usage import ClaudeUsage
+        root = Path(tempfile.mkdtemp()) / "projects"
+        a, b = root / "-home-me-a", root / "-home-me-b"
+        a.mkdir(parents=True); b.mkdir()
+        H = 3600
+        now = 1_800_000_000.0
+        iso = lambda t: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))
+        # project a: a window that ended, then a new one 6h later; project b: one turn in the current window
+        (a / "s1.jsonl").write_text("\n".join([self._turn(iso(now - 12 * H)), self._turn(iso(now - 11 * H), out=50),
+                                                self._turn(iso(now - 2 * H), model="claude-fable-5-1", cached=1000, out=300)]) + "\n")
+        (b / "s2.jsonl").write_text(self._turn(iso(now - 1 * H), out=9) + "\n")
+        w = ClaudeUsage(a, all_projects=True).windows(now=now)
+        s5 = w["session"]
+        self.assertTrue(s5["active"])
+        self.assertEqual(s5["started_at"], now - 2 * H)                 # the first turn after the 12h-old window expired
+        self.assertEqual(s5["resets_at"], now + 3 * H)
+        self.assertEqual((s5["turns"], s5["out"]), (2, 309))            # both projects count
+        self.assertEqual(set(s5["by_family"]), {"fable", "opus"})
+        wk = w["week"]
+        self.assertEqual(wk["started_at"], now - 12 * H)
+        self.assertEqual(wk["turns"], 4)
+        # one project only: the other project's turn is not in it
+        self.assertEqual(ClaudeUsage(a).windows(now=now)["session"]["turns"], 1)
+        # a known weekly reset from the official panel anchors the week instead
+        anchored = ClaudeUsage(a, all_projects=True).windows(now=now, week_anchor=now - 20 * 86400 + 4 * 86400)
+        self.assertTrue(anchored["week_anchored"])
+        self.assertEqual(anchored["week"]["resets_at"], now + 5 * 86400)   # rolled forward week by week
+        self.assertEqual(anchored["week"]["started_at"], now - 2 * 86400)
+        # no active window once it expired
+        later = ClaudeUsage(a, all_projects=True).windows(now=now + 10 * H)
+        self.assertFalse(later["session"]["active"])
+
+
+class ProviderDataTest(unittest.TestCase):
+    def test_budget_reports_per_provider_spend_caps_and_limits(self):
+        import sqlite3
+        from hlidskjalv.usage import budget, accounts
+        home = Path(tempfile.mkdtemp())
+        con = sqlite3.connect(home / "metrics.db")
+        con.execute("CREATE TABLE calls (id INTEGER PRIMARY KEY, ts REAL, route TEXT, model TEXT, local INTEGER, status INTEGER,"
+                    " latency_ms INTEGER, tokens_in INTEGER, tokens_out INTEGER, cost REAL, fallbacks INTEGER, sensitive TEXT, provider TEXT)")
+        con.execute("CREATE TABLE provider_limits (provider TEXT, name TEXT, lim INTEGER, remaining INTEGER, reset_at REAL, seen REAL, PRIMARY KEY (provider, name))")
+        now = time.time()
+        con.executemany("INSERT INTO calls (ts, route, model, local, status, cost, provider) VALUES (?, 'code', 'm', 0, 200, ?, ?)",
+                        [(now, 0.5, "anthropic"), (now - 3 * 86400, 1.0, "anthropic"), (now, 0.2, "openrouter")])
+        con.execute("INSERT INTO provider_limits VALUES ('anthropic', 'requests', 1000, 998, ?, ?)", (now + 40, now))
+        con.commit(); con.close()
+        (home / "budget.json").write_text(json.dumps({"providers": {"anthropic": {"monthly_usd": 10}, "openai": {"daily_usd": 1}}}))
+        b = budget(home, now)
+        self.assertEqual(b["providers"]["anthropic"]["today"], 0.5)
+        self.assertEqual(b["providers"]["anthropic"]["caps"], {"monthly_usd": 10.0})
+        self.assertEqual(b["providers"]["openai"], {"today": 0.0, "month": 0.0, "calls_month": 0, "caps": {"daily_usd": 1.0}})
+        self.assertEqual(b["providers"]["openrouter"]["today"], 0.2)
+        self.assertEqual(b["limits"][0]["remaining"], 998)
+        self.assertFalse(accounts(home)["available"])
+        (home / "accounts.json").write_text(json.dumps({"providers": {"openrouter": {"used": 1, "limit": 5}}, "generated_at": now}))
+        self.assertEqual(accounts(home)["providers"]["openrouter"]["limit"], 5)
+
+
 class ServerTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

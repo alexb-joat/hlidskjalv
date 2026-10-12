@@ -12,6 +12,7 @@ from __future__ import annotations
 import copy
 import json
 import re
+from datetime import datetime
 from pathlib import Path
 
 from .auth import write_private
@@ -76,6 +77,9 @@ SCHEMA: dict = {
     },
     "usage": {
         "fresh_threshold": ("int", 150_000, 10_000, 1_000_000),
+        # When your Claude plan's weekly window resets, copied once from the official usage panel.
+        # Other apps and machines share that window but leave no transcripts here, so it can't be derived.
+        "week_anchor": ("datetime", None),
     },
 }
 
@@ -124,6 +128,16 @@ def _leaf(spec: tuple, value, where: str):
         if isinstance(value, list) and len(set(value)) == len(value) and all(v in VIEWS for v in value) and len(value) < len(VIEWS):
             return list(value)
         raise SettingsError(f"{where}: must be a list of views to hide, leaving at least one")
+    elif kind == "datetime":
+        if value is None:
+            return None
+        if isinstance(value, str) and len(value) <= 40:
+            try:
+                datetime.fromisoformat(value.replace("Z", "+00:00"))
+                return value
+            except ValueError:
+                pass
+        raise SettingsError(f"{where}: must be a date and time like 2026-10-16T09:00, or null")
     elif kind == "path":
         if value is None or (isinstance(value, str) and 0 < len(value) <= 1000 and "\0" not in value):
             return value

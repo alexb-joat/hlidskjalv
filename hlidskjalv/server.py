@@ -203,15 +203,20 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                 self.wfile.write(data)
             elif url.path == "/api/term":
                 self._terminal()
-            elif url.path in ("/api/budget", "/api/hardware", "/api/claude-usage"):
+            elif url.path in ("/api/budget", "/api/hardware", "/api/claude-usage", "/api/accounts"):
                 from . import usage as u
                 if usage is None:
                     return self._json({"available": False})
                 if url.path == "/api/budget":
                     self._json(u.budget(usage.home))
+                elif url.path == "/api/accounts":
+                    self._json(u.accounts(usage.home))
                 elif url.path == "/api/hardware":
                     self._json(u.hardware(usage.home))
                 else:
+                    if usage.claude and settings is not None:
+                        anchor = settings.data.get("usage", {}).get("week_anchor")
+                        usage.claude.week_anchor = u._epoch(anchor) if anchor else None
                     self._json(usage.claude.report() if usage.claude else {"available": False, "sessions": []})
             elif url.path == "/api/alerts":
                 if alerts is None:
