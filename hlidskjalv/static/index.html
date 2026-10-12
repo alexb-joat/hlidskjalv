@@ -939,12 +939,14 @@ function applyEvent(w, ev) {
   const s = w.stats;
   if (ev.type.startsWith("file_")) {
     let f = w.files.get(ev.path);
+    const was = f ? (f.gone ? 1 : 0) + (f.edits ? 2 : 0) : -1;  // what the map shows for this tile
     if (!f) { f = { path: ev.path, lines: ev.lines, edits: 0, added: 0, removed: 0, created: true, gone: false, last: null }; w.files.set(ev.path, f); }
     f.last = ev.ts; f.gone = ev.type === "file_deleted"; if (ev.lines != null) f.lines = ev.lines;
     f.added += ev.added || 0; f.removed += ev.removed || 0;
     if (ev.type === "file_created") { s.created++; f.created = true; f.edits++; if (fileInfo(ev.path).kind === "secret") s.secrets++; }
     if (ev.type === "file_changed") { s.edits++; f.edits++; }
     if (ev.type === "file_deleted") s.deleted++;
+    if (was !== (f.gone ? 1 : 0) + (f.edits ? 2 : 0)) w.shape = (w.shape || 0) + 1;  // the map needs redrawing
   } else if (ev.type === "command") { s.commands++; if (explainCommand(ev.cmd).risks.some(r => r.level === "danger")) s.risky++; }
   else if (ev.type === "commit") s.commits++;
   else if (ev.type === "ai_call") {
@@ -1016,8 +1018,7 @@ function makeWorldView(slot, src) {
     }
   }
   function render(w) {
-    const sig = [...w.files.values()].map(f => f.path + (f.gone ? "!" : "") + (f.edits ? "*" : "")).join("|");
-    if (sig !== shape) { shape = sig; renderMap(w); }
+    if (w.shape !== shape) { shape = w.shape; renderMap(w); }  // not a signature over every file per event
     renderStats(w);
   }
   function flash(ev) {
@@ -1130,9 +1131,10 @@ const worldView = makeWorldView($("#world-slot"), "live");
 let world = null, mode = "demo", liveEvents = [];
 function setMode(m) {
   mode = m; const el = $("#mode");
-  el.className = "mode " + (m === "live" ? "live" : m === "off" ? "off" : "demo");
-  el.textContent = m === "live" ? "Live" : m === "off" ? "Reconnecting" : "Demo";
+  el.className = "mode " + (m === "live" ? "live" : m === "off" || m === "connecting" ? "off" : "demo");
+  el.textContent = m === "live" ? "Live" : m === "off" ? "Reconnecting" : m === "connecting" ? "Connecting" : "Demo";
   TIPS.set(el, m === "demo" ? { title: "Demo mode", body: "You're watching an example session (made-up project and numbers). Run Hlidskjalv on your computer to see your own work.", where: "python -m hlidskjalv watch <project folder>" }
+    : m === "connecting" ? { title: "Connecting", body: "Waiting for Hlidskjalv on your computer to answer (it may be restarting)." }
     : m === "live" ? { title: "Live", body: "Connected to Hlidskjalv on your computer. Changes appear within a second." }
     : { title: "Reconnecting", body: "Lost the connection to Hlidskjalv on your computer. Is it still running?" });
   el.setAttribute("data-tip", "");
@@ -1158,15 +1160,28 @@ function startWorld(snap, events, archivedXp = 0) {
 }
 function liveEvent(ev) {
   applyEvent(world, ev); workXp += xpOf(ev); liveEvents.push(ev); alertEvent(ev, true);
+  if (liveEvents.length > 5000) liveEvents.splice(0, 1000);  // a day-long run must not grow without limit
   worldView.render(world); worldView.add(ev, true); worldView.flash(ev); updateLevel();
   if (currentTab === "details") detailsChanged();
   if (ev.type === "commit" && world.stats.commits === 1) toast("First save point! +50 XP");
 }
+const isLoopback = () => /^(127\.0\.0\.1|localhost|\[::1\]|[a-z0-9-]+\.localhost)$/i.test(location.hostname);
+/* A Hlidskjalv that is restarting answers within seconds: wait for it instead of showing the example session. */
+async function fetchState() {
+  const deadline = Date.now() + 30000; let wait = 500;
+  for (;;) {
+    try { const r = await fetch("/api/state", { cache: "no-store" }); if (r.ok) return await r.json(); } catch {}
+    if (!isLoopback() || Date.now() > deadline) return null;
+    setMode("connecting");
+    await new Promise(res => setTimeout(res, wait)); wait = Math.min(wait * 2, 8000);
+  }
+}
+let BOOT = null;
 async function boot() {
   try {
-    const r = await fetch("/api/state", { cache: "no-store" });
-    if (!r.ok) throw new Error();
-    const state = await r.json();
+    const state = await fetchState();
+    if (!state) throw new Error();
+    BOOT = (state.snapshot && state.snapshot.boot) || null;
     await OWNER.init();
     setMode("live");
     $("#world-eyebrow").textContent = "Live map";
@@ -1174,7 +1189,16 @@ async function boot() {
     startWorld(state.snapshot, state.events, (state.progress || {}).archived_xp || 0);
     let last = state.events.length ? state.events[state.events.length - 1].id : 0;
     const es = new EventSource("/api/events?after=" + last);
-    es.onmessage = m => { const ev = JSON.parse(m.data); if (ev.id > last) { last = ev.id; liveEvent(ev); } setMode("live"); };
+    es.addEventListener("hello", e => {  // another process than the one this page loaded from: start over
+      let b = null; try { b = JSON.parse(e.data).boot; } catch {}
+      if (BOOT && b && b !== BOOT) { es.close(); location.reload(); }
+    });
+    es.onmessage = m => {
+      const ev = JSON.parse(m.data);
+      if (ev.gap) { es.close(); boot(); return; }  // we fell behind the server's ring of events: reload the state
+      if (ev.id > last) { last = ev.id; liveEvent(ev); }
+      setMode("live");
+    };
     es.onerror = () => setMode("off");
   } catch {
     setMode("demo");
@@ -1221,16 +1245,17 @@ async function openSession(id) {
   if (id === "demo") evs = demoSession();
   else { try { evs = await (await fetch("/api/session?id=" + encodeURIComponent(id))).json(); } catch { return; } }
   if (!Array.isArray(evs) || !evs.length || evs[0].type !== "snapshot") return;
-  rp.snapshot = evs[0]; rp.events = evs.slice(1);
+  rp.snapshot = evs[0]; rp.events = evs.slice(1); rp.world = null; rp.applied = 0;
   const range = $("#rp-range"); range.max = rp.events.length; range.value = 0;
   const marks = $("#rp-marks"); marks.replaceChildren();
   rp.events.forEach((e, i) => marks.append(h("i", { style: `left:${rp.events.length > 1 ? (i / (rp.events.length - 1)) * 100 : 0}%;--c:${(EV[e.type] || EV.command).c}` })));
   seek(0);
 }
 function seek(n) {
-  rp.idx = n;
-  const w = newWorld(rp.snapshot); replayView.clear();
-  for (let i = 0; i < n; i++) { applyEvent(w, rp.events[i]); if (i >= n - 150) replayView.add(rp.events[i], i === n - 1); }
+  if (!rp.world || n < rp.applied) { rp.world = newWorld(rp.snapshot); replayView.clear(); rp.applied = 0; }  // backwards: rebuild
+  const w = rp.world;
+  for (let i = rp.applied; i < n; i++) { applyEvent(w, rp.events[i]); if (i >= n - 150) replayView.add(rp.events[i], i === n - 1); }
+  rp.applied = n; rp.idx = n;
   replayView.render(w);
   const lastAi = rp.events.slice(0, n).reverse().find(e => e.type === "ai_call");
   if (lastAi && lastAi !== rp.events[n - 1]) replayView.flash(lastAi);
