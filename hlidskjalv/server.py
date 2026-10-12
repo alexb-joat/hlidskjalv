@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import base64
 import json
+from collections import deque
+from itertools import islice
 import os
 import platform
 import re
@@ -151,20 +153,24 @@ class Hub:
     def __init__(self, project: str, snapshot: list[dict], session_path: Path | None, meta: dict,
                  history: list[dict] | None = None, progress: Progress | None = None):
         self.cond = threading.Condition()
-        self.events: list[dict] = [{**e, "id": i + 1} for i, e in enumerate((history or [])[:MAX_EVENTS])]
-        self.history_n = len(self.events)
+        hist = [{**e, "id": i + 1} for i, e in enumerate((history or [])[-MAX_EVENTS:])]
+        # A ring: the oldest events fall off; ids keep counting; the session file keeps everything.
+        self.events: deque = deque(hist, maxlen=MAX_EVENTS)
+        self.next_id = len(hist) + 1
+        self.history_n = len(hist)
         self.progress = progress
+        self.boot = round(time.time(), 3)  # a restarted Hlidskjalv has a new stamp: the page reloads on it
         self.snapshot = {"type": "snapshot", "ts": time.time(), "project": project,
-                         "files": snapshot, **meta}
+                         "files": snapshot, "boot": self.boot, **meta}
         self.out = private_file(session_path) if session_path else None
         if self.out:
             self.out.write(json.dumps(self.snapshot, ensure_ascii=False) + "\n")
 
     def publish(self, ev: dict) -> None:
         with self.cond:
-            ev = {"id": len(self.events) + 1, "ts": round(time.time(), 3), **ev}
-            if len(self.events) < MAX_EVENTS:
-                self.events.append(ev)
+            ev = {"id": self.next_id, "ts": round(time.time(), 3), **ev}
+            self.next_id += 1
+            self.events.append(ev)
             if self.out:
                 self.out.write(json.dumps(ev, ensure_ascii=False) + "\n")
             if self.progress:
@@ -178,10 +184,24 @@ class Hub:
         return max(0, self.progress.xp - sum(xp_of(e) for e in self.events)) + self.progress.remote_xp
 
     def after(self, last_id: int, timeout: float) -> list[dict]:
+        """Events newer than last_id. If those fell off the ring, everything held, the first marked
+        gap=True: the page then reloads the state instead of missing events silently."""
         with self.cond:
-            if len(self.events) <= last_id:
+            if self.next_id - 1 <= last_id:
                 self.cond.wait(timeout)
-            return self.events[last_id:]
+            if not self.events or self.events[-1]["id"] <= last_id:
+                return []
+            first = self.events[0]["id"]
+            if last_id < first - 1:
+                out = list(self.events)
+                out[0] = {**out[0], "gap": True}
+                return out
+            return list(islice(self.events, last_id + 1 - first, None))
+
+    def close(self) -> None:
+        if self.out:
+            self.out.close()
+            self.out = None
 
 
 def list_sessions(folder: Path) -> list[dict]:
@@ -403,6 +423,8 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
         def _stream(self, last: int):
             self._headers(200, "text/event-stream")
             try:
+                self.wfile.write(f"event: hello\ndata: {json.dumps({'boot': hub.boot})}\n\n".encode())  # which process this is
+                self.wfile.flush()
                 while True:
                     new = hub.after(last, timeout=15)
                     if not new:
