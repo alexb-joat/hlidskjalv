@@ -231,7 +231,7 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
             elif url.path == "/api/settings":
                 if settings is None:
                     return self._json({"error": "settings are off"}, HTTPStatus.NOT_FOUND)
-                self._json({"settings": settings.data})
+                self._json({"settings": settings.data, "password_set": bool(owner and owner.has_password())})
             elif url.path == "/api/session":
                 events = read_session(sessions, (q.get("id") or [""])[0])
                 if events is None:
@@ -280,8 +280,8 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
             if self._foreign_host():
                 return
             path = urlparse(self.path).path
-            if path not in ("/api/pair", "/api/ping", "/api/settings", "/api/restart", "/api/autostart",
-                            "/api/alerts/ack") or owner is None:
+            if path not in ("/api/pair", "/api/ping", "/api/logout", "/api/password", "/api/settings", "/api/restart",
+                            "/api/autostart", "/api/alerts/ack") or owner is None:
                 return self._json({"error": "read-only"}, HTTPStatus.METHOD_NOT_ALLOWED)
             if self._foreign_origin("change Hlidskjalv"):
                 return
@@ -298,18 +298,43 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                 return self._json({"error": "body must be a JSON object"}, HTTPStatus.BAD_REQUEST)
 
             if path == "/api/pair":
-                key = owner.redeem(body.get("code"))
-                if not key:
-                    refused("medium", "A pairing code was refused", "It was wrong, already used or expired. Opening an old pairing link twice does this too.", "pair")
-                    return self._json({"error": "pairing code is wrong, used or expired"}, HTTPStatus.FORBIDDEN)
-                return self._json({"key": key})
-            if not owner.check(self.headers.get("X-Hlidskjalv-Key")):
-                if self.headers.get("X-Hlidskjalv-Key"):
-                    refused("medium", "A request with a wrong owner key was refused",
-                            f"{path}. A browser paired before `pair --rotate` does this once; anything else is someone guessing.", "key")
-                return self._json({"error": "this browser isn't paired"}, HTTPStatus.UNAUTHORIZED)
+                if "password" in body:
+                    token = owner.login(body.get("password"))
+                    if not token:
+                        wait = owner.password_lock_s()
+                        refused("medium", "A wrong password was entered",
+                                "Pairing with a password needs the one set with `python3 -m hlidskjalv password`."
+                                if owner.has_password() else "No password is set: pair with the link once, then set one in Settings > Pairing.",
+                                "password")
+                        return self._json({"error": ("no password is set" if not owner.has_password() else "wrong password")
+                                           + (f"; wait {wait} s" if wait else ""), "wait": wait}, HTTPStatus.FORBIDDEN)
+                else:
+                    token = owner.redeem(body.get("code"))
+                    if not token:
+                        refused("medium", "A pairing code was refused", "It was wrong, already used or expired. Opening an old pairing link twice does this too.", "pair")
+                        return self._json({"error": "pairing code is wrong, used or expired"}, HTTPStatus.FORBIDDEN)
+                return self._json({"token": token, "expires_in": int(owner.ttl_s), "password_set": owner.has_password()})
+            given = self.headers.get("X-Hlidskjalv-Key")
+            if not owner.check(given):
+                if given:
+                    refused("medium", "A request with an ended or wrong session was refused",
+                            f"{path}. A browser whose session ran out, or paired before `pair --rotate`, does this once; anything else is someone guessing.", "key")
+                return self._json({"error": "this browser isn't paired, or its session ended"}, HTTPStatus.UNAUTHORIZED)
             if path == "/api/ping":
+                info = owner.session_info(given) or {}
+                return self._json({"ok": True, "expires_in": info.get("expires_in"), "password_set": owner.has_password()})
+            if path == "/api/logout":
+                owner.end_session(given)
                 return self._json({"ok": True})
+            if path == "/api/password":
+                if owner.has_password() and not owner.check_password(body.get("current")):
+                    refused("medium", "A wrong password was entered", "Changing the password needs the current one.", "password")
+                    return self._json({"error": "the current password is wrong"}, HTTPStatus.FORBIDDEN)
+                try:
+                    owner.set_password(body.get("new") or None)
+                except ValueError as e:
+                    return self._json({"error": str(e)}, HTTPStatus.BAD_REQUEST)
+                return self._json({"password_set": owner.has_password()})
             if path == "/api/settings":
                 if settings is None:
                     return self._json({"error": "settings are off"}, HTTPStatus.NOT_FOUND)
@@ -351,6 +376,8 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
 def serve(hub: Hub, sessions: Path, port: int, terminal: Terminal | None = None,
           owner: Owner | None = None, settings: Settings | None = None, restart=None,
           alerts: AlertsContext | None = None, usage: UsageContext | None = None) -> ThreadingHTTPServer:
+    if owner is not None and settings is not None:
+        owner.ttl_provider = lambda: settings.data["security"]["session_minutes"] * 60
     httpd = ThreadingHTTPServer(("127.0.0.1", port),
                                 make_handler(hub, sessions, port, terminal, owner, settings, restart, alerts, usage))
     httpd.daemon_threads = True

@@ -342,6 +342,8 @@ details > summary { cursor: pointer; color: var(--muted); font-weight: 700; }
 .field-l b { display: block; font-weight: 700; }
 .field-l small { display: block; color: var(--muted); font-size: calc(12.5px * var(--fz)); line-height: 1.35; margin-top: 2px; }
 @media (max-width: 640px) { .field { grid-template-columns: minmax(0, 1fr); } }
+.pwrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0; }
+.pwrow input[type=password] { flex: 1 1 160px; min-width: 0; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r); padding: 8px 10px; }
 .field input[type=text], .field select { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r); padding: 8px 10px; min-width: 0; }
 .seg { flex-wrap: wrap; }
 .btn.small { padding: 4px 10px; font-size: calc(12.5px * var(--fz)); }
@@ -1710,10 +1712,14 @@ function planPanel(c) {
 /* =========================================================== owner key & settings */
 /* Reading needs nothing; every change needs the owner key, which this browser
    gets once from a one-time pairing link (#pair=...). See auth.py. */
-const OWNER = {
-  key: store.get("ownerKey", null),
-  paired: false,
-  forget() { this.key = null; this.paired = false; store.set("ownerKey", null); },
+const PAIR_HINT = "Pair it in Settings → Pairing with your password, or run: python3 -m hlidskjalv pair --open";
+const OWNER = {  // `key` is a session token: it ends after security.session_minutes without a request
+  key: store.get("session", null),
+  paired: false, expires: 0, passwordSet: false,
+  forget() { this.key = null; this.paired = false; this.expires = 0; store.set("session", null); },
+  accept(r) { this.key = r.token; this.paired = true; this.passwordSet = !!r.password_set; this.expires = Date.now() + (r.expires_in || 0) * 1000; store.set("session", r.token); },
+  async login(password) { this.accept(await this.post("/api/pair", { password })); },
+  async logout() { try { await this.post("/api/logout"); } catch {} this.forget(); },
   async post(path, body) {
     const r = await fetch(path, { method: "POST", cache: "no-store",
       headers: { "Content-Type": "application/json", ...(this.key ? { "X-Hlidskjalv-Key": this.key } : {}) },
@@ -1727,10 +1733,13 @@ const OWNER = {
     const m = location.hash.match(/^#pair=([\w-]{20,100})$/);
     if (m) {
       history.replaceState(null, "", location.pathname + location.search);  // the code is spent either way
-      try { const { key } = await this.post("/api/pair", { code: m[1] }); this.key = key; store.set("ownerKey", key); toast("This browser is paired."); }
+      try { this.accept(await this.post("/api/pair", { code: m[1] })); toast("This browser is paired."); }
       catch (e) { toast("Pairing failed: " + e.message); }
     }
-    if (this.key) { try { await this.post("/api/ping"); this.paired = true; } catch { this.paired = false; } }
+    if (this.key) {
+      try { const r = await this.post("/api/ping"); this.paired = true; this.passwordSet = !!r.password_set; this.expires = Date.now() + (r.expires_in || 0) * 1000; }
+      catch { this.paired = false; }
+    }
   },
 };
 
@@ -1783,7 +1792,7 @@ function termConnect(fresh) {
   if (TERM.ws) { TERM.ws.onclose = null; TERM.ws.close(); TERM.ws = null; }
   if (fresh) term.reset();
   const key = OWNER.key;
-  if (!key) return termStatus("This browser isn't paired. Run: python3 -m hlidskjalv pair");
+  if (!key) return termStatus("This browser isn't paired. " + PAIR_HINT);
   const ws = new WebSocket(`ws://${location.host}/api/term`); ws.binaryType = "arraybuffer"; TERM.ws = ws;
   termStatus("Connecting…");
   ws.onopen = () => ws.send(JSON.stringify({ key, size: [term.cols, term.rows] }));
@@ -1796,7 +1805,7 @@ function termConnect(fresh) {
   ws.onclose = e => {
     if (TERM.ws !== ws) return;
     TERM.ws = null;
-    if (e.code === 1008) { OWNER.forget(); termStatus("This browser isn't paired (any more). Run: python3 -m hlidskjalv pair"); }
+    if (e.code === 1008) { OWNER.forget(); termStatus("This browser isn't paired, or its session ended. " + PAIR_HINT); }
     else if (e.code === 1013) termStatus("Too many terminals open. Close another Hlidskjalv tab first.");
     else if (e.code === 1006) termStatus("Connection lost. If Hlidskjalv just restarted, press New shell.");
     else termStatus((e.reason ? `Disconnected: ${e.reason}. ` : "Disconnected. ") + "Press New shell to start another.");
@@ -1806,7 +1815,7 @@ function termConnect(fresh) {
 
 /* =========================================================== settings: defaults, look, background */
 // Same as settings.defaults() on the server; a test keeps the two identical.
-const DEFAULT_PREFS = /*DEFAULTS*/{"setup_done":false,"look":{"mode":"system","palette":"neutral","accent":null,"surface":null,"text":null,"font":"system","font_size":15,"brightness":0,"density":"comfortable","radius":12,"animations":true,"background":{"type":"solid","colors":[],"angle":135,"particles":{"density":60,"speed":1.0,"size":2.0,"color":null,"links":true}}},"layout":{"nav_position":"top","nav_labels":false,"views":["live","replay","learn","details","terminal","alerts"],"hidden":[],"default_view":"live"},"features":{"terminal":false,"xp":true},"alerts":{"ai_commands":true,"refused_access":true,"persistence":true,"system_log":true,"cost":true,"view":"grouped","toast_min":"high","notify":false,"sound":false,"colors":{"info":null,"medium":null,"high":null,"critical":null}},"sources":{"trioditis_log":null,"claude_code":true},"usage":{"fresh_threshold":150000,"week_anchor":null}}/*END*/;
+const DEFAULT_PREFS = /*DEFAULTS*/{"setup_done":false,"look":{"mode":"system","palette":"neutral","accent":null,"surface":null,"text":null,"font":"system","font_size":15,"brightness":0,"density":"comfortable","radius":12,"animations":true,"background":{"type":"solid","colors":[],"angle":135,"particles":{"density":60,"speed":1.0,"size":2.0,"color":null,"links":true}}},"layout":{"nav_position":"top","nav_labels":false,"views":["live","replay","learn","details","terminal","alerts"],"hidden":[],"default_view":"live"},"features":{"terminal":false,"xp":true},"alerts":{"ai_commands":true,"refused_access":true,"persistence":true,"system_log":true,"cost":true,"view":"grouped","toast_min":"high","notify":false,"sound":false,"colors":{"info":null,"medium":null,"high":null,"critical":null}},"sources":{"trioditis_log":null,"claude_code":true},"security":{"session_minutes":240},"usage":{"fresh_threshold":150000,"week_anchor":null}}/*END*/;
 const clone = o => JSON.parse(JSON.stringify(o));
 function deepMerge(base, change) {
   const out = clone(base);
@@ -1988,7 +1997,7 @@ function applyPrefs() { applyLook(PREFS); store.set("prefsCache", PREFS); }
 { const cached = store.get("prefsCache", null); if (cached) { try { PREFS = deepMerge(DEFAULT_PREFS, cached); } catch {} } }
 async function loadPrefs() {
   if (mode === "demo") PREFS = deepMerge(DEFAULT_PREFS, store.get("demoPrefs", {}));
-  else { try { PREFS = deepMerge(DEFAULT_PREFS, (await (await fetch("/api/settings", { cache: "no-store" })).json()).settings || {}); } catch {} }
+  else { try { const r = await (await fetch("/api/settings", { cache: "no-store" })).json(); PREFS = deepMerge(DEFAULT_PREFS, r.settings || {}); OWNER.passwordSet = !!r.password_set; } catch {} }
   applyPrefs(); return PREFS;
 }
 /* Live: saved on your computer through the owner key (the server validates). Demo: kept in this browser. */
@@ -1997,7 +2006,7 @@ async function savePrefs(change) {
     PREFS = deepMerge(PREFS, change); store.set("demoPrefs", PREFS); applyPrefs();
     return { settings: PREFS, restart: false };
   }
-  if (!OWNER.key) throw new Error("this browser isn't paired: run python3 -m hlidskjalv pair --open");
+  if (!OWNER.key) throw new Error("this browser isn't paired. " + PAIR_HINT);
   const r = await OWNER.post("/api/settings", { change });
   PREFS = deepMerge(DEFAULT_PREFS, r.settings); applyPrefs();
   return r;
@@ -2222,7 +2231,7 @@ function openSetup() {
   function render() {
     const [name, hint, build] = steps[i];
     dots.replaceChildren(...steps.map(([n], k) => h("li", { class: k === i ? "on" : k < i ? "done" : "" }, n)));
-    const pairNote = mode !== "demo" && !OWNER.key ? h("p", { class: "risk caution", text: "This browser isn't paired yet, so these choices can't be saved. Run: python3 -m hlidskjalv pair --open" }) : null;
+    const pairNote = mode !== "demo" && !OWNER.key ? h("p", { class: "risk caution", text: "This browser isn't paired yet, so these choices can't be saved. " + PAIR_HINT }) : null;
     fill(body, dots, pairNote, h("h3", { text: name }), hint ? h("p", { class: "muted", style: "margin:0 0 6px", text: hint }) : null,
       h("div", { class: "fields" }, ...build(draft, set)),
       h("div", { class: "setup-foot" },
@@ -2265,8 +2274,8 @@ function openSettings(section = "look") {
   function render() {
     list.replaceChildren(...sections.map(([k, label]) => h("button", { type: "button", "aria-current": String(k === section), onclick: () => { section = k; render(); } }, label)));
     const s = sections.find(x => x[0] === section);
-    const pairNote = mode !== "demo" && !OWNER.key && s[2] ? h("p", { class: "risk caution", text: "This browser isn't paired, so changes can't be saved. Run: python3 -m hlidskjalv pair --open" }) : null;
-    fill(pane, pairNote, h("div", { class: "fields" }, ...(s[2] ? s[2](PREFS, set) : section === "autostart" ? autostartPane() : section === "pairing" ? pairingPane() : dataPane())));
+    const pairNote = mode !== "demo" && !OWNER.key && s[2] ? h("p", { class: "risk caution", text: "This browser isn't paired, so changes can't be saved. " + PAIR_HINT }) : null;
+    fill(pane, pairNote, h("div", { class: "fields" }, ...(s[2] ? s[2](PREFS, set) : section === "autostart" ? autostartPane() : section === "pairing" ? pairingPane(set, render) : dataPane())));
   }
   const body = h("div", { class: "settings" }, banner, h("div", { class: "set-grid" }, list, pane));
   openModal("Settings", body, { wide: true });
@@ -2294,13 +2303,35 @@ function autostartPane() {
   }).catch(e => box.replaceChildren(h("p", { class: "muted", text: "Couldn't load: " + e.message })));
   return [box];
 }
-function pairingPane() {
+function spanMin(ms) { const m = Math.max(0, Math.round(ms / 60000)); return m >= 90 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`; }
+function pairingPane(set, render) {
+  const paired = mode !== "demo" && OWNER.paired, minutes = PREFS.security.session_minutes;
+  const pw = h("input", { type: "password", autocomplete: "current-password", placeholder: "Password", "aria-label": "Password" });
+  const loginRow = h("form", { class: "pwrow", onsubmit: async e => {
+    e.preventDefault();
+    try { await OWNER.login(pw.value); toast("This browser is paired."); render(); }
+    catch (err) { toast("Not paired: " + err.message); pw.value = ""; pw.focus(); }
+  } }, pw, h("button", { type: "submit", class: "btn primary" }, "Pair"));
+  const newPw = h("input", { type: "password", autocomplete: "new-password", placeholder: "New password (8+ characters)", "aria-label": "New password" });
+  const curPw = OWNER.passwordSet ? h("input", { type: "password", autocomplete: "current-password", placeholder: "Current password", "aria-label": "Current password" }) : null;
+  const savePw = async (clear) => {
+    try { const r = await OWNER.post("/api/password", { new: clear ? null : newPw.value, current: curPw ? curPw.value : null });
+      OWNER.passwordSet = !!r.password_set; toast(clear ? "Password removed." : "Password set."); render(); }
+    catch (err) { toast("Not changed: " + err.message); }
+  };
+  const pwForm = h("form", { class: "pwrow", onsubmit: e => { e.preventDefault(); savePw(false); } }, curPw, newPw,
+    h("button", { type: "submit", class: "btn primary" }, OWNER.passwordSet ? "Change" : "Set password"),
+    OWNER.passwordSet ? h("button", { type: "button", class: "btn", onclick: () => { if (confirm("Remove the password? Browsers then pair with a one-time link only.")) savePw(true); } }, "Remove") : null);
   return [
-    field("This browser", null, h("span", { class: "chip " + (mode === "demo" ? "no" : OWNER.paired ? "ok" : "warn"), text: mode === "demo" ? "example only" : OWNER.paired ? "paired" : "not paired" })),
-    h("p", { class: "muted", text: "Watching needs nothing. Changing settings and using the terminal need this browser to be paired once." }),
-    field("Pair a browser", "Prints a link that works once, for 10 minutes.", h("div", { class: "cmd", text: "python3 -m hlidskjalv pair --open" })),
-    field("Un-pair every browser", "Makes a new key; old ones stop working right away.", h("div", { class: "cmd", text: "python3 -m hlidskjalv pair --rotate" })),
-    OWNER.key ? field("Forget here", "Removes the key from this browser only.", h("button", { type: "button", class: "btn", onclick: () => { OWNER.forget(); toast("This browser is no longer paired."); } }, "Forget this browser")) : null,
+    field("This browser", paired ? `Session ends ${spanMin(minutes * 60000)} after its last activity; using the page extends it. Ends in about ${spanMin(OWNER.expires - Date.now())} if you stop now.` : null,
+      h("div", { class: "pwrow" }, h("span", { class: "chip " + (mode === "demo" ? "no" : paired ? "ok" : "warn"), text: mode === "demo" ? "example only" : paired ? "paired" : "not paired" }),
+        paired ? h("button", { type: "button", class: "btn small", onclick: async () => { await OWNER.logout(); toast("Logged out here."); render(); } }, "Log out") : null)),
+    h("p", { class: "muted", text: "Watching needs nothing. Changing settings and using the terminal need this browser to be paired." }),
+    !paired && mode !== "demo" ? field("Pair with the password", OWNER.passwordSet ? "The one set in this Hlidskjalv. Five wrong tries lock this for a minute." : "No password is set yet: pair once with the link below, then set one here.", OWNER.passwordSet ? loginRow : null) : null,
+    paired ? field("Session length", "How long a paired browser stays paired without activity.", rangeCtl(15, 1440, 15, minutes, v => spanMin(v * 60000), v => set("security.session_minutes", v))) : null,
+    paired ? field(OWNER.passwordSet ? "Password" : "Set a password", "Lets any browser on this computer pair by typing it, instead of a one-time link.", pwForm) : null,
+    field("Pair with a link", "Prints a link that works once, for 10 minutes.", h("div", { class: "cmd", text: "python3 -m hlidskjalv pair --open" })),
+    field("Un-pair every browser", "Ends every session right away.", h("div", { class: "cmd", text: "python3 -m hlidskjalv pair --rotate" })),
   ];
 }
 function dataPane() {

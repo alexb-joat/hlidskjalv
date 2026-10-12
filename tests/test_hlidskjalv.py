@@ -304,7 +304,7 @@ class TerminalTest(unittest.TestCase):
 
     def test_owner_key_runs_a_real_shell(self):
         ws = WsClient(self.port)
-        ws.hello(key=self.owner.key)
+        ws.hello(key=self.owner.start_session())
         ws.send(term.OP_BIN, b"echo arcade-$((40+2))\n")
         self.assertIn(b"arcade-42", ws.read_until(b"arcade-42"))
         ws.send(term.OP_BIN, b"pwd\n")  # macOS may print /var/... or /private/var/...: match the unique part
@@ -316,7 +316,7 @@ class TerminalTest(unittest.TestCase):
 
     def test_shell_exit_is_reported(self):
         ws = WsClient(self.port)
-        ws.hello(key=self.owner.key)
+        ws.hello(key=self.owner.start_session())
         ws.send(term.OP_BIN, b"exit 3\n")
         while True:
             op, data = ws.recv()
@@ -357,13 +357,19 @@ class OwnerTest(unittest.TestCase):
             self.assertEqual((self.home / "owner.key").stat().st_mode & 0o777, 0o600)
         self.assertEqual(Owner(self.home).key, self.owner.key)
 
-    def test_codes_work_once(self):
+    def test_codes_work_once_and_give_a_session(self):
         code = self.owner.launch_code()
-        self.assertEqual(self.owner.redeem(code), self.owner.key)
+        token = self.owner.redeem(code)
+        self.assertTrue(token and self.owner.check(token))
+        self.assertFalse(self.owner.check(self.owner.key))  # the key itself never pairs a browser
         self.assertIsNone(self.owner.redeem(code))
         code = issue_pair_code(self.home)  # what `pair` does, for a running server
-        self.assertEqual(self.owner.redeem(code), self.owner.key)
+        self.assertTrue(self.owner.check(self.owner.redeem(code)))
         self.assertIsNone(self.owner.redeem(code))
+        self.assertTrue(Owner(self.home).check(token))  # sessions survive a restart
+        if os.name == "posix":
+            self.assertEqual((self.home / "web-sessions.json").stat().st_mode & 0o777, 0o600)
+        self.assertNotIn(token, (self.home / "web-sessions.json").read_text())  # stored hashed
         self.assertFalse((self.home / "pair").exists())
         self.assertIsNone(self.owner.redeem(None))
         self.assertIsNone(self.owner.redeem("x" * 500))
@@ -375,10 +381,47 @@ class OwnerTest(unittest.TestCase):
         self.assertIsNone(self.owner.redeem(code))
 
     def test_rotate_unpairs_without_restart(self):
-        before = self.owner.key
-        rotate_key(self.home)
-        self.assertFalse(self.owner.check(before))
-        self.assertTrue(self.owner.check(self.owner.key))
+        token = self.owner.start_session()
+        rotate_key(self.home)  # another process, e.g. `pair --rotate`
+        self.assertFalse(self.owner.check(token))
+        self.assertTrue(self.owner.check(self.owner.start_session()))
+
+    def test_sessions_end_after_idle_time(self):
+        self.owner.ttl_provider = lambda: 0.05
+        token = self.owner.start_session()
+        self.assertTrue(self.owner.check(token))
+        self.assertLessEqual(self.owner.session_info(token)["expires_in"], 1)
+        time.sleep(0.1)
+        self.assertFalse(self.owner.check(token))
+        self.owner.ttl_provider = None
+        token = self.owner.start_session()
+        self.owner.end_session(token)
+        self.assertFalse(self.owner.check(token))
+        a, b = self.owner.start_session(), self.owner.start_session()
+        self.owner.end_all()
+        self.assertFalse(self.owner.check(a) or self.owner.check(b))
+
+    def test_password_pairs_and_locks_after_wrong_tries(self):
+        self.assertFalse(self.owner.has_password())
+        self.assertIsNone(self.owner.login("anything at all"))
+        with self.assertRaises(ValueError):
+            self.owner.set_password("short")
+        self.owner.set_password("correct horse battery")
+        if os.name == "posix":
+            self.assertEqual((self.home / "password").stat().st_mode & 0o777, 0o600)
+        self.assertNotIn("correct horse", (self.home / "password").read_text())
+        self.assertTrue(Owner(self.home).has_password())
+        token = self.owner.login("correct horse battery")
+        self.assertTrue(token and self.owner.check(token))
+        for _ in range(5):
+            self.assertIsNone(self.owner.login("wrong"))
+        self.assertGreater(self.owner.password_lock_s(), 0)
+        self.assertIsNone(self.owner.login("correct horse battery"))  # locked, even when right
+        self.owner._fails.clear()
+        self.assertTrue(self.owner.login("correct horse battery"))
+        self.owner.set_password(None)
+        self.assertFalse(self.owner.has_password())
+        self.assertIsNone(self.owner.login("correct horse battery"))
 
 
 class SettingsTest(unittest.TestCase):
@@ -473,7 +516,8 @@ class WriteApiTest(unittest.TestCase):
     def test_pair_then_change_settings(self):
         status, body = self.post("/api/pair", {"code": self.owner.launch_code()})
         self.assertEqual(status, 200)
-        key = body["key"]
+        key = body["token"]
+        self.assertEqual(body["expires_in"], 240 * 60)  # security.session_minutes, through Settings
         self.assertEqual(self.post("/api/ping", {}, key=key)[0], 200)
         status, body = self.post("/api/settings", {"change": {"layout": {"nav_position": "left"}}}, key=key)
         self.assertEqual(status, 200)
@@ -483,8 +527,27 @@ class WriteApiTest(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertIn("layout.nav_position", body["error"])
 
+    def test_password_pairing_logout_and_change(self):
+        self.assertEqual(self.post("/api/pair", {"password": "nothing set"})[0], 403)
+        self.owner.set_password("open sesame 42")
+        status, body = self.post("/api/pair", {"password": "wrong"})
+        self.assertEqual((status, body["wait"]), (403, 0))
+        status, body = self.post("/api/pair", {"password": "open sesame 42"})
+        self.assertEqual(status, 200)
+        token = body["token"]
+        status, body = self.post("/api/ping", {}, key=token)
+        self.assertEqual((status, body["password_set"]), (200, True))
+        self.assertGreater(body["expires_in"], 0)
+        self.assertEqual(self.post("/api/password", {"new": "new pass phrase", "current": "wrong"}, key=token)[0], 403)
+        self.assertEqual(self.post("/api/password", {"new": "tiny", "current": "open sesame 42"}, key=token)[0], 400)
+        self.assertEqual(self.post("/api/password", {"new": "new pass phrase", "current": "open sesame 42"}, key=token)[0], 200)
+        self.assertTrue(self.owner.check_password("new pass phrase"))
+        self.assertEqual(self.post("/api/logout", {}, key=token)[0], 200)
+        self.assertEqual(self.post("/api/ping", {}, key=token)[0], 401)
+        self.assertEqual(self.post("/api/settings", {"change": {"security": {"session_minutes": 1}}}, key=self.owner.start_session())[0], 400)
+
     def test_refusals(self):
-        key = self.owner.key
+        key = self.owner.start_session()
         change = {"change": {"look": {"mode": "dark"}}}
         self.assertEqual(self.post("/api/settings", change)[0], 401)                        # no key
         self.assertEqual(self.post("/api/settings", change, key="x" * 43)[0], 401)          # wrong key
@@ -501,7 +564,7 @@ class WriteApiTest(unittest.TestCase):
     def test_restart_needs_key(self):
         self.assertEqual(self.post("/api/restart", {})[0], 401)
         self.assertFalse(self.restarted.is_set())
-        self.assertEqual(self.post("/api/restart", {}, key=self.owner.key)[0], 202)
+        self.assertEqual(self.post("/api/restart", {}, key=self.owner.start_session())[0], 202)
         self.assertTrue(self.restarted.wait(2))
 
     def test_settings_are_readable(self):
@@ -589,7 +652,7 @@ class AutostartTest(unittest.TestCase):
             c.request("POST", "/api/autostart", body=b"{}", headers=hdr)
             r = c.getresponse(); r.read()
             self.assertEqual(r.status, 401)
-            c.request("POST", "/api/autostart", body=b"{}", headers={**hdr, "X-Hlidskjalv-Key": owner.key})
+            c.request("POST", "/api/autostart", body=b"{}", headers={**hdr, "X-Hlidskjalv-Key": owner.start_session()})
             r = c.getresponse()
             self.assertEqual(r.status, 200)
             self.assertIn("policy", json.loads(r.read()))
@@ -738,7 +801,7 @@ class AlertsTest(unittest.TestCase):
             body = json.dumps({"ids": [uid]}).encode()
             c.request("POST", "/api/alerts/ack", body=body, headers={**ok, "Content-Length": str(len(body))})
             self.assertEqual(c.getresponse().status, 401)
-            c.request("POST", "/api/alerts/ack", body=body, headers={**ok, "Content-Length": str(len(body)), "X-Hlidskjalv-Key": owner.key})
+            c.request("POST", "/api/alerts/ack", body=body, headers={**ok, "Content-Length": str(len(body)), "X-Hlidskjalv-Key": owner.start_session()})
             r = c.getresponse()
             self.assertEqual(json.loads(r.read())["acks"], [uid])
             c.close()

@@ -78,6 +78,10 @@ SCHEMA: dict = {
         "trioditis_log": ("path", None),
         "claude_code": ("bool", True),
     },
+    "security": {
+        # A paired browser stays paired this long after its last request (sliding).
+        "session_minutes": ("int", 240, 5, 10080),
+    },
     "usage": {
         "fresh_threshold": ("int", 150_000, 10_000, 1_000_000),
         # When your Claude plan's weekly window resets, copied once from the official usage panel.

@@ -187,7 +187,8 @@ def watch(args, argv: list[str]) -> None:
     if not args.no_open:
         url += f"#pair={owner.launch_code()}"  # one use: pairs this browser for settings and the terminal
     else:
-        print("  to pair a browser (needed for settings and the terminal): python3 -m hlidskjalv pair")
+        print("  to pair a browser (needed for settings and the terminal): your password in Settings > Pairing,"
+              " or: python3 -m hlidskjalv pair")
     if shell:
         print("  terminal: ON (a real shell in this folder, in the Terminal tab)")
     elif args.terminal or prefs["features"]["terminal"]:
@@ -261,6 +262,24 @@ def status_text(home: Path) -> str:
     return "\n".join(lines)
 
 
+def password(args) -> None:
+    """Set or remove the pairing password (asked for twice, never shown)."""
+    import getpass
+    owner = Owner(data_home())
+    if args.clear:
+        owner.set_password(None)
+        print("Password removed. Browsers now pair with a one-time link only (python3 -m hlidskjalv pair).")
+        return
+    pw = getpass.getpass("New password (at least 8 characters): ")
+    if pw != getpass.getpass("Again: "):
+        sys.exit("They differ; nothing changed.")
+    try:
+        owner.set_password(pw)
+    except ValueError as e:
+        sys.exit(f"Nothing changed: {e}")
+    print("Password set. In the browser: Settings > Pairing > enter it. Already paired browsers stay paired.")
+
+
 def pair(args) -> None:
     home = data_home()
     if args.rotate:
@@ -298,6 +317,9 @@ def main(argv: list[str] | None = None) -> None:
     pr.add_argument("--open", action="store_true", help="also open it in the browser")
     pr.add_argument("--rotate", action="store_true", help="new owner key first: un-pairs every browser")
 
+    pw = sub.add_parser("password", help="set the password that pairs a browser (Settings > Pairing)")
+    pw.add_argument("--clear", action="store_true", help="remove the password; the one-time link still works")
+
     a = sub.add_parser("autostart", help="start Hlidskjalv at login: enable <folder> | disable | status")
     a.add_argument("action", choices=["enable", "disable", "status"])
     a.add_argument("folder", nargs="?", help="project folder to watch (for enable)")
@@ -313,6 +335,8 @@ def main(argv: list[str] | None = None) -> None:
         watch(args, list(argv if argv is not None else sys.argv[1:]))
     elif args.cmd == "pair":
         pair(args)
+    elif args.cmd == "password":
+        password(args)
     elif args.cmd == "status":
         print(status_text(data_home()))
     elif args.cmd == "autostart":

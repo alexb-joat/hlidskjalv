@@ -114,7 +114,7 @@ Settings are saved in `~/.hlidskjalv/settings.json` and checked on every change.
 python3 -m hlidskjalv autostart enable ~/projects/my-app   # watch this folder from now on
 python3 -m hlidskjalv autostart status                     # what starts, how, since when
 python3 -m hlidskjalv autostart disable                    # remove it again
-python3 -m hlidskjalv pair --open                          # pair your browser once
+python3 -m hlidskjalv password                             # then pair any browser by typing it (Settings > Pairing)
 ```
 
 **Autostart policy.** What it does, exactly:
@@ -132,7 +132,7 @@ The **Alerts** view (bell icon) collects things you didn't do yourself, most sev
 | Source | What raises an alert |
 |---|---|
 | **Commands the AI ran** | A risky shell command an AI agent ran in this project on its own (from Claude Code's transcripts): `rm -rf`, `curl … \| sh`, `sudo`, `git push --force`, printing `.env`… The command shows up in the activity log either way, marked "run by AI". |
-| **Refused access** | Requests Hlidskjalv turned away (another website, another host name, a wrong owner key, a used pairing link) and requests Trioditis refused for a wrong or missing API key (from its `logs/security.jsonl`). |
+| **Refused access** | Requests Hlidskjalv turned away (another website, another host name, a wrong password, an ended session, a used pairing link) and requests Trioditis refused for a wrong or missing API key (from its `logs/security.jsonl`). |
 | **Persistence changes** | Something set itself up to run later: login items (systemd user units, launchd agents, `~/.config/autostart`, the Windows Startup folder and Run keys), `crontab`, shell startup files (`.bashrc`, `.zshrc`…), SSH `authorized_keys` (fingerprints only, never keys), `~/.gitconfig` hooks and helpers, and this project's Git hooks. Only changes after Hlidskjalv starts count; its own login item is marked "expected". |
 | **Spend and limits** | A spending cap (global or per provider) 75% used or reached, or a provider rate limit used up, from the same data Details shows. Once per period. |
 | **sudo and logins** | `sudo` use and failures, SSH logins and new login sessions, from the system journal (Linux, for members of the `adm` or `systemd-journal` group). |
@@ -149,12 +149,12 @@ prints the Claude plan windows, Trioditis spend against its caps (and per provid
 
 ## Pairing a browser
 
-Watching needs nothing. Anything that **changes** something (settings, the terminal) needs the owner key, which a browser gets once:
+Watching needs nothing. Anything that **changes** something (settings, the terminal) needs a paired browser. Pairing gives the browser a **session** that ends after a period without activity (Settings → Pairing, 4 hours by default; using the page extends it). A browser pairs in one of two ways:
 
-- The link Hlidskjalv opens at start pairs that browser automatically.
-- For another browser, or a Hlidskjalv started with `--no-open` or at login: `python3 -m hlidskjalv pair` prints a one-time link (add `--open` to open it).
+- **Password.** Set one with `python3 -m hlidskjalv password` (or, once paired, in Settings → Pairing), then type it in Settings → Pairing of any browser on this computer. It is stored as a salted hash in `~/.hlidskjalv/password` (readable only by you); five wrong tries in ten minutes lock it for a minute, and every wrong try shows up in Alerts.
+- **One-time link.** The link Hlidskjalv opens at start pairs that browser automatically. For a Hlidskjalv started with `--no-open` or at login: `python3 -m hlidskjalv pair` prints a link (add `--open` to open it). Links work **once** and expire after 10 minutes, so a copied link is worthless.
 
-Pairing links work **once** and expire after 10 minutes, so a copied link is worthless. The key itself lives in `~/.hlidskjalv/owner.key` (readable only by you) and survives restarts. `python3 -m hlidskjalv pair --rotate` replaces it and un-pairs every browser at once.
+Sessions are stored hashed in `~/.hlidskjalv/web-sessions.json` and survive restarts. The owner key in `~/.hlidskjalv/owner.key` never leaves your files; `python3 -m hlidskjalv pair --rotate` replaces it and ends every session at once. "Log out" in Settings → Pairing ends the session of that browser only.
 
 Changes must also come from Hlidskjalv's own page (Origin check) and be JSON, so other websites can't send them. Settings are saved in `~/.hlidskjalv/settings.json`.
 
@@ -166,7 +166,7 @@ python3 -m hlidskjalv watch ~/projects/my-app --terminal
 
 (or switch it on in Settings). The **Terminal** tab then runs your normal shell in the project folder, as you. Commands typed there land in the activity log like any other (with the shell hook installed). A shell in a web page can do anything you can, so it's off by default and locked down when on:
 
-- Only Hlidskjalv's own page can connect. Other websites are refused by an Origin check, and other users or programs on the computer by the owner key (see Pairing).
+- Only Hlidskjalv's own page can connect. Other websites are refused by an Origin check, and other users or programs on the computer by the session token (see Pairing).
 - At most four shells at a time; each one is closed when its tab disconnects.
 
 The terminal display is [xterm.js](https://xtermjs.org/) (MIT), shipped unmodified in `hlidskjalv/static/vendor/` with its npm checksums. Linux and macOS use a pty. Windows 10 (1809) and later use ConPTY with PowerShell; that part is **experimental**: it's tested on Windows CI, not yet on a Windows desktop.
