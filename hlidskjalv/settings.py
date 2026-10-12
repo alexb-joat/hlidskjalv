@@ -31,8 +31,10 @@ SCHEMA: dict = {
         "accent": ("color", None),
         "surface": ("color", None),
         "text": ("color", None),
-        "font": ("enum", "system", ["system", "humanist", "geometric", "serif", "mono"]),
+        "font": ("enum", "system", ["system", "clean", "humanist", "geometric", "rounded", "readable", "hyperlegible",
+                                    "plex", "display", "serif", "book", "slab", "mono", "code"]),
         "font_size": ("int", 15, 12, 20),
+        "brightness": ("int", 0, -40, 40),  # percent towards white (+) or black (-), page and panels
         "density": ("enum", "comfortable", ["compact", "comfortable", "spacious"]),
         "radius": ("int", 12, 0, 24),
         "animations": ("bool", True),

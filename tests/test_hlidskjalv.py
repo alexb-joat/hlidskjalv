@@ -400,6 +400,10 @@ class SettingsTest(unittest.TestCase):
     def test_server_options_need_restart(self):
         self.assertTrue(self.s.update({"features": {"terminal": True}})[1])
 
+    def test_brightness_and_fonts(self):
+        data, restart = self.s.update({"look": {"brightness": -20, "font": "readable"}})
+        self.assertEqual((data["look"]["brightness"], data["look"]["font"], restart), (-20, "readable", False))
+
     def test_rejects_bad_values_without_partial_writes(self):
         cases = [
             {"nope": 1}, {"look": {"mode": "neon"}}, {"look": {"font_size": 99}}, {"look": {"accent": "red"}},
@@ -407,6 +411,7 @@ class SettingsTest(unittest.TestCase):
             {"layout": {"hidden": ["live", "replay", "learn", "details", "terminal", "alerts"]}},
             {"look": {"animations": "yes"}}, {"look": "dark"}, {"look": {"radius": True}},
             {"look": {"background": {"colors": ["#000000"] * 4}}},
+            {"look": {"brightness": 90}}, {"look": {"font": "papyrus"}},
         ]
         for bad in cases:
             with self.assertRaises(SettingsError, msg=bad):

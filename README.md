@@ -100,7 +100,7 @@ Cline's requests carry a large instruction block, and small local models (3B–8
 
 The first time you open it, a short setup asks how it should look; skip it and everything stays at sensible defaults. Change anything later in **Settings** (the gear icon):
 
-- **Look:** light, dark or follow the system; seven palettes, or your own accent, surface and text colours (with a readability check); font, text size, density, corner rounding, animations.
+- **Look:** light, dark or follow the system; seven palettes, or your own accent, surface and text colours picked on a colour wheel (with a readability check); brightness; fourteen fonts; text size, density, corner rounding, animations.
 - **Background:** plain, gradient, glow, or slow particles (they pause when the tab is hidden and respect your system's reduce-motion setting).
 - **Layout:** the icon navigation at the top, bottom, left or right, with or without names; which views to show, in what order, and which one opens first.
 - **Features and sources:** the in-page terminal, levels and XP, Trioditis's log, Claude Code.

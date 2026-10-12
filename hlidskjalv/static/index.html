@@ -349,6 +349,25 @@ details > summary { cursor: pointer; color: var(--muted); font-weight: 700; }
 .range input { flex: 1; min-width: 0; accent-color: var(--accent); }
 .range output { min-width: 52px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; font-size: calc(13px * var(--fz)); }
 .colorctl, .colorrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.colorpick { display: grid; gap: 8px; justify-items: start; }
+.swatchbtn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); border-radius: var(--r); padding: 4px 10px 4px 4px; cursor: pointer; }
+.swatchbtn i { width: 26px; height: 26px; border-radius: calc(var(--r) * .5); border: 1px solid color-mix(in srgb, var(--text) 25%, transparent); }
+.swatchbtn .hexv, .hexin { font-family: var(--mono); font-size: calc(12.5px * var(--fz)); }
+.swatchbtn .hexv { color: var(--muted); }
+.hexin { width: 96px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r); padding: 7px 8px; }
+.wheelpop { padding: 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--raised); }
+.wheel { display: grid; gap: 10px; justify-items: center; }
+.disc { position: relative; width: 168px; height: 168px; border-radius: 50%; cursor: crosshair; touch-action: none; overflow: hidden;
+  background: radial-gradient(circle closest-side, #fff 0%, rgba(255,255,255,0) 100%), conic-gradient(from 90deg, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 25%, transparent); }
+.disc .shade { position: absolute; inset: 0; border-radius: 50%; background: #000; pointer-events: none; }
+.disc .dot { position: absolute; width: 16px; height: 16px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px #000; transform: translate(-50%, -50%); pointer-events: none; }
+.wheel .range { width: 168px; } .wheel .range input { accent-color: var(--c, var(--accent)); }
+.wlabel { color: var(--muted); font-size: calc(12.5px * var(--fz)); }
+.fontgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 8px; width: 100%; }
+.fontgrid button { text-align: left; border: 1px solid var(--line); background: var(--bg); color: var(--text); border-radius: var(--r); padding: 8px 10px; cursor: pointer; display: grid; gap: 2px; min-width: 0; }
+.fontgrid button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
+.fontgrid b { font-weight: 700; } .fontgrid small { color: var(--muted); font-size: calc(12px * var(--fz)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 input[type=color] { width: 44px; height: 32px; padding: 2px; border: 1px solid var(--line); border-radius: calc(var(--r) * .6); background: var(--bg); cursor: pointer; }
 .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
 .swatch { border: 1px solid var(--line); background: var(--bg); border-radius: var(--r); padding: 6px; cursor: pointer; display: grid; gap: 4px; justify-items: start; font-size: calc(12.5px * var(--fz)); }
@@ -406,7 +425,7 @@ code { font: calc(12.5px * var(--fz))/1.45 var(--mono); overflow-wrap: anywhere;
   <div class="hud-in">
     <div class="logo" data-tip="logo">
       <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill="var(--accent)"/><path d="M9 21l4-10 3 7 2-4 5 7" fill="none" stroke="var(--bg)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <div>Hlidskjalv<small id="project">loading…</small></div>
+      <div><span lang="non">Hliðskjálf</span><small id="project">loading…</small></div>
     </div>
     <span class="mode demo" id="mode">Demo</span>
     <div class="level" data-tip="level">
@@ -1776,14 +1795,15 @@ function termConnect(fresh) {
     TERM.ws = null;
     if (e.code === 1008) { OWNER.forget(); termStatus("This browser isn't paired (any more). Run: python3 -m hlidskjalv pair"); }
     else if (e.code === 1013) termStatus("Too many terminals open. Close another Hlidskjalv tab first.");
-    else termStatus("Disconnected. Press New shell to start another.");
+    else if (e.code === 1006) termStatus("Connection lost. If Hlidskjalv just restarted, press New shell.");
+    else termStatus((e.reason ? `Disconnected: ${e.reason}. ` : "Disconnected. ") + "Press New shell to start another.");
   };
   term.focus();
 }
 
 /* =========================================================== settings: defaults, look, background */
 // Same as settings.defaults() on the server; a test keeps the two identical.
-const DEFAULT_PREFS = /*DEFAULTS*/{"setup_done":false,"look":{"mode":"system","palette":"neutral","accent":null,"surface":null,"text":null,"font":"system","font_size":15,"density":"comfortable","radius":12,"animations":true,"background":{"type":"solid","colors":[],"angle":135,"particles":{"density":60,"speed":1.0,"size":2.0,"color":null,"links":true}}},"layout":{"nav_position":"top","nav_labels":false,"views":["live","replay","learn","details","terminal","alerts"],"hidden":[],"default_view":"live"},"features":{"terminal":false,"xp":true},"alerts":{"ai_commands":true,"refused_access":true,"persistence":true,"system_log":true,"cost":true,"view":"grouped","toast_min":"high","notify":false,"sound":false,"colors":{"info":null,"medium":null,"high":null,"critical":null}},"sources":{"trioditis_log":null,"claude_code":true},"usage":{"fresh_threshold":150000,"week_anchor":null}}/*END*/;
+const DEFAULT_PREFS = /*DEFAULTS*/{"setup_done":false,"look":{"mode":"system","palette":"neutral","accent":null,"surface":null,"text":null,"font":"system","font_size":15,"brightness":0,"density":"comfortable","radius":12,"animations":true,"background":{"type":"solid","colors":[],"angle":135,"particles":{"density":60,"speed":1.0,"size":2.0,"color":null,"links":true}}},"layout":{"nav_position":"top","nav_labels":false,"views":["live","replay","learn","details","terminal","alerts"],"hidden":[],"default_view":"live"},"features":{"terminal":false,"xp":true},"alerts":{"ai_commands":true,"refused_access":true,"persistence":true,"system_log":true,"cost":true,"view":"grouped","toast_min":"high","notify":false,"sound":false,"colors":{"info":null,"medium":null,"high":null,"critical":null}},"sources":{"trioditis_log":null,"claude_code":true},"usage":{"fresh_threshold":150000,"week_anchor":null}}/*END*/;
 const clone = o => JSON.parse(JSON.stringify(o));
 function deepMerge(base, change) {
   const out = clone(base);
@@ -1799,13 +1819,38 @@ const PALETTES = {  // [page, surface, text, accent] per mode
   rose: { name: "Rose", light: ["#fbf0f2", "#fffcfd", "#2d1a1f", "#c2255c"], dark: ["#170f12", "#20161a", "#f3e5e9", "#faa2c1"] },
   amber: { name: "Amber", light: ["#fbf5e9", "#fffdf7", "#2b2210", "#a85400"], dark: ["#16120a", "#1f190f", "#f3ead8", "#ffc078"] },
 };
-const FONTS = {
+const FONTS = {  // Google Fonts except System and Mono; offline, each falls back to a system font
   system: { name: "System", stack: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' },
+  clean: { name: "Clean", stack: '"Inter", system-ui, sans-serif', google: "Inter:wght@400;600;700;800" },
   humanist: { name: "Humanist", stack: '"Nunito Sans", system-ui, sans-serif', google: "Nunito+Sans:wght@400;600;700;800" },
   geometric: { name: "Geometric", stack: '"Manrope", system-ui, sans-serif', google: "Manrope:wght@400;600;700;800" },
+  rounded: { name: "Rounded", stack: '"Nunito", system-ui, sans-serif', google: "Nunito:wght@400;600;700;800" },
+  readable: { name: "Readable", stack: '"Lexend", system-ui, sans-serif', google: "Lexend:wght@400;600;700" },
+  hyperlegible: { name: "Hyperlegible", stack: '"Atkinson Hyperlegible", system-ui, sans-serif', google: "Atkinson+Hyperlegible:wght@400;700" },
+  plex: { name: "Plex", stack: '"IBM Plex Sans", system-ui, sans-serif', google: "IBM+Plex+Sans:wght@400;600;700" },
+  display: { name: "Display", stack: '"Space Grotesk", system-ui, sans-serif', google: "Space+Grotesk:wght@400;600;700" },
   serif: { name: "Serif", stack: '"Source Serif 4", Georgia, serif', google: "Source+Serif+4:wght@400;600;700" },
+  book: { name: "Book", stack: '"Lora", Georgia, serif', google: "Lora:wght@400;600;700" },
+  slab: { name: "Slab", stack: '"Roboto Slab", Georgia, serif', google: "Roboto+Slab:wght@400;600;700" },
   mono: { name: "Mono", stack: '"JetBrains Mono", ui-monospace, monospace' },
+  code: { name: "Code", stack: '"Fira Code", ui-monospace, monospace', google: "Fira+Code:wght@400;600;700" },
 };
+/* Colour maths for the wheel and the brightness setting. */
+function shade(hex, pct) {  // pct > 0 towards white, < 0 towards black; leaves non-hex values alone
+  if (!pct || !/^#[0-9a-f]{6}$/i.test(hex)) return hex;
+  const t = pct > 0 ? 255 : 0, k = Math.min(Math.abs(pct), 100) / 100;
+  return "#" + hexRgb(hex).map(v => Math.round(v + (t - v) * k).toString(16).padStart(2, "0")).join("");
+}
+function hexToHsv(hex) {
+  const [r, g, b] = hexRgb(hex).map(v => v / 255), max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  let hue = 0;
+  if (d) { hue = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4; hue = (hue * 60 + 360) % 360; }
+  return [hue, max ? d / max : 0, max];
+}
+function hsvToHex(hue, sat, val) {
+  const f = n => { const k = (n + hue / 60) % 6; return Math.round((val - val * sat * Math.max(0, Math.min(k, 4 - k, 1))) * 255).toString(16).padStart(2, "0"); };
+  return "#" + f(5) + f(3) + f(1);
+}
 function hexRgb(hex) { const n = parseInt(hex.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
 function luminance(hex) {
   return hexRgb(hex).map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; })
@@ -1821,6 +1866,7 @@ function resolvedColors(look) {
   if (look.surface) { surface = look.surface; bg = look.surface; }
   if (look.text) text = look.text;
   if (look.accent) accent = look.accent;
+  bg = shade(bg, look.brightness); surface = shade(surface, look.brightness);
   return { mode, bg, surface, text, accent, accentText: luminance(accent) > 0.4 ? "#111111" : "#ffffff" };
 }
 function loadFont(key) {
@@ -1847,8 +1893,8 @@ darkQuery.addEventListener("change", () => PREFS && applyLook(PREFS));
 const FX = { raf: 0, parts: [], look: null };
 function applyBackground(look, c) {
   const bgc = look.background, body = document.body;
-  const cols = bgc.colors.length >= 2 ? bgc.colors : bgc.colors.length === 1 ? [bgc.colors[0], c.bg]
-    : [`color-mix(in srgb, ${c.accent} 16%, ${c.bg})`, c.bg];
+  const cols = (bgc.colors.length >= 2 ? bgc.colors : bgc.colors.length === 1 ? [bgc.colors[0], c.bg]
+    : [`color-mix(in srgb, ${c.accent} 16%, ${c.bg})`, c.bg]).map(x => shade(x, look.brightness));
   body.style.backgroundImage = bgc.type === "linear" ? `linear-gradient(${bgc.angle}deg, ${cols.join(", ")})`
     : bgc.type === "radial" ? `radial-gradient(circle at 20% 0%, ${cols.join(", ")})` : "none";
   FX.look = look; FX.color = bgc.particles.color || c.accent;
@@ -2000,10 +2046,67 @@ function rangeCtl(min, max, step, value, fmtV, onPick) {
   const inp = h("input", { type: "range", min, max, step, value, oninput: e => { out.textContent = fmtV(+e.target.value); onPick(+e.target.value); } });
   return h("div", { class: "range" }, inp, out);
 }
-function colorCtl(value, fallback, onPick) {
-  const inp = h("input", { type: "color", value: value || fallback, oninput: e => onPick(e.target.value, e) });
-  const reset = h("button", { type: "button", class: "btn small", onclick: () => { inp.value = fallback; onPick(null); } }, "Default");
-  return h("div", { class: "colorctl" }, inp, reset);
+/* A colour wheel: hue around, saturation outwards, a slider for light. Drags report as "input"
+   (no re-render), the release as "change". */
+function colorWheel(hex, onPick) {
+  let [hue, sat, val] = hexToHsv(hex);
+  const dot = h("i", { class: "dot" }), shadeEl = h("i", { class: "shade" });
+  const disc = h("div", { class: "disc", tabindex: "0", role: "slider", "aria-label": "Hue and saturation: drag, or use the arrow keys" }, shadeEl, dot);
+  const light = h("input", { type: "range", min: 0, max: 100, step: 1, value: Math.round(val * 100), "aria-label": "Light" });
+  const paint = () => {
+    const r = disc.clientWidth / 2 || 84, a = hue * Math.PI / 180;
+    dot.style.left = r + Math.cos(a) * sat * r + "px"; dot.style.top = r + Math.sin(a) * sat * r + "px";
+    dot.style.background = hsvToHex(hue, sat, val); shadeEl.style.opacity = String(1 - val);
+    light.value = Math.round(val * 100); light.style.setProperty("--c", hsvToHex(hue, sat, 1));
+    disc.setAttribute("aria-valuetext", `hue ${Math.round(hue)}°, saturation ${Math.round(sat * 100)}%`);
+  };
+  const pick = (ev, final) => {
+    const b = disc.getBoundingClientRect(), r = b.width / 2, dx = ev.clientX - b.left - r, dy = ev.clientY - b.top - r;
+    hue = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360; sat = Math.min(1, Math.hypot(dx, dy) / r);
+    paint(); onPick(hsvToHex(hue, sat, val), { type: final ? "change" : "input" });
+  };
+  disc.addEventListener("pointerdown", ev => { disc.setPointerCapture(ev.pointerId); disc.dataset.drag = "1"; pick(ev, false); });
+  disc.addEventListener("pointermove", ev => { if (disc.dataset.drag) pick(ev, false); });
+  disc.addEventListener("pointerup", ev => { delete disc.dataset.drag; pick(ev, true); });
+  disc.addEventListener("pointercancel", () => { delete disc.dataset.drag; });
+  disc.addEventListener("keydown", ev => {
+    const step = ev.shiftKey ? 15 : 5;
+    if (ev.key === "ArrowLeft") hue -= step; else if (ev.key === "ArrowRight") hue += step;
+    else if (ev.key === "ArrowUp") sat = Math.min(1, sat + 0.05); else if (ev.key === "ArrowDown") sat = Math.max(0, sat - 0.05); else return;
+    ev.preventDefault(); hue = (hue + 360) % 360; paint(); onPick(hsvToHex(hue, sat, val), { type: "change" });
+  });
+  light.addEventListener("input", e => { val = +e.target.value / 100; paint(); onPick(hsvToHex(hue, sat, val), e); });
+  light.addEventListener("change", e => onPick(hsvToHex(hue, sat, val), e));
+  const el = h("div", { class: "wheel" }, disc, h("label", { class: "range" }, h("span", { class: "wlabel", text: "Light" }), light));
+  requestAnimationFrame(paint);
+  return { el, setColor(hx) { [hue, sat, val] = hexToHsv(hx); paint(); } };
+}
+const OPEN_WHEELS = new Set();  // wheels stay open across the form re-rendering after a pick
+function colorCtl(value, fallback, onPick, key) {
+  let hex = (value || fallback).toLowerCase();
+  const chip = h("i"), hexv = h("span", { class: "hexv" });
+  const sw = h("button", { type: "button", class: "swatchbtn", "aria-label": "Open the colour wheel" }, chip, hexv);
+  const paintSw = () => { chip.style.background = hex; hexv.textContent = hex; };
+  const hexIn = h("input", { type: "text", class: "hexin", value: hex, maxlength: 7, spellcheck: "false", "aria-label": "Hex colour",
+    onchange: e => { const v = e.target.value.trim().toLowerCase(); if (/^#[0-9a-f]{6}$/.test(v)) { hex = v; wheel.setColor(v); paintSw(); onPick(v); } else e.target.value = hex; } });
+  const wheel = colorWheel(hex, (v, e) => { hex = v; paintSw(); hexIn.value = v; onPick(v, e); });
+  const reset = h("button", { type: "button", class: "btn small", onclick: () => { hex = fallback.toLowerCase(); wheel.setColor(hex); hexIn.value = hex; paintSw(); onPick(null); } }, "Default");
+  const pop = h("div", { class: "wheelpop" }, wheel.el);
+  const show = open => { pop.hidden = !open; sw.setAttribute("aria-expanded", String(open)); if (key) OPEN_WHEELS[open ? "add" : "delete"](key); };
+  sw.addEventListener("click", () => show(pop.hidden));
+  show(!!key && OPEN_WHEELS.has(key)); paintSw();
+  return h("div", { class: "colorpick" }, h("div", { class: "colorrow" }, sw, hexIn, reset), pop);
+}
+function fontCtl(value, onPick) {
+  Object.keys(FONTS).forEach(loadFont);  // only when this section is open
+  const grid = h("div", { class: "fontgrid", role: "radiogroup" });
+  for (const [k, f] of Object.entries(FONTS)) {
+    const btn = h("button", { type: "button", role: "radio", "aria-pressed": String(value === k), style: `font-family:${f.stack}`,
+      onclick: () => { grid.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b === btn))); onPick(k); } },
+      h("b", { text: f.name }), h("small", { text: "Quick brown fox 0123" }));
+    grid.append(btn);
+  }
+  return grid;
 }
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 // Changes that alter which controls are shown re-render the form; sliders and colour pickers
@@ -2026,11 +2129,12 @@ function lookSection(draft, set) {
   return [
     field("Mode", "System follows your computer's light or dark setting.", segCtl([["system", "System"], ["light", "Light"], ["dark", "Dark"]], draft.look.mode, v => set("look.mode", v))),
     field("Palette", null, swatches),
-    field("Accent colour", "Buttons, focus rings, the selected view.", colorCtl(draft.look.accent, c.accent, (v, e) => set("look.accent", v, !isDrag(e)))),
-    field("Surface colour", "Panels and the page behind them.", colorCtl(draft.look.surface, c.surface, (v, e) => set("look.surface", v, !isDrag(e)))),
-    field("Text colour", null, colorCtl(draft.look.text, c.text, (v, e) => set("look.text", v, !isDrag(e)))),
+    field("Accent colour", "Buttons, focus rings, the selected view.", colorCtl(draft.look.accent, c.accent, (v, e) => set("look.accent", v, !isDrag(e)), "accent")),
+    field("Surface colour", "Panels and the page behind them.", colorCtl(draft.look.surface, c.surface, (v, e) => set("look.surface", v, !isDrag(e)), "surface")),
+    field("Text colour", null, colorCtl(draft.look.text, c.text, (v, e) => set("look.text", v, !isDrag(e)), "text")),
+    field("Brightness", "Lightens or darkens the page and panels, whatever the colours.", rangeCtl(-40, 40, 5, draft.look.brightness, v => (v > 0 ? "+" : "") + v + "%", v => set("look.brightness", v))),
     warns.length ? h("ul", { class: "dlist" }, ...warns.map(w => h("li", { class: "warn", text: w }))) : null,
-    field("Font", null, segCtl(Object.entries(FONTS).map(([k, f]) => [k, f.name]), draft.look.font, v => set("look.font", v))),
+    field("Font", "Loaded from Google Fonts; offline, a similar system font steps in.", fontCtl(draft.look.font, v => set("look.font", v))),
     field("Text size", null, rangeCtl(12, 20, 1, draft.look.font_size, v => v + " px", v => set("look.font_size", v))),
     field("Density", "How much room things get.", segCtl([["compact", "Compact"], ["comfortable", "Comfortable"], ["spacious", "Spacious"]], draft.look.density, v => set("look.density", v))),
     field("Corner rounding", null, rangeCtl(0, 24, 1, draft.look.radius, v => v + " px", v => set("look.radius", v))),
@@ -2053,7 +2157,7 @@ function backgroundSection(draft, set) {
     out.push(field("Amount", null, rangeCtl(0, 200, 5, p.density, v => String(v), v => set("look.background.particles.density", v))),
       field("Speed", null, rangeCtl(0, 5, 0.1, p.speed, v => v.toFixed(1) + "×", v => set("look.background.particles.speed", v))),
       field("Size", null, rangeCtl(0.5, 6, 0.5, p.size, v => v + " px", v => set("look.background.particles.size", v))),
-      field("Colour", null, colorCtl(p.color, c.accent, (v, e) => set("look.background.particles.color", v, !isDrag(e)))),
+      field("Colour", null, colorCtl(p.color, c.accent, (v, e) => set("look.background.particles.color", v, !isDrag(e)), "particles")),
       field("Connecting lines", null, toggleCtl(p.links, v => set("look.background.particles.links", v), "On")));
   }
   return out;
