@@ -344,6 +344,9 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
             if (self.headers.get("Upgrade", "").lower() != "websocket"
                     or "upgrade" not in self.headers.get("Connection", "").lower() or len(key) != 24):
                 return self._json({"error": "websocket upgrade required"}, HTTPStatus.BAD_REQUEST)
+            # The handshake reply must say HTTP/1.1: Firefox drops a "HTTP/1.0 101" at once
+            # (the browser then reports "connection lost"); Chromium happens to accept it.
+            self.protocol_version = "HTTP/1.1"
             self.send_response(HTTPStatus.SWITCHING_PROTOCOLS)
             self.send_header("Upgrade", "websocket")
             self.send_header("Connection", "Upgrade")

@@ -240,7 +240,8 @@ class WsClient:
                f"Sec-WebSocket-Version: 13\r\nOrigin: {origin}\r\n\r\n")
         self.sock.sendall(req.encode())
         self.f = self.sock.makefile("rb")
-        self.status = int(self.f.readline().split()[1])
+        self.version, status = self.f.readline().split()[:2]
+        self.status = int(status)
         while self.f.readline() not in (b"\r\n", b""):
             pass
 
@@ -305,6 +306,7 @@ class TerminalTest(unittest.TestCase):
 
     def test_owner_key_runs_a_real_shell(self):
         ws = WsClient(self.port)
+        self.assertEqual(ws.version, b"HTTP/1.1")  # Firefox refuses a 101 on HTTP/1.0
         ws.hello(key=self.owner.start_session())
         ws.send(term.OP_BIN, b"echo arcade-$((40+2))\n")
         self.assertIn(b"arcade-42", ws.read_until(b"arcade-42"))
