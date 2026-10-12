@@ -1061,6 +1061,14 @@ setInterval(() => document.querySelectorAll("time[data-ts]").forEach(t => t.text
 /* =========================================================== XP & level */
 let workXp = 0;
 function academyXp() { return Object.values(store.get("academy", {})).filter(Boolean).length * 100; }
+/* Finished Learn levels live in this browser and, when paired, in ~/.hlidskjalv/progress.json too (sync carries them). */
+function mergeAcademy(fromServer) {
+  const local = store.get("academy", {}), merged = { ...local };
+  for (const k of Object.keys(fromServer || {})) if (fromServer[k]) merged[k] = true;
+  store.set("academy", merged);
+  if (OWNER.key && Object.keys(merged).some(k => !fromServer[k])) OWNER.post("/api/progress", { academy: merged }).catch(() => {});
+}
+function saveAcademy(d) { store.set("academy", d); if (OWNER.key && mode !== "demo") OWNER.post("/api/progress", { academy: d }).catch(() => {}); }
 let lastLevel = null;
 function levelOf(xp) { return Math.floor(Math.sqrt(xp / 60)) + 1; }
 function updateLevel() {
@@ -1161,6 +1169,7 @@ async function boot() {
     await OWNER.init();
     setMode("live");
     $("#world-eyebrow").textContent = "Live map";
+    mergeAcademy((state.progress || {}).academy || {});
     startWorld(state.snapshot, state.events, (state.progress || {}).archived_xp || 0);
     let last = state.events.length ? state.events[state.events.length - 1].id : 0;
     const es = new EventSource("/api/events?after=" + last);
@@ -1317,7 +1326,7 @@ function openLesson(l) {
     const row = h("div", { class: "opts" }, ...opts.map((o, oi) => h("button", { type: "button", onclick: e => {
       if (answered.has(qi)) return;
       if (oi === ok) { answered.add(qi); right++; e.target.classList.add("right"); fb.textContent = "Right! " + why; fb.style.color = "var(--ok)";
-        if (right === l.quiz.length) { const d = store.get("academy", {}); if (!d[l.id]) { d[l.id] = true; store.set("academy", d); toast(`Level ${l.n} complete! +100 XP`); renderLevels(); updateLevel(); } }
+        if (right === l.quiz.length) { const d = store.get("academy", {}); if (!d[l.id]) { d[l.id] = true; saveAcademy(d); toast(`Level ${l.n} complete! +100 XP`); renderLevels(); updateLevel(); } }
       } else { e.target.classList.add("wrong"); fb.textContent = "Not quite, try another."; fb.style.color = "var(--danger)"; }
     } }, o)));
     quiz.append(h("div", { class: "q" }, h("p", { text: q }), row, fb));
@@ -2294,7 +2303,7 @@ function openSettings(section = "look") {
   const sections = [
     ["look", "Look", lookSection], ["background", "Background", backgroundSection], ["layout", "Layout", layoutSection],
     ["features", "Features", featuresSection], ["sources", "Sources", sourcesSection],
-    ["autostart", "Autostart", null], ["pairing", "Pairing", null], ["data", "Your settings", null],
+    ["autostart", "Autostart", null], ["pairing", "Pairing", null], ["sync", "Sync", null], ["data", "Your settings", null],
   ];
   if (VIEWS.alerts && typeof alertsSection === "function") sections.splice(4, 0, ["alerts", "Alerts", alertsSection]);
   const list = h("nav", { class: "set-nav", "aria-label": "Settings sections" }), pane = h("div", { class: "set-pane" }), banner = h("div");
@@ -2318,7 +2327,7 @@ function openSettings(section = "look") {
     list.replaceChildren(...sections.map(([k, label]) => h("button", { type: "button", "aria-current": String(k === section), onclick: () => { section = k; render(); } }, label)));
     const s = sections.find(x => x[0] === section);
     const pairNote = mode !== "demo" && !OWNER.key && s[2] ? h("p", { class: "risk caution", text: "This browser isn't paired, so changes can't be saved. " + PAIR_HINT }) : null;
-    fill(pane, pairNote, h("div", { class: "fields" }, ...(s[2] ? s[2](PREFS, set) : section === "autostart" ? autostartPane() : section === "pairing" ? pairingPane(set, render) : dataPane())));
+    fill(pane, pairNote, h("div", { class: "fields" }, ...(s[2] ? s[2](PREFS, set) : section === "autostart" ? autostartPane() : section === "pairing" ? pairingPane(set, render) : section === "sync" ? syncPane(render) : dataPane())));
   }
   const body = h("div", { class: "settings" }, banner, h("div", { class: "set-grid" }, list, pane));
   openModal("Settings", body, { wide: true });
@@ -2428,6 +2437,56 @@ function setupTwoFactor(render) {
     code.focus();
   })().catch(err => { toast("Couldn't start: " + err.message); closeFn(); });
 }
+function syncWhen(t) { return t ? new Date(t * 1000).toLocaleString() : "never"; }
+function syncPane(render) {
+  const box = h("div", { class: "fields" }, h("p", { class: "muted", text: "Loading…" }));
+  if (mode === "demo") { fill(box, h("p", { class: "muted", text: "Example only." })); return [box]; }
+  if (!OWNER.key) { fill(box, h("p", { class: "muted", text: "Pair this browser to set up sync." })); return [box]; }
+  fetch("/api/sync", { cache: "no-store" }).then(r => r.json()).then(st => {
+    const intro = h("p", { class: "muted", style: "margin:0", text: "Your settings, lifetime XP and finished Learn levels on every computer you use, through a place you own: a folder that Dropbox, Drive, Nextcloud or Syncthing already carry, or a private GitHub Gist. Everything is encrypted here with a passphrase first, so the carrier only sees ciphertext. Pairing, passwords, second-factor secrets, tokens and alerts never travel." });
+    if (st.configured) {
+      const others = Object.entries(st.devices || {});
+      fill(box, intro,
+        field("This computer", `Called '${st.device}'.`, h("span", { class: "chip " + (st.last_error ? "bad" : "ok"), text: st.last_error ? "not working" : "on" })),
+        field("Where", null, h("div", { class: "cmd", text: st.where })),
+        field("Last", null, h("span", { class: "muted", text: `pushed ${syncWhen(st.last_push)}, pulled ${syncWhen(st.last_pull)}` })),
+        st.last_error ? field("Problem", null, h("p", { class: "risk caution", text: st.last_error })) : null,
+        field("Other computers", others.length ? "XP from all of them is added to yours." : "None yet: set up sync there with the same passphrase.",
+          others.length ? h("ul", { class: "dlist" }, ...others.map(([n, d]) => h("li", {}, h("b", { text: n }), h("small", { text: `${d.xp} XP · last seen ${syncWhen(d.updated)}` }))) ) : null),
+        field("Actions", "Sync runs by itself: pushes shortly after a change, pulls every five minutes.", h("div", { class: "pwrow" },
+          h("button", { type: "button", class: "btn primary", onclick: async () => { try { await OWNER.post("/api/sync/now"); toast("Synced."); render(); } catch (e) { toast("Sync failed: " + e.message); } } }, "Sync now"),
+          h("button", { type: "button", class: "btn", onclick: async () => { if (!confirm("Switch sync off on this computer? The copy stays where it is.")) return;
+            try { await withStepUp(() => OWNER.post("/api/sync/off")); toast("Sync is off."); render(); } catch (e) { toast("Not changed: " + e.message); } } }, "Disconnect"))));
+      return;
+    }
+    let kind = "folder";
+    const path = h("input", { type: "text", placeholder: "/home/you/Dropbox/Hlidskjalv", spellcheck: "false", "aria-label": "Folder" });
+    const token = h("input", { type: "password", autocomplete: "off", placeholder: "GitHub token with the gist scope", "aria-label": "GitHub token" });
+    const gist = h("input", { type: "text", placeholder: "Gist id (empty: create a new private gist)", spellcheck: "false", "aria-label": "Gist id" });
+    const pass = h("input", { type: "password", autocomplete: "new-password", placeholder: "Passphrase (8+ characters; the same on every computer)", "aria-label": "Passphrase" });
+    const device = h("input", { type: "text", value: st.default_device || "", placeholder: "This computer's name", "aria-label": "Device name" });
+    const whereRow = h("div", { class: "fields" });
+    const paintWhere = () => fill(whereRow, kind === "folder"
+      ? field("Folder", "A folder another program keeps in sync for you. The copy is one file, hlidskjalv-sync.json.", path)
+      : [field("GitHub token", "A fine-grained personal access token with Gists: read and write. Kept in ~/.hlidskjalv/sync.json, never synced.", token),
+         field("Gist", null, gist)]);
+    paintWhere();
+    const connect = h("button", { type: "button", class: "btn primary", onclick: async () => {
+      try {
+        await withStepUp(() => OWNER.post("/api/sync/setup", { kind, passphrase: pass.value, device: device.value.trim(),
+          path: path.value.trim(), token: token.value.trim(), gist_id: gist.value.trim() }));
+        toast("Sync is on."); render();
+      } catch (e) { toast("Not connected: " + e.message); }
+    } }, "Connect");
+    fill(box, intro,
+      field("Carrier", null, segCtl([["folder", "Folder"], ["gist", "GitHub Gist"]], kind, v => { kind = v; paintWhere(); })),
+      whereRow,
+      field("Passphrase", "Joining an existing copy needs the passphrase it was made with. Nobody can recover it: without it the copy is unreadable, and you start afresh.", pass),
+      field("This computer", "The name other computers will see.", device),
+      field("", null, connect));
+  }).catch(() => fill(box, h("p", { class: "risk caution", text: "Couldn't read the sync status." })));
+  return [box];
+}
 function dataPane() {
   const file = h("input", { type: "file", accept: "application/json", hidden: true, onchange: async e => {
     const f = e.target.files[0]; if (!f) return;
@@ -2479,7 +2538,10 @@ function addAlert(a, live) {
   paintAlertBadge();
   if (currentTab === "alerts") renderAlerts();
 }
-function alertEvent(ev, live) { addAlert(ev.type === "alert" ? { ...ev, uid: ev.uid || `ev-${ev.id}-${ev.ts}` } : alertFromCommand(ev), live); }
+function alertEvent(ev, live) {
+  addAlert(ev.type === "alert" ? { ...ev, uid: ev.uid || `ev-${ev.id}-${ev.ts}` } : alertFromCommand(ev), live);
+  if (live && ev.type === "alert" && ev.source === "sync" && ev.data && ev.data.reload) loadPrefs();  // settings from another computer
+}
 async function loadAlerts() {
   if (mode === "demo") { AL.acks = new Set(store.get("demoAcks", [])); return; }
   try {

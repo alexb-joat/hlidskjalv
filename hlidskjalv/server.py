@@ -24,6 +24,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .auth import Owner, write_private
+from .sync import SyncError
 from .settings import Settings, SettingsError
 from .terminal import Terminal, WebSocket, accept_key
 
@@ -98,9 +99,13 @@ class Progress:
         self.lock = threading.Lock()
         self._saved = 0.0
         self._timer: threading.Timer | None = None
+        self.academy: dict = {}  # finished Learn levels (moved here from the browser so sync can carry them)
+        self.remote_xp = 0  # XP earned on your other computers (sync)
         try:
             d = json.loads(self.path.read_text(encoding="utf-8"))
             self.xp, self.events, self.since = int(d["xp"]), int(d["events"]), float(d["since"])
+            self.academy = {str(k): True for k, v in (d.get("academy") or {}).items() if v}
+            self.remote_xp = int(d.get("remote_xp") or 0)
         except (OSError, ValueError, KeyError, TypeError):
             # First run with a ledger: count what the kept sessions already hold.
             self.xp = self.events = 0
@@ -131,7 +136,8 @@ class Progress:
 
     def save(self) -> None:
         try:
-            write_private(self.path, json.dumps({"xp": self.xp, "events": self.events, "since": self.since}))
+            write_private(self.path, json.dumps({"xp": self.xp, "events": self.events, "since": self.since,
+                                                 "academy": self.academy, "remote_xp": self.remote_xp}))
         except OSError:
             pass
         self._saved = time.time()
@@ -168,7 +174,7 @@ class Hub:
         """XP earned before the events the live view holds (lifetime minus what is loaded)."""
         if not self.progress:
             return 0
-        return max(0, self.progress.xp - sum(xp_of(e) for e in self.events))
+        return max(0, self.progress.xp - sum(xp_of(e) for e in self.events)) + self.progress.remote_xp
 
     def after(self, last_id: int, timeout: float) -> list[dict]:
         with self.cond:
@@ -220,7 +226,7 @@ class AlertsContext:
 
 def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None = None,
                  owner: Owner | None = None, settings: Settings | None = None, restart=None,
-                 alerts: AlertsContext | None = None, usage: UsageContext | None = None):
+                 alerts: AlertsContext | None = None, usage: UsageContext | None = None, syncer=None):
     def refused(severity: str, title: str, detail: str, fp: str):
         if alerts:
             alerts.alerter.raise_(severity, "refused_access", title, detail[:300], fingerprint=fp)
@@ -300,7 +306,8 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
             elif url.path == "/api/state":
                 with hub.cond:
                     self._json({"snapshot": hub.snapshot, "events": list(hub.events),
-                                "progress": {"archived_xp": hub.archived_xp(), "history": hub.history_n}})
+                                "progress": {"archived_xp": hub.archived_xp(), "history": hub.history_n,
+                                             "academy": dict(hub.progress.academy) if hub.progress else {}}})
             elif url.path == "/api/events":
                 after = (q.get("after") or ["0"])[0]
                 if not after.isdigit():
@@ -344,6 +351,8 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                     return self._json({"error": "settings are off"}, HTTPStatus.NOT_FOUND)
                 self._json({"settings": settings.data, "password_set": bool(owner and owner.has_password()),
                             "totp": bool(owner and owner.totp_enabled()), "system": platform.system()})
+            elif url.path == "/api/sync":
+                self._json(syncer.status() if syncer else {"configured": False, "available": False})
             elif url.path == "/api/session":
                 events = read_session(sessions, (q.get("id") or [""])[0])
                 if events is None:
@@ -397,7 +406,7 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
             path = urlparse(self.path).path
             if path not in ("/api/pair", "/api/ping", "/api/logout", "/api/password", "/api/settings", "/api/restart",
                             "/api/autostart", "/api/alerts/ack", "/api/2fa/begin", "/api/2fa/confirm", "/api/2fa/disable",
-                            "/api/2fa/verify") or owner is None:
+                            "/api/2fa/verify", "/api/sync/setup", "/api/sync/now", "/api/sync/off", "/api/progress") or owner is None:
                 return self._json({"error": "read-only"}, HTTPStatus.METHOD_NOT_ALLOWED)
             if self._foreign_origin("change Hlidskjalv"):
                 return
@@ -449,6 +458,31 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                     return None
                 return self._json({"error": "second-factor code needed", "step_up": True}, HTTPStatus.FORBIDDEN)
 
+            if path == "/api/progress":  # finished Learn levels, kept here so sync can carry them
+                academy = body.get("academy")
+                if hub.progress is not None and isinstance(academy, dict):
+                    for k, v in academy.items():
+                        if v and isinstance(k, str) and len(k) <= 40:
+                            hub.progress.academy[k] = True
+                    hub.progress.save()
+                return self._json({"academy": dict(hub.progress.academy) if hub.progress else {}})
+            if path.startswith("/api/sync/"):
+                if syncer is None:
+                    return self._json({"error": "sync isn't available here"}, HTTPStatus.NOT_FOUND)
+                if path in ("/api/sync/setup", "/api/sync/off") and (r := step_up_needed()) is not None:
+                    return r
+                try:
+                    if path == "/api/sync/setup":
+                        st = syncer.setup(str(body.get("kind") or ""), body.get("passphrase"), body.get("device"),
+                                          path=body.get("path"), token=body.get("token"), gist_id=body.get("gist_id"))
+                    elif path == "/api/sync/now":
+                        st = syncer.sync_now()
+                    else:
+                        syncer.disconnect()
+                        st = syncer.status()
+                except SyncError as e:
+                    return self._json({"error": str(e)}, HTTPStatus.BAD_REQUEST)
+                return self._json(st)
             if path == "/api/2fa/begin":
                 import getpass
                 import socket as _socket
@@ -553,10 +587,10 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
 
 def serve(hub: Hub, sessions: Path, port: int, terminal: Terminal | None = None,
           owner: Owner | None = None, settings: Settings | None = None, restart=None,
-          alerts: AlertsContext | None = None, usage: UsageContext | None = None) -> ThreadingHTTPServer:
+          alerts: AlertsContext | None = None, usage: UsageContext | None = None, syncer=None) -> ThreadingHTTPServer:
     if owner is not None and settings is not None:
         owner.ttl_provider = lambda: settings.data["security"]["session_minutes"] * 60
     httpd = ThreadingHTTPServer(("127.0.0.1", port),
-                                make_handler(hub, sessions, port, terminal, owner, settings, restart, alerts, usage))
+                                make_handler(hub, sessions, port, terminal, owner, settings, restart, alerts, usage, syncer))
     httpd.daemon_threads = True
     return httpd

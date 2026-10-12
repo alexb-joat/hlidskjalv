@@ -1269,3 +1269,150 @@ class HistoryAndProgressTest(unittest.TestCase):
         self.assertEqual(len(lines), 2)  # snapshot + the new event only: history is not re-recorded
         self.assertEqual(Progress(home, sessions).xp, 118)  # persisted
         self.assertEqual(Hub("p", [], None, {}).archived_xp(), 0)
+
+
+class SyncTest(unittest.TestCase):
+    def setUp(self):
+        from hlidskjalv import sync as S
+        self.S = S
+
+    def home(self):
+        h = Path(tempfile.mkdtemp()); (h / "sessions").mkdir()
+        return h
+
+    def test_cipher_matches_rfc_8439(self):
+        S = self.S
+        import struct
+        blk = S.chacha20_block(bytes(range(32)), 1, bytes.fromhex("000000090000004a00000000"))
+        self.assertEqual(struct.unpack("<4L", blk[:16]), (0xe4e7f110, 0x15593bd1, 0x1fdd0f50, 0xc47120a3))
+        pk = bytes.fromhex("85d6be7857556d337f4452fe42d506a80103808afb0db2fd4abff6af4149f51b")
+        self.assertEqual(S.poly1305_mac(pk, b"Cryptographic Forum Research Group").hex(), "a8061dc1305136c6c22b8baf0c0127a9")
+        k, n, aad = bytes(range(0x80, 0xA0)), bytes.fromhex("070000004041424344454647"), bytes.fromhex("50515253c0c1c2c3c4c5c6c7")
+        pt = b"Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it."
+        out = S.aead_encrypt(k, n, aad, pt)
+        self.assertEqual(out[:8].hex(), "d31a8d34648e60db")
+        self.assertEqual(out[-16:].hex(), "1ae10b594f09e26a7e902ecbd0600691")
+        self.assertEqual(S.aead_decrypt(k, n, aad, out), pt)
+        self.assertIsNone(S.aead_decrypt(k, n, aad, out[:-1] + bytes([out[-1] ^ 1])))  # tampered
+        self.assertIsNone(S.aead_decrypt(k, n, b"x", out))  # wrong associated data
+
+    def test_blob_is_opaque_and_keyed(self):
+        S = self.S
+        salt = os.urandom(16); key = S.derive_key("correct horse battery", salt)
+        text = S.seal(key, salt, "laptop", {"settings": {"look": {"mode": "dark"}}, "secret": "hunter2"})
+        self.assertNotIn("dark", text); self.assertNotIn("hunter2", text)
+        self.assertEqual(S.peek(text)["device"], "laptop")
+        self.assertEqual(S.open_blob(key, text)["secret"], "hunter2")
+        self.assertIsNone(S.open_blob(S.derive_key("wrong", salt), text))
+        self.assertIsNone(S.peek("not json")); self.assertIsNone(S.peek(json.dumps({"v": 99})))
+
+    def test_two_computers_through_a_folder(self):
+        S = self.S
+        from hlidskjalv.server import Progress
+        share = Path(tempfile.mkdtemp()); A, B = self.home(), self.home()
+        sa, pa = Settings(A / "settings.json"), Progress(A, A / "sessions"); pa.xp = 500; pa.academy = {"git": True}; pa.save()
+        sa.update({"look": {"mode": "dark"}, "features": {"terminal_root": True}, "sources": {"trioditis_log": "/a/log"}})
+        ya = S.Syncer(A, sa, pa, device="laptop")
+        self.assertFalse(ya.configured)
+        with self.assertRaises(S.SyncError):
+            ya.setup("folder", "short", path=str(share))
+        with self.assertRaises(S.SyncError):
+            ya.setup("folder", "correct horse battery", path=str(share / "missing"))
+        st = ya.setup("folder", "correct horse battery", path=str(share))
+        self.assertTrue(ya.configured and (share / S.BLOB_NAME).exists() and st["device"] == "laptop")
+        self.assertTrue(S.Syncer(A, sa, pa).configured)  # survives a restart (sync.json)
+        if os.name == "posix":
+            self.assertEqual((A / "sync.json").stat().st_mode & 0o777, 0o600)
+        sb, pb = Settings(B / "settings.json"), Progress(B, B / "sessions"); pb.xp = 120; pb.academy = {"files": True}; pb.save()
+        yb = S.Syncer(B, sb, pb, device="desktop")
+        with self.assertRaises(S.SyncError):
+            yb.setup("folder", "wrong passphrase!", path=str(share))
+        st = yb.setup("folder", "correct horse battery", path=str(share))
+        self.assertEqual(sb.data["look"]["mode"], "dark")  # settings followed the copy ...
+        self.assertEqual((sb.data["features"]["terminal_root"], sb.data["sources"]["trioditis_log"]), (False, None))  # ... except machine-only ones
+        self.assertEqual((pb.remote_xp, sorted(pb.academy), sorted(st["devices"])), (500, ["files", "git"], ["laptop"]))
+        self.assertEqual(Progress(B, B / "sessions").remote_xp, 500)  # persisted in the ledger
+        self.assertTrue(ya.pull())
+        self.assertEqual((pa.remote_xp, sorted(pa.academy)), (120, ["files", "git"]))
+        sb.update({"look": {"palette": "mint"}}); yb.push()
+        self.assertTrue(ya.pull()); self.assertEqual(sa.data["look"]["palette"], "mint")
+        self.assertFalse(ya.pull())  # nothing newer
+        fp = ya.fingerprint(); sa.update({"look": {"radius": 3}}); self.assertNotEqual(ya.fingerprint(), fp)
+        ya._pushed_fp = None; ya._changed_at = time.time() - 60
+        ya.tick()  # the worker pushes settled changes
+        self.assertTrue(yb.pull()); self.assertEqual(sb.data["look"]["radius"], 3)
+        yb.disconnect()
+        self.assertFalse(yb.configured or (B / "sync.json").exists()); self.assertTrue((share / S.BLOB_NAME).exists())
+        self.assertEqual(pb.remote_xp, 0)
+
+    def test_gist_carrier(self):
+        S = self.S
+        calls, store_ = [], {}
+
+        class Resp:
+            def __init__(self, body, code=200): self.body, self.code = body, code
+            def read(self): return json.dumps(self.body).encode()
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def fake_urlopen(req, timeout=0):
+            calls.append((req.get_method(), req.full_url, req.get_header("Authorization")))
+            body = json.loads(req.data.decode()) if req.data else None
+            if req.get_method() == "POST" and req.full_url.endswith("/gists"):
+                store_.update(body["files"]); return Resp({"id": "abc123"})
+            if req.get_method() == "PATCH":
+                store_.update(body["files"]); return Resp({"id": "abc123"})
+            if req.get_method() == "GET":
+                if "missing" in req.full_url:
+                    raise S.error.HTTPError(req.full_url, 404, "nope", {}, None)
+                return Resp({"files": {k: {"content": v["content"]} for k, v in store_.items()}})
+            raise AssertionError(req.get_method())
+
+        with mock.patch.object(S.request, "urlopen", fake_urlopen):
+            from hlidskjalv.server import Progress
+            A = self.home(); sa, pa = Settings(A / "settings.json"), Progress(A, A / "sessions")
+            ya = S.Syncer(A, sa, pa, device="laptop")
+            with self.assertRaises(S.SyncError):
+                ya.setup("gist", "correct horse battery", token="ghp_x", gist_id="missing")
+            st = ya.setup("gist", "correct horse battery", token="ghp_x")
+            self.assertEqual((st["kind"], ya.cfg["gist_id"]), ("gist", "abc123"))
+            self.assertIn(S.BLOB_NAME, store_); self.assertNotIn("ghp_x", store_[S.BLOB_NAME]["content"])
+            self.assertTrue(all(a == "Bearer ghp_x" for _, _, a in calls))
+            B = self.home(); sb, pb = Settings(B / "settings.json"), Progress(B, B / "sessions")
+            yb = S.Syncer(B, sb, pb, device="desktop")
+            self.assertEqual(sorted(yb.setup("gist", "correct horse battery", token="ghp_x", gist_id="abc123")["devices"]), ["laptop"])
+        self.assertNotIn("ghp_x", (A / "settings.json").read_text() if (A / "settings.json").exists() else "")
+
+    def test_sync_endpoints_and_learn_progress(self):
+        S = self.S
+        from hlidskjalv.server import Progress
+        home = self.home(); share = Path(tempfile.mkdtemp()); port = free_port()
+        owner, settings, progress = Owner(home), Settings(home / "settings.json"), Progress(home, home / "sessions")
+        hub = Hub("demo", [], None, {}, progress=progress)
+        syncer = S.Syncer(home, settings, progress, device="laptop")
+        httpd = serve(hub, home / "sessions", port, None, owner, settings, None, None, None, syncer)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            def post(path, body, key):
+                c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+                data = json.dumps(body).encode()
+                c.request("POST", path, body=data, headers={"Host": f"127.0.0.1:{port}", "Origin": f"http://127.0.0.1:{port}",
+                                                           "Content-Type": "application/json", "Content-Length": str(len(data)), "X-Hlidskjalv-Key": key})
+                r = c.getresponse(); out = (r.status, json.loads(r.read() or b"{}")); c.close(); return out
+            def get(path):
+                c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+                c.request("GET", path, headers={"Host": f"127.0.0.1:{port}"}); r = c.getresponse(); out = json.loads(r.read()); c.close(); return out
+            tok = owner.start_session()
+            self.assertEqual(get("/api/sync")["configured"], False)
+            self.assertEqual(post("/api/sync/setup", {"kind": "folder", "passphrase": "short", "path": str(share)}, tok)[0], 400)
+            status, st = post("/api/sync/setup", {"kind": "folder", "passphrase": "correct horse battery", "path": str(share), "device": "laptop"}, tok)
+            self.assertEqual((status, st["configured"], st["device"]), (200, True, "laptop"))
+            self.assertEqual(post("/api/progress", {"academy": {"git": True, "nope": False}}, tok)[1]["academy"], {"git": True})
+            self.assertEqual(get("/api/state")["progress"]["academy"], {"git": True})
+            self.assertEqual(post("/api/sync/now", {}, tok)[0], 200)
+            self.assertEqual(S.open_blob(S.derive_key("correct horse battery", S.peek((share / S.BLOB_NAME).read_text())["salt"]),
+                                         (share / S.BLOB_NAME).read_text())["academy"], {"git": True})
+            self.assertEqual(post("/api/sync/off", {}, tok)[1]["configured"], False)
+            self.assertEqual(post("/api/sync/now", {}, tok)[0], 200)  # harmless when off
+        finally:
+            httpd.shutdown(); httpd.server_close()

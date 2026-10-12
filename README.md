@@ -133,6 +133,7 @@ The **Alerts** view (bell icon) collects things you didn't do yourself, most sev
 |---|---|
 | **Commands the AI ran** | A risky shell command an AI agent ran in this project on its own (from Claude Code's transcripts): `rm -rf`, `curl … \| sh`, `sudo`, `git push --force`, printing `.env`… The command shows up in the activity log either way, marked "run by AI". |
 | **Security** | Changes to what can run as root or how a browser pairs: root allowed or forbidden in the terminal, two-factor switched on or off, a root-capable shell opened. Always on. |
+| **Sync** | Settings that arrived from another computer, sync set up or switched off, a sync that stopped working. Always on. |
 | **Refused access** | Requests Hlidskjalv turned away (another website, another host name, a wrong password or second-factor code, an ended session, a used pairing link) and requests Trioditis refused for a wrong or missing API key (from its `logs/security.jsonl`). |
 | **Persistence changes** | Something set itself up to run later: login items (systemd user units, launchd agents, `~/.config/autostart`, the Windows Startup folder and Run keys), `crontab`, shell startup files (`.bashrc`, `.zshrc`…), SSH `authorized_keys` (fingerprints only, never keys), `~/.gitconfig` hooks and helpers, and this project's Git hooks. Only changes after Hlidskjalv starts count; its own login item is marked "expected". |
 | **Spend and limits** | A spending cap (global or per provider) 75% used or reached, or a provider rate limit used up, from the same data Details shows. Once per period. |
@@ -159,6 +160,15 @@ Hlidskjalv is one page of plain HTML, CSS and JavaScript with no build step. It 
 | Safari | 16.2 (macOS 11.7, 12.6, 13.1; iOS 16.2) | `hlidskjalv.localhost` needs a line in `/etc/hosts` (see Pairing); SVG icons are replaced by PNG ones automatically |
 
 Older browsers still show the page, only with plainer colours (the derived shades fall back to fixed ones). The server side runs on Linux, macOS and Windows 10 (1809) or later with Python 3.10+, and CI runs the whole suite on all three.
+
+## Sync between your computers (optional)
+
+Settings → Sync keeps your settings, lifetime XP and finished Learn levels the same on every computer you use, without an account server. The copy lives in a place you own:
+
+- **a folder** that Dropbox, Google Drive, OneDrive, Nextcloud or Syncthing already keep in sync, or
+- **a private GitHub Gist**, with a fine-grained personal access token that has *Gists: read and write* (kept in `~/.hlidskjalv/sync.json`, readable only by you, never synced).
+
+Before anything leaves the computer it is encrypted with a passphrase you choose (ChaCha20-Poly1305 as in RFC 8439, key from scrypt), so the carrier only ever sees ciphertext; the same passphrase joins the other computers. XP adds up across computers, finished Learn levels unite, and settings follow the newest copy, with an alert telling you so. Machine-specific settings (the Trioditis log path, root in the terminal, the first-start flag) stay local. Pairing, passwords, second-factor secrets, sessions, alerts and activity never travel. Sync pushes shortly after a change and pulls every five minutes; `python3 -m hlidskjalv sync status | now` does the same from the terminal. Nobody can recover a forgotten passphrase: the copy is then unreadable and you start afresh.
 
 ## Pairing a browser
 

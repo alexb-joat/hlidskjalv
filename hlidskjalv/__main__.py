@@ -17,6 +17,7 @@ from . import __version__
 from .alerts import Acks, Alerter, PersistenceWatcher, TrioditisSecurityWatcher, SystemLogWatcher
 from .cost_alerts import CostWatcher
 from .server import NICE_HOST, AlertsContext, Hub, Progress, UsageContext, list_sessions, load_history, serve
+from .sync import Syncer, start_worker
 from .usage import ClaudeUsage
 from . import terminal as term
 from .auth import Owner, issue_pair_code, rotate_key, write_private
@@ -147,7 +148,8 @@ def watch(args, argv: list[str]) -> None:
     }
     session_path = sessions / f"{time.strftime('%Y%m%d-%H%M%S')}-{name}.jsonl"
     # The live view continues from recent sessions, and lifetime XP survives pruning.
-    hub = Hub(root.name, snapshot, session_path, meta, history=load_history(sessions), progress=Progress(home, sessions))
+    progress = Progress(home, sessions)
+    hub = Hub(root.name, snapshot, session_path, meta, history=load_history(sessions), progress=progress)
 
     # Alerts: things you didn't do yourself (see alerts.py). Each source can be switched off in Settings.
     alerter = Alerter(hub.publish, settings, home / "alerts.jsonl")
@@ -180,7 +182,9 @@ def watch(args, argv: list[str]) -> None:
     usage_ctx = UsageContext(home, ClaudeUsage(claude_code.dir) if claude_code else None)
     if usage_ctx.claude:
         usage_ctx.claude.plan = ClaudeUsage(claude_code.dir, all_projects=True)  # account-wide windows, cached separately
-    httpd = serve(hub, sessions, args.port, shell, owner, settings, restart, alerts_ctx, usage_ctx)
+    syncer = Syncer(home, settings, progress, alerter)  # settings, XP and Learn progress between your computers (opt-in)
+    start_worker(syncer)
+    httpd = serve(hub, sessions, args.port, shell, owner, settings, restart, alerts_ctx, usage_ctx, syncer)
     write_private(home / "server.json", json.dumps({
         "port": args.port, "pid": os.getpid(), "folder": str(root), "version": __version__,
         "started": time.time()}))
@@ -308,6 +312,26 @@ def two_factor(args) -> None:
         print("  " + "  ".join(codes))
 
 
+def sync_cmd(args) -> None:
+    """Sync between computers: status, or push and pull now."""
+    home = data_home()
+    syncer = Syncer(home, Settings(home / "settings.json"), Progress(home, home / "sessions"))
+    if not syncer.configured:
+        print("sync: off (set it up in Settings > Sync)")
+        return
+    if args.action == "now":
+        try:
+            syncer.sync_now()
+        except Exception as e:
+            sys.exit(f"sync failed: {e}")
+    st = syncer.status()
+    when = lambda t: time.strftime("%Y-%m-%d %H:%M", time.localtime(t)) if t else "never"
+    print(f"sync: {st['where']} as '{st['device']}'")
+    print(f"  last push {when(st['last_push'])}, last pull {when(st['last_pull'])}" + (f", error: {st['last_error']}" if st["last_error"] else ""))
+    for name, d in st["devices"].items():
+        print(f"  other computer '{name}': {d['xp']} XP")
+
+
 def pair(args) -> None:
     home = data_home()
     if args.rotate:
@@ -351,6 +375,9 @@ def main(argv: list[str] | None = None) -> None:
     tf = sub.add_parser("2fa", help="authenticator-app codes for pairing: setup | status | off")
     tf.add_argument("action", choices=["setup", "status", "off"])
 
+    sy = sub.add_parser("sync", help="settings, XP and Learn progress between your computers: status | now")
+    sy.add_argument("action", choices=["status", "now"])
+
     a = sub.add_parser("autostart", help="start Hlidskjalv at login: enable <folder> | disable | status")
     a.add_argument("action", choices=["enable", "disable", "status"])
     a.add_argument("folder", nargs="?", help="project folder to watch (for enable)")
@@ -370,6 +397,8 @@ def main(argv: list[str] | None = None) -> None:
         password(args)
     elif args.cmd == "2fa":
         two_factor(args)
+    elif args.cmd == "sync":
+        sync_cmd(args)
     elif args.cmd == "status":
         print(status_text(data_home()))
     elif args.cmd == "autostart":
