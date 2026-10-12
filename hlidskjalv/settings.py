@@ -19,6 +19,7 @@ from .auth import write_private
 
 VERSION = 1
 COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+NAME = re.compile(r"^[^/\\\0]{1,100}$")  # one folder name, not a path
 VIEWS = ["live", "replay", "learn", "details", "terminal", "alerts"]
 SEVERITIES = ["info", "medium", "high", "critical"]
 
@@ -81,6 +82,9 @@ SCHEMA: dict = {
     "sources": {
         "trioditis_log": ("path", None),
         "claude_code": ("bool", True),
+        # Folder names (anywhere in the tree) the file watcher leaves out, on top of its built-in list
+        # (.git, node_modules, .venv, build…). For projects with more than 5,000 files.
+        "skip_dirs": ("names", [], 50),
     },
     "security": {
         # A paired browser stays paired this long after its last request (sliding).
@@ -95,7 +99,7 @@ SCHEMA: dict = {
 }
 
 # Changing these only takes effect after a restart (POST /api/restart).
-RESTART_KEYS = {("features", "terminal"), ("sources", "trioditis_log"), ("sources", "claude_code")}
+RESTART_KEYS = {("features", "terminal"), ("sources", "trioditis_log"), ("sources", "claude_code"), ("sources", "skip_dirs")}
 
 
 class SettingsError(ValueError):
@@ -149,6 +153,10 @@ def _leaf(spec: tuple, value, where: str):
             except ValueError:
                 pass
         raise SettingsError(f"{where}: must be a date and time like 2026-10-16T09:00, or null")
+    elif kind == "names":
+        if isinstance(value, list) and len(value) <= spec[2] and all(isinstance(v, str) and NAME.match(v) and v not in (".", "..") for v in value):
+            return list(dict.fromkeys(value))
+        raise SettingsError(f"{where}: must be a list of up to {spec[2]} folder names (no slashes)")
     elif kind == "path":
         if value is None or (isinstance(value, str) and 0 < len(value) <= 1000 and "\0" not in value):
             return value

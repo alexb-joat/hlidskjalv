@@ -6,13 +6,14 @@ and file *contents* never leave this module: only names and line counts do.
 
 from __future__ import annotations
 
-import difflib
+import hashlib
 import json
 import os
 import re
 import shutil
 import subprocess
 import time
+from collections import Counter, OrderedDict
 from pathlib import Path
 
 from .programs import which
@@ -31,14 +32,19 @@ SENSITIVE = re.compile(
 TEXT_MAX_BYTES = 200_000
 READ_MAX = 1_000_000
 MAX_FILES = 5000
+# Lines are kept in memory only for this many small files (an LRU), so a precise diff is
+# available for the files being edited while the watcher's memory stays bounded.
+CACHE_FILES = 256
+CACHE_MAX_BYTES = 64_000
 
 
 def is_sensitive(rel: str) -> bool:
     return bool(SENSITIVE.search(rel.rsplit("/", 1)[-1]))
 
 
-def _read_lines(path: Path) -> list[str] | None:
-    """Text lines of a small text file, or None for binary/large/unreadable files."""
+def _read_text(path: Path) -> tuple[bytes, int, list[str] | None] | None:
+    """(digest, line count, lines) of a small text file; lines only when it fits the cache.
+    None for binary, large or unreadable files."""
     try:
         if path.stat().st_size > TEXT_MAX_BYTES:
             return None
@@ -47,37 +53,55 @@ def _read_lines(path: Path) -> list[str] | None:
         return None
     if b"\0" in data[:8192]:
         return None
-    return data.decode("utf-8", "replace").splitlines()
+    digest = hashlib.blake2b(data, digest_size=16).digest()
+    if len(data) <= CACHE_MAX_BYTES:
+        lines = data.decode("utf-8", "replace").splitlines()
+        return digest, len(lines), lines
+    return digest, data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0), None
 
 
 def _line_delta(old: list[str], new: list[str]) -> tuple[int, int]:
-    added = removed = 0
-    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes():
-        if tag in ("replace", "delete"):
-            removed += i2 - i1
-        if tag in ("replace", "insert"):
-            added += j2 - j1
-    return added, removed
+    """Lines added and removed, as a multiset difference: linear, and exact enough for a map tile."""
+    o, n = Counter(old), Counter(new)
+    return sum((n - o).values()), sum((o - n).values())
 
 
 class FileWatcher:
-    """Polls the project tree and reports created, changed and deleted files."""
+    """Polls the project tree and reports created, changed and deleted files.
 
-    def __init__(self, root: Path):
+    Per file it remembers (mtime, size) from the scan and, for text files, a digest and a
+    line count. Only the lines of the last CACHE_FILES small files are kept, so a change is
+    diffed exactly when they are cached and counted as a net delta otherwise.
+    """
+
+    def __init__(self, root: Path, skip_dirs: set[str] | None = None):
         self.root = root
+        self.skip_dirs = SKIP_DIRS | set(skip_dirs or ())
         self.state: dict[str, tuple[int, int]] = {}
-        self.lines: dict[str, list[str]] = {}
+        self.info: dict[str, tuple[bytes, int]] = {}  # text files: (digest, line count)
+        self.cache: OrderedDict[str, list[str]] = OrderedDict()
         self.truncated = False
+        self.total = 0  # files seen by the last full count (the snapshot), cap or not
 
-    def _scan(self) -> dict[str, tuple[int, int]]:
+    def _scan(self, count: bool = False) -> dict[str, tuple[int, int]]:
+        """The first MAX_FILES files in a stable (sorted) walk order. With count=True the
+        walk goes on past the cap, counting only, so the page can say how many were left out."""
         found: dict[str, tuple[int, int]] = {}
+        total = 0
+        self.truncated = False
         for dirpath, dirnames, filenames in os.walk(self.root):  # never follows symlinks
-            dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
-            for name in filenames:
+            dirnames[:] = sorted(d for d in dirnames if d not in self.skip_dirs)
+            for name in sorted(filenames):
                 if SKIP_FILE.search(name):
                     continue
                 full = os.path.join(dirpath, name)
                 if os.path.islink(full):
+                    continue
+                if len(found) >= MAX_FILES:
+                    self.truncated = True
+                    if not count:
+                        return found
+                    total += 1
                     continue
                 try:
                     st = os.stat(full)
@@ -85,27 +109,42 @@ class FileWatcher:
                     continue
                 rel = Path(full).relative_to(self.root).as_posix()
                 found[rel] = (st.st_mtime_ns, st.st_size)
-                if len(found) >= MAX_FILES:
-                    self.truncated = True
-                    return found
+                total += 1
+        if count:
+            self.total = total
         return found
 
-    def _remember(self, rel: str) -> list[str] | None:
+    def _remember(self, rel: str) -> tuple[bytes, int, list[str] | None] | None:
+        """Read a file, record its digest and line count, cache its lines if small."""
         if is_sensitive(rel):
             return None
-        lines = _read_lines(self.root / rel)
+        got = _read_text(self.root / rel)
+        if got is None:
+            self.info.pop(rel, None)
+            self.cache.pop(rel, None)
+            return None
+        digest, n, lines = got
+        self.info[rel] = (digest, n)
         if lines is None:
-            self.lines.pop(rel, None)
+            self.cache.pop(rel, None)
         else:
-            self.lines[rel] = lines
-        return lines
+            self.cache[rel] = lines
+            self.cache.move_to_end(rel)
+            while len(self.cache) > CACHE_FILES:
+                self.cache.popitem(last=False)
+        return got
+
+    def _forget(self, rel: str) -> int:
+        """Drop everything held for a file; returns its last known line count."""
+        self.cache.pop(rel, None)
+        return self.info.pop(rel, (b"", 0))[1]
 
     def snapshot(self) -> list[dict]:
-        self.state = self._scan()
+        self.state = self._scan(count=True)
         files = []
         for rel, (_, size) in sorted(self.state.items()):
-            lines = self._remember(rel)
-            files.append({"path": rel, "size": size, "lines": len(lines) if lines is not None else None,
+            got = self._remember(rel)
+            files.append({"path": rel, "size": size, "lines": got[1] if got is not None else None,
                           "sensitive": is_sensitive(rel)})
         return files
 
@@ -116,19 +155,31 @@ class FileWatcher:
             old = self.state.get(rel)
             if old == sig:
                 continue
-            before = self.lines.get(rel, [])
+            before = self.info.get(rel)
+            before_lines = self.cache.get(rel)
             after = self._remember(rel)
             ev = {"type": "file_created" if old is None else "file_changed", "path": rel,
                   "size": sig[1], "sensitive": is_sensitive(rel)}
             if after is not None:
-                ev["added"], ev["removed"] = _line_delta(before if old else [], after)
-                ev["lines"] = len(after)
+                digest, n, lines = after
+                if old is not None and before is not None and before[0] == digest:
+                    continue  # saved twice: same contents, no event
+                if old is None or before is None:
+                    ev["added"], ev["removed"] = n, 0
+                elif before_lines is not None and lines is not None:
+                    ev["added"], ev["removed"] = _line_delta(before_lines, lines)
+                else:  # the old lines aren't held: the net change is all we know
+                    ev["added"], ev["removed"] = max(n - before[1], 0), max(before[1] - n, 0)
+                ev["lines"] = n
                 if old is not None and ev["added"] == ev["removed"] == 0:
                     continue  # touched but no content change (e.g. saved twice)
             events.append(ev)
         for rel in self.state.keys() - now.keys():
-            gone = self.lines.pop(rel, None)
-            events.append({"type": "file_deleted", "path": rel, "removed": len(gone) if gone else 0,
+            if self.truncated and os.path.lexists(self.root / rel):
+                self._forget(rel)  # still there, just past the cap now (a new file came earlier in the walk)
+                continue
+            removed = self._forget(rel)
+            events.append({"type": "file_deleted", "path": rel, "removed": removed,
                            "sensitive": is_sensitive(rel)})
         self.state = now
         return events
