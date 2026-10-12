@@ -14,7 +14,7 @@ from pathlib import Path, PurePosixPath
 from hlidskjalv.__main__ import HOOKS, check_folder
 from hlidskjalv.redact import redact
 from hlidskjalv import terminal as term
-from hlidskjalv.auth import Owner, issue_pair_code, rotate_key
+from hlidskjalv.auth import Owner, issue_pair_code, rotate_key, totp_code
 from hlidskjalv.settings import Settings, SettingsError, defaults, merge
 from hlidskjalv.server import XP_RULES, Hub, Progress, load_history, read_session, serve, xp_of
 from hlidskjalv.sources import (
@@ -323,9 +323,77 @@ class TerminalTest(unittest.TestCase):
         ws.send(term.OP_BIN, b"exit 3\n")
         while True:
             op, data = ws.recv()
-            if op == term.OP_TEXT:
+            if op == term.OP_TEXT and "exit" in json.loads(data):  # the first text frame says whether root is allowed
                 self.assertEqual(json.loads(data), {"exit": 3})
                 break
+
+    def test_shell_plan_matrix(self):
+        from hlidskjalv import terminal as tm
+        if not tm._LINUX:
+            self.skipTest("Linux only")
+        t = term.Terminal(self.root, self.owner)
+        self.assertEqual(t.plan().set_nnp, True)  # root not allowed: the shell gets the flag
+        t.root_allowed = lambda: True
+        with mock.patch.object(tm, "sudo_passwordless", lambda: True):
+            p = t.plan(); self.assertFalse(p.root); self.assertTrue(p.set_nnp); self.assertIn("no password", p.why)
+        with mock.patch.object(tm, "sudo_passwordless", lambda: False), mock.patch.object(tm, "sandboxed", lambda: False):
+            p = t.plan(); self.assertTrue(p.root); self.assertFalse(p.set_nnp); self.assertIsNone(p.unit)
+        with mock.patch.object(tm, "sudo_passwordless", lambda: False), mock.patch.object(tm, "sandboxed", lambda: True), \
+                mock.patch.object(tm, "user_manager_ok", lambda: None):
+            p = t.plan(); self.assertFalse(p.root); self.assertIn("service manager", p.why)
+        with mock.patch.object(tm, "sudo_passwordless", lambda: False), mock.patch.object(tm, "sandboxed", lambda: True), \
+                mock.patch.object(tm, "user_manager_ok", lambda: "/usr/bin/systemd-run"):
+            p = t.plan()
+            self.assertTrue(p.root and p.unit.startswith("hlidskjalv-shell-1-") and p.argv[:3] == ["/usr/bin/systemd-run", "--user", "--quiet"])
+            self.assertIn("--pty", p.argv); self.assertEqual(p.argv[-2:], t.shell())
+
+    def test_off_shell_cannot_elevate(self):
+        if not os.path.exists("/proc/self/status"):
+            self.skipTest("Linux only")
+        ws = WsClient(self.port)
+        ws.hello(key=self.owner.start_session())
+        op, data = ws.recv()
+        self.assertEqual((op, json.loads(data)["root"]), (term.OP_TEXT, False))
+        ws.send(term.OP_BIN, b"grep --color=never NoNewPrivs /proc/self/status\n")
+        self.assertIn(b"NoNewPrivs:\t1", ws.read_until(b"NoNewPrivs:\t"))
+
+    def test_root_shell_needs_a_fresh_code_when_two_factor_is_on(self):
+        from hlidskjalv import terminal as tm
+        if not tm._LINUX:
+            self.skipTest("Linux only")
+        self.shell.root_allowed = lambda: True
+        self.owner.set_password("open sesame 42")
+        d = self.owner.totp_begin("t"); self.owner.totp_confirm(totp_code(d["secret"], int(time.time() // 30)))
+        with mock.patch.object(tm, "sudo_passwordless", lambda: False), mock.patch.object(tm, "sandboxed", lambda: False):
+            ws = WsClient(self.port)
+            ws.hello(key=self.owner.redeem(self.owner.launch_code()))  # a link session: no code proved
+            op, data = ws.recv()
+            self.assertEqual((op, data[2:]), (term.OP_CLOSE, b"second factor needed"))
+            tok = self.owner.login("open sesame 42", totp_code(d["secret"], int(time.time() // 30) + 1))
+            ws = WsClient(self.port)
+            ws.hello(key=tok)
+            op, data = ws.recv()
+            self.assertEqual((op, json.loads(data)["root"]), (term.OP_TEXT, True))
+            ws.send(term.OP_BIN, b"grep --color=never NoNewPrivs /proc/self/status\n")
+            self.assertIn(b"NoNewPrivs:\t0", ws.read_until(b"NoNewPrivs:\t"))
+
+    @unittest.skipUnless(os.path.exists("/proc/self/status") and __import__("hlidskjalv.terminal", fromlist=["x"]).user_manager_ok(),
+                         "needs a running systemd user manager")
+    def test_root_shell_through_the_user_manager(self):
+        from hlidskjalv import terminal as tm
+        self.shell.root_allowed = lambda: True
+        with mock.patch.object(tm, "sudo_passwordless", lambda: False), mock.patch.object(tm, "sandboxed", lambda: True):
+            ws = WsClient(self.port)
+            ws.hello(key=self.owner.start_session())
+            op, data = ws.recv()
+            self.assertEqual((op, json.loads(data)["root"]), (term.OP_TEXT, True))
+            ws.send(term.OP_BIN, b"grep --color=never NoNewPrivs /proc/self/status; exit 5\n")
+            out = ws.read_until(b"NoNewPrivs:\t", limit=20)
+            self.assertIn(b"NoNewPrivs:\t0", out)
+            while True:
+                op, data = ws.recv()
+                if op == term.OP_TEXT and "exit" in json.loads(data):
+                    self.assertEqual(json.loads(data), {"exit": 5}); break
 
     def test_off_by_default(self):
         port = free_port()
@@ -425,6 +493,53 @@ class OwnerTest(unittest.TestCase):
         self.owner.set_password(None)
         self.assertFalse(self.owner.has_password())
         self.assertIsNone(self.owner.login("correct horse battery"))
+
+    def test_totp_matches_rfc_6238(self):
+        import base64
+        secret = base64.b32encode(b"12345678901234567890").decode().rstrip("=")
+        for t, expect in ((59, "287082"), (1111111109, "081804"), (1234567890, "005924"), (2000000000, "279037")):
+            self.assertEqual(totp_code(secret, t // 30), expect)
+
+    def test_second_factor_setup_login_replay_and_recovery(self):
+        from hlidskjalv import auth as am
+        o = self.owner
+        o.set_password("open sesame 42")
+        base = int(time.time() // 30) * 30 + 5  # five seconds into a step; the test moves the clock itself
+        clock = {"t": base}
+        with mock.patch.object(am.time, "time", lambda: clock["t"]):
+            d = o.totp_begin("me@box")
+            code = lambda k: totp_code(d["secret"], base // 30 + k)
+            self.assertIn("otpauth://totp/Hlidskjalv:me%40box?secret=" + d["secret"], d["uri"])
+            self.assertIsNone(o.totp_confirm(code(5)))  # outside the drift window
+            codes = o.totp_confirm(code(0))
+            self.assertEqual(len(codes), 8)
+            self.assertTrue(o.totp_enabled() and Owner(self.home).totp_enabled())
+            if os.name == "posix":
+                self.assertEqual((self.home / "totp.json").stat().st_mode & 0o777, 0o600)
+            self.assertNotIn(codes[0].replace("-", ""), (self.home / "totp.json").read_text())  # recovery codes stored hashed
+            self.assertIsNone(o.login("open sesame 42"))  # the password alone is no longer enough
+            self.assertIsNone(o.login("open sesame 42", code(0)))  # the setup code is spent
+            token = o.login("open sesame 42", code(1))  # the next step, within the drift window
+            self.assertTrue(token and o.check(token) and o.fresh_factor(token))
+            self.assertIsNone(o.login("open sesame 42", code(1)))  # replay
+            clock["t"] = base + 60
+            self.assertTrue(o.login("open sesame 42", code(2)))
+            o._fails.clear()
+            self.assertTrue(o.login("open sesame 42", codes[3]))  # a recovery code pairs once
+            self.assertIsNone(o.login("open sesame 42", codes[3]))
+            self.assertTrue(o.login("open sesame 42", codes[4].upper().replace("-", "")))  # format-tolerant
+            o._fails.clear()
+            link = o.redeem(o.launch_code())  # a link session has proved no second factor
+            self.assertFalse(o.fresh_factor(link))
+            self.assertFalse(o.step_up(link, codes[3]))  # used up
+            clock["t"] = base + 90
+            self.assertTrue(o.step_up(link, code(3)))
+            self.assertTrue(o.fresh_factor(link))
+            clock["t"] = base + 90 + am.STEP_UP_S + 1
+            self.assertFalse(o.fresh_factor(link))  # a code goes stale
+            o.totp_disable()
+            self.assertFalse(o.totp_enabled())
+            self.assertTrue(o.fresh_factor(link) and o.login("open sesame 42"))
 
 
 class SettingsTest(unittest.TestCase):
@@ -548,6 +663,53 @@ class WriteApiTest(unittest.TestCase):
         self.assertEqual(self.post("/api/logout", {}, key=token)[0], 200)
         self.assertEqual(self.post("/api/ping", {}, key=token)[0], 401)
         self.assertEqual(self.post("/api/settings", {"change": {"security": {"session_minutes": 1}}}, key=self.owner.start_session())[0], 400)
+
+    def test_two_factor_endpoints_and_step_up(self):
+        from hlidskjalv import auth as am
+        self.owner.set_password("open sesame 42")
+        base = int(time.time() // 30) * 30 + 5
+        clock = {"t": base}
+        with mock.patch.object(am.time, "time", lambda: clock["t"]):
+            tok = self.post("/api/pair", {"password": "open sesame 42"})[1]["token"]
+            status, d = self.post("/api/2fa/begin", {}, key=tok)
+            self.assertEqual(status, 200)
+            self.assertTrue(d["uri"].startswith("otpauth://totp/Hlidskjalv:"))
+            code = lambda k: totp_code(d["secret"], base // 30 + k)
+            self.assertEqual(self.post("/api/2fa/confirm", {"code": "x"}, key=tok)[0], 403)
+            status, r = self.post("/api/2fa/confirm", {"code": code(0)}, key=tok)
+            self.assertEqual((status, len(r["recovery"])), (200, 8))
+            self.assertEqual(self.post("/api/pair", {"password": "open sesame 42"})[1].get("needs_code"), True)
+            status, body = self.post("/api/pair", {"password": "open sesame 42", "code": code(1)})
+            self.assertEqual(status, 200)
+            self.assertEqual(self.post("/api/ping", {}, key=body["token"])[1]["fresh"], True)
+            link = self.post("/api/pair", {"code": self.owner.launch_code()})[1]["token"]  # not fresh: no code proved
+            status, body = self.post("/api/password", {"new": "another pass 1", "current": "open sesame 42"}, key=link)
+            self.assertEqual((status, body.get("step_up")), (403, True))
+            clock["t"] = base + 60
+            self.assertEqual(self.post("/api/2fa/verify", {"code": code(1)}, key=link)[0], 403)  # spent
+            self.assertEqual(self.post("/api/2fa/verify", {"code": code(2)}, key=link)[0], 200)
+            self.assertEqual(self.post("/api/password", {"new": "another pass 1", "current": "open sesame 42"}, key=link)[0], 200)
+            self.owner._fails.clear()
+            self.assertEqual(self.post("/api/2fa/disable", {"code": "nope"}, key=link)[0], 403)
+            self.assertEqual(self.post("/api/2fa/disable", {"code": r["recovery"][0]}, key=link)[0], 200)
+            self.assertFalse(self.owner.totp_enabled())
+
+    def test_root_toggle_guard_rails(self):
+        from hlidskjalv import server as srv, terminal as term_mod
+        tok = self.post("/api/pair", {"code": self.owner.launch_code()})[1]["token"]
+        change = {"change": {"features": {"terminal_root": True}}}
+        status, body = self.post("/api/settings", change, key=tok)
+        self.assertEqual(status, 400)
+        self.assertIn("pairing password", body["error"])
+        self.owner.set_password("open sesame 42")
+        with mock.patch.object(term_mod, "sudo_passwordless", lambda: True):
+            status, body = self.post("/api/settings", change, key=tok)
+        self.assertEqual(status, 400)
+        self.assertIn("without a password", body["error"])
+        with mock.patch.object(term_mod, "sudo_passwordless", lambda: False):
+            status, body = self.post("/api/settings", change, key=tok)
+        self.assertEqual((status, body["settings"]["features"]["terminal_root"], body["restart"]), (200, True, False))
+        self.assertEqual(self.post("/api/settings", {"change": {"features": {"terminal_root": False}}}, key=tok)[0], 200)
 
     def test_refusals(self):
         key = self.owner.start_session()

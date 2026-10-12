@@ -23,21 +23,29 @@ gets by pairing and keeps until the session runs out:
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import json
 import os
 import secrets
+import struct
 import threading
 import time
 from pathlib import Path
+from urllib.parse import quote
 
 PAIR_TTL_S = 600
 SESSION_TTL_S = 4 * 3600  # default; Settings (security.session_minutes) override it
 PASSWORD_MIN = 8
 PASSWORD_TRIES = 5  # wrong passwords within PASSWORD_WINDOW_S ...
 PASSWORD_WINDOW_S = 600
-PASSWORD_LOCK_S = 60  # ... lock pairing by password this long
+PASSWORD_LOCK_S = 60  # ... lock pairing by password this long (wrong second-factor codes count too)
+TOTP_STEP_S = 30  # RFC 6238 defaults: 30-second steps, six digits, SHA-1, as authenticator apps expect
+TOTP_DIGITS = 6
+TOTP_DRIFT = 1  # accept the previous and the next step too (clock skew, typing time)
+STEP_UP_S = 600  # a second-factor code counts as "fresh" this long: root shells and security changes need one
+RECOVERY_CODES = 8
 
 
 def new_token() -> str:
@@ -78,6 +86,27 @@ def check_password_hash(stored: str, password: str) -> bool:
         return False
 
 
+def totp_code(secret_b32: str, counter: int) -> str:
+    """RFC 6238 / 4226: HMAC-SHA1 of the step counter, dynamically truncated to six digits."""
+    key = base64.b32decode(secret_b32 + "=" * (-len(secret_b32) % 8), casefold=True)
+    mac = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
+    off = mac[-1] & 0x0F
+    return f"{(int.from_bytes(mac[off:off + 4], 'big') & 0x7FFFFFFF) % 10 ** TOTP_DIGITS:0{TOTP_DIGITS}d}"
+
+
+def new_totp_secret() -> str:
+    return base64.b32encode(secrets.token_bytes(20)).decode().rstrip("=")
+
+
+def otpauth_uri(label: str, secret: str) -> str:
+    return (f"otpauth://totp/Hlidskjalv:{quote(label, safe='')}?secret={secret}&issuer=Hlidskjalv"
+            f"&algorithm=SHA1&digits={TOTP_DIGITS}&period={TOTP_STEP_S}")
+
+
+def _recovery_hash(code: str) -> str:
+    return hashlib.sha256(code.replace("-", "").lower().encode()).hexdigest()
+
+
 class Owner:
     def __init__(self, home: Path):
         self.home = home
@@ -85,6 +114,8 @@ class Owner:
         self.pair_file = home / "pair"
         self.password_file = home / "password"
         self.sessions_file = home / "web-sessions.json"
+        self.totp_file = home / "totp.json"
+        self._totp_pending: tuple[str, float] | None = None  # secret being set up, not yet confirmed
         self.ttl_provider = None  # callable -> seconds; the server wires Settings in
         self._lock = threading.RLock()  # redeem() starts a session while holding it
         self._launch: tuple[str, float] | None = None
@@ -147,14 +178,35 @@ class Owner:
         for k in [k for k, s in self._sessions.items() if now - float(s.get("seen", 0)) > ttl]:
             del self._sessions[k]
 
-    def start_session(self) -> str:
+    def start_session(self, second_factor: bool = False) -> str:
         token = new_token()
         now = time.time()
         with self._lock:
             self._prune(now)
-            self._sessions[_digest(token)] = {"created": now, "seen": now}
+            self._sessions[_digest(token)] = {"created": now, "seen": now, "mfa": now if second_factor else 0}
             self._save_sessions()
         return token
+
+    def fresh_factor(self, given) -> bool:
+        """True when no second factor is set up, or this session proved one within STEP_UP_S."""
+        if not self.totp_enabled():
+            return True
+        if not self.check(given):
+            return False
+        return time.time() - float(self._sessions[_digest(given)].get("mfa", 0)) <= STEP_UP_S
+
+    def mark_fresh(self, given) -> None:
+        if self.check(given):
+            with self._lock:
+                self._sessions[_digest(given)]["mfa"] = time.time()
+                self._save_sessions()
+
+    def step_up(self, given, code) -> bool:
+        """Prove the second factor for an existing session (root shells, security changes)."""
+        if not self.check(given) or not self.totp_verify(code):
+            return False
+        self.mark_fresh(given)
+        return True
 
     def check(self, given) -> bool:
         """True for a live session token; using it keeps the session alive."""
@@ -257,9 +309,94 @@ class Owner:
                 self._fails.append(time.time())
         return ok
 
-    def login(self, password) -> str | None:
-        """A session token for the right password, else None."""
-        return self.start_session() if self.check_password(password) else None
+    def login(self, password, code=None) -> str | None:
+        """A session token for the right password (and, with two-factor on, the right code), else None."""
+        if not self.check_password(password):
+            return None
+        if self.totp_enabled():
+            return self.start_session(second_factor=True) if self.totp_verify(code) else None
+        return self.start_session()
+
+    # ------------------------------------------------------------- second factor (TOTP)
+    def totp_enabled(self) -> bool:
+        return self._totp_load() is not None
+
+    def _totp_load(self) -> dict | None:
+        try:
+            d = json.loads(self.totp_file.read_text(encoding="utf-8"))
+            return d if isinstance(d, dict) and isinstance(d.get("secret"), str) else None
+        except (OSError, ValueError):
+            return None
+
+    def _totp_save(self, d: dict) -> None:
+        write_private(self.totp_file, json.dumps(d))
+
+    def totp_begin(self, label: str) -> dict:
+        """Start setting up an authenticator app: the secret is kept in memory until confirmed."""
+        secret = new_totp_secret()
+        with self._lock:
+            self._totp_pending = (secret, time.time())
+        return {"secret": secret, "uri": otpauth_uri(label, secret)}
+
+    def _code_matches(self, secret: str, code, last_counter: int = -1) -> int | None:
+        """The step counter the code belongs to, within the drift window and after last_counter."""
+        if not isinstance(code, str):
+            return None
+        code = code.replace(" ", "")
+        if not (code.isdigit() and len(code) == TOTP_DIGITS):
+            return None
+        now = int(time.time() // TOTP_STEP_S)
+        for c in range(now - TOTP_DRIFT, now + TOTP_DRIFT + 1):
+            if c > last_counter and hmac.compare_digest(totp_code(secret, c), code):
+                return c
+        return None
+
+    def totp_confirm(self, code) -> list[str] | None:
+        """Finish the setup with a code from the app; returns the recovery codes (shown once), or None."""
+        with self._lock:
+            pending = self._totp_pending
+        if not pending or time.time() - pending[1] > PAIR_TTL_S or self.password_lock_s():
+            return None
+        counter = self._code_matches(pending[0], code)
+        if counter is None:
+            with self._lock:
+                self._fails.append(time.time())
+            return None
+        codes = [f"{secrets.token_hex(2)}-{secrets.token_hex(2)}" for _ in range(RECOVERY_CODES)]
+        with self._lock:
+            self._totp_pending = None
+            self._totp_save({"secret": pending[0], "created": time.time(), "last_counter": counter,
+                             "recovery": [_recovery_hash(c) for c in codes]})
+        return codes
+
+    def totp_verify(self, code) -> bool:
+        """A code from the app (each step counts once) or an unused recovery code (used up by this)."""
+        d = self._totp_load()
+        if d is None or self.password_lock_s():
+            return False
+        counter = self._code_matches(d["secret"], code, int(d.get("last_counter", -1)))
+        if counter is not None:
+            d["last_counter"] = counter
+            with self._lock:
+                self._totp_save(d)
+            return True
+        if isinstance(code, str) and 6 <= len(code) <= 12:
+            h = _recovery_hash(code)
+            left = [r for r in d.get("recovery", []) if not hmac.compare_digest(r, h)]
+            if len(left) < len(d.get("recovery", [])):
+                d["recovery"] = left
+                with self._lock:
+                    self._totp_save(d)
+                return True
+        with self._lock:
+            self._fails.append(time.time())
+        return False
+
+    def totp_disable(self) -> None:
+        try:
+            self.totp_file.unlink()
+        except OSError:
+            pass
 
 
 def issue_pair_code(home: Path) -> str:

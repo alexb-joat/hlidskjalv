@@ -60,6 +60,10 @@ SCHEMA: dict = {
     },
     "features": {
         "terminal": ("bool", False),
+        # Linux: the Terminal tab's shell may use sudo. Off: the shell gets the no-new-privileges flag.
+        # On, under the login service: the shell is started through the user service manager instead,
+        # so the service itself keeps its sandbox. Needs a pairing password; refused if sudo is passwordless.
+        "terminal_root": ("bool", False),
         "xp": ("bool", True),
     },
     "alerts": {

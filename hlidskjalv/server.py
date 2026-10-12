@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import platform
 import re
 import threading
 import time
@@ -32,7 +33,7 @@ MAX_POST = 64 * 1024
 
 # Vendored terminal files (see static/vendor/README.md): the only static files served.
 VENDOR = {"xterm.js": "text/javascript; charset=utf-8", "addon-fit.js": "text/javascript; charset=utf-8",
-          "xterm.css": "text/css; charset=utf-8"}
+          "xterm.css": "text/css; charset=utf-8", "qrcode.js": "text/javascript; charset=utf-8"}
 
 
 NICE_HOST = "hlidskjalv.localhost"
@@ -341,7 +342,8 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
             elif url.path == "/api/settings":
                 if settings is None:
                     return self._json({"error": "settings are off"}, HTTPStatus.NOT_FOUND)
-                self._json({"settings": settings.data, "password_set": bool(owner and owner.has_password())})
+                self._json({"settings": settings.data, "password_set": bool(owner and owner.has_password()),
+                            "totp": bool(owner and owner.totp_enabled()), "system": platform.system()})
             elif url.path == "/api/session":
                 events = read_session(sessions, (q.get("id") or [""])[0])
                 if events is None:
@@ -394,7 +396,8 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                 return
             path = urlparse(self.path).path
             if path not in ("/api/pair", "/api/ping", "/api/logout", "/api/password", "/api/settings", "/api/restart",
-                            "/api/autostart", "/api/alerts/ack") or owner is None:
+                            "/api/autostart", "/api/alerts/ack", "/api/2fa/begin", "/api/2fa/confirm", "/api/2fa/disable",
+                            "/api/2fa/verify") or owner is None:
                 return self._json({"error": "read-only"}, HTTPStatus.METHOD_NOT_ALLOWED)
             if self._foreign_origin("change Hlidskjalv"):
                 return
@@ -412,14 +415,17 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
 
             if path == "/api/pair":
                 if "password" in body:
-                    token = owner.login(body.get("password"))
+                    if owner.totp_enabled() and not body.get("code"):
+                        return self._json({"error": "second-factor code needed", "needs_code": True}, HTTPStatus.FORBIDDEN)
+                    token = owner.login(body.get("password"), body.get("code"))
                     if not token:
                         wait = owner.password_lock_s()
                         refused("medium", "A wrong password was entered",
                                 "Pairing with a password needs the one set with `python3 -m hlidskjalv password`."
                                 if owner.has_password() else "No password is set: pair with the link once, then set one in Settings > Pairing.",
                                 "password")
-                        return self._json({"error": ("no password is set" if not owner.has_password() else "wrong password")
+                        return self._json({"error": ("no password is set" if not owner.has_password() else
+                                                     "wrong password or code" if owner.totp_enabled() else "wrong password")
                                            + (f"; wait {wait} s" if wait else ""), "wait": wait}, HTTPStatus.FORBIDDEN)
                 else:
                     token = owner.redeem(body.get("code"))
@@ -435,11 +441,50 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                 return self._json({"error": "this browser isn't paired, or its session ended"}, HTTPStatus.UNAUTHORIZED)
             if path == "/api/ping":
                 info = owner.session_info(given) or {}
-                return self._json({"ok": True, "expires_in": info.get("expires_in"), "password_set": owner.has_password()})
+                return self._json({"ok": True, "expires_in": info.get("expires_in"), "password_set": owner.has_password(),
+                                   "totp": owner.totp_enabled(), "fresh": owner.fresh_factor(given)})
+
+            def step_up_needed():  # security changes and root shells want a code from the app within STEP_UP_S
+                if owner.fresh_factor(given):
+                    return None
+                return self._json({"error": "second-factor code needed", "step_up": True}, HTTPStatus.FORBIDDEN)
+
+            if path == "/api/2fa/begin":
+                import getpass
+                import socket as _socket
+                return self._json(owner.totp_begin(f"{getpass.getuser()}@{_socket.gethostname()}"))
+            if path == "/api/2fa/confirm":
+                codes = owner.totp_confirm(body.get("code"))
+                if codes is None:
+                    refused("medium", "A wrong second-factor code was entered", "While setting up the authenticator app.", "totp")
+                    return self._json({"error": "that code didn't match; try the next one the app shows", "wait": owner.password_lock_s()},
+                                      HTTPStatus.FORBIDDEN)
+                owner.mark_fresh(given)
+                if alerts:
+                    alerts.alerter.raise_("medium", "security", "Two-factor authentication switched on",
+                                          "Pairing with the password now also needs a code from the authenticator app.",
+                                          fingerprint="totp-on", expected=True)
+                return self._json({"recovery": codes})
+            if path == "/api/2fa/disable":
+                if not owner.totp_verify(body.get("code")):
+                    refused("medium", "A wrong second-factor code was entered", "While switching two-factor authentication off.", "totp")
+                    return self._json({"error": "wrong code", "wait": owner.password_lock_s()}, HTTPStatus.FORBIDDEN)
+                owner.totp_disable()
+                if alerts:
+                    alerts.alerter.raise_("medium", "security", "Two-factor authentication switched off",
+                                          "Pairing with the password alone works again.", fingerprint="totp-off", expected=True)
+                return self._json({"totp": False})
+            if path == "/api/2fa/verify":
+                if not owner.step_up(given, body.get("code")):
+                    refused("medium", "A wrong second-factor code was entered", f"{path}", "totp")
+                    return self._json({"error": "wrong code", "wait": owner.password_lock_s()}, HTTPStatus.FORBIDDEN)
+                return self._json({"fresh": True})
             if path == "/api/logout":
                 owner.end_session(given)
                 return self._json({"ok": True})
             if path == "/api/password":
+                if (r := step_up_needed()) is not None:
+                    return r
                 if owner.has_password() and not owner.check_password(body.get("current")):
                     refused("medium", "A wrong password was entered", "Changing the password needs the current one.", "password")
                     return self._json({"error": "the current password is wrong"}, HTTPStatus.FORBIDDEN)
@@ -451,14 +496,34 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
             if path == "/api/settings":
                 if settings is None:
                     return self._json({"error": "settings are off"}, HTTPStatus.NOT_FOUND)
+                change = body.get("change") if isinstance(body.get("change"), dict) else {}
+                feats = change.get("features") if isinstance(change.get("features"), dict) else {}
+                root_change = feats.get("terminal_root")
+                if root_change is not None:  # a privilege change: the guard rails live here, not in the schema
+                    if (r := step_up_needed()) is not None:
+                        return r
+                    if root_change is True and not owner.has_password():
+                        return self._json({"error": "set a pairing password first (Settings > Pairing): a root-capable shell deserves more than a one-time link"},
+                                          HTTPStatus.BAD_REQUEST)
+                    if root_change is True:
+                        from .terminal import sudo_passwordless
+                        if sudo_passwordless():
+                            return self._json({"error": "sudo works without a password on this computer, so root in the browser would need no password at all; refused until sudo asks for one"},
+                                              HTTPStatus.BAD_REQUEST)
                 try:
                     if body.get("reset") is True:
                         return self._json({"settings": settings.reset(), "restart": True})
-                    data, again = settings.update(body.get("change"))
+                    data, again = settings.update(change)
                 except SettingsError as e:
                     return self._json({"error": str(e)}, HTTPStatus.BAD_REQUEST)
                 except OSError:
                     return self._json({"error": "couldn't save settings"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+                if root_change is not None and alerts:
+                    alerts.alerter.raise_("medium", "security",
+                                          "Root allowed in the Terminal tab" if root_change else "Root no longer allowed in the Terminal tab",
+                                          "The shell in the browser may use sudo (with your password); Hlidskjalv itself stays sandboxed."
+                                          if root_change else "The shell in the browser can't elevate any more.",
+                                          fingerprint="root-toggle", expected=True)
                 return self._json({"settings": data, "restart": again})
             if path == "/api/alerts/ack":
                 if alerts is None:

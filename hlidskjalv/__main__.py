@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import platform
 import re
 import sys
 import threading
@@ -173,8 +174,9 @@ def watch(args, argv: list[str]) -> None:
         again = [a for a in argv if a != "--no-open"] + ["--no-open"]
         os.execv(sys.executable, [sys.executable, "-m", "hlidskjalv", *again])
 
-    shell = term.Terminal(root, owner, lambda sev, title, detail, fp: alerter.raise_(
-        sev, "refused_access", title, detail, fingerprint=fp)) if meta["terminal"] else None
+    shell = term.Terminal(root, owner, lambda sev, title, detail, fp: alerter.raise_(sev, "refused_access", title, detail, fingerprint=fp),
+                          lambda sev, source, title, detail, fp, expected: alerter.raise_(sev, source, title, detail, fingerprint=fp, expected=expected),
+                          lambda: bool(settings.data["features"]["terminal_root"])) if meta["terminal"] else None
     usage_ctx = UsageContext(home, ClaudeUsage(claude_code.dir) if claude_code else None)
     if usage_ctx.claude:
         usage_ctx.claude.plan = ClaudeUsage(claude_code.dir, all_projects=True)  # account-wide windows, cached separately
@@ -192,7 +194,8 @@ def watch(args, argv: list[str]) -> None:
         print("  to pair a browser (needed for settings and the terminal): your password in Settings > Pairing,"
               " or: python3 -m hlidskjalv pair")
     if shell:
-        print("  terminal: ON (a real shell in this folder, in the Terminal tab)")
+        print("  terminal: ON (a real shell in this folder, in the Terminal tab)"
+              + (" · root allowed" if prefs["features"]["terminal_root"] else " · no root") * (platform.system() == "Linux"))
     elif args.terminal or prefs["features"]["terminal"]:
         print("  note: the in-browser terminal needs Linux, macOS or Windows 10 (1809+); it stays off on this system")
     if files.truncated:
@@ -282,6 +285,29 @@ def password(args) -> None:
     print("Password set. In the browser: Settings > Pairing > enter it. Already paired browsers stay paired.")
 
 
+def two_factor(args) -> None:
+    """Authenticator-app codes for pairing: setup, status, or the emergency off switch."""
+    owner = Owner(data_home())
+    if args.action == "status":
+        print("two-factor: " + ("ON (authenticator app)" if owner.totp_enabled() else "off"))
+    elif args.action == "off":
+        owner.totp_disable()
+        print("Two-factor authentication is off. Pairing with the password alone works again.")
+    else:
+        import getpass
+        import socket
+        if owner.totp_enabled():
+            sys.exit("Already set up. Run `python3 -m hlidskjalv 2fa off` first to start over.")
+        d = owner.totp_begin(f"{getpass.getuser()}@{socket.gethostname()}")
+        print("In your authenticator app, add an account by entering this key (or scan the QR code in Settings > Pairing):")
+        print(f"  {d['secret']}\n  {d['uri']}")
+        codes = owner.totp_confirm(input("Code the app shows now: ").strip())
+        if codes is None:
+            sys.exit("That code didn't match; nothing changed.")
+        print("Two-factor authentication is on. Recovery codes (each works once; keep them somewhere safe):")
+        print("  " + "  ".join(codes))
+
+
 def pair(args) -> None:
     home = data_home()
     if args.rotate:
@@ -322,6 +348,9 @@ def main(argv: list[str] | None = None) -> None:
     pw = sub.add_parser("password", help="set the password that pairs a browser (Settings > Pairing)")
     pw.add_argument("--clear", action="store_true", help="remove the password; the one-time link still works")
 
+    tf = sub.add_parser("2fa", help="authenticator-app codes for pairing: setup | status | off")
+    tf.add_argument("action", choices=["setup", "status", "off"])
+
     a = sub.add_parser("autostart", help="start Hlidskjalv at login: enable <folder> | disable | status")
     a.add_argument("action", choices=["enable", "disable", "status"])
     a.add_argument("folder", nargs="?", help="project folder to watch (for enable)")
@@ -339,6 +368,8 @@ def main(argv: list[str] | None = None) -> None:
         pair(args)
     elif args.cmd == "password":
         password(args)
+    elif args.cmd == "2fa":
+        two_factor(args)
     elif args.cmd == "status":
         print(status_text(data_home()))
     elif args.cmd == "autostart":

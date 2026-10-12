@@ -350,6 +350,10 @@ details > summary { cursor: pointer; color: var(--muted); font-weight: 700; }
 @media (max-width: 640px) { .field { grid-template-columns: minmax(0, 1fr); } }
 .pwrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0; }
 .pwrow input[type=password] { flex: 1 1 160px; min-width: 0; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r); padding: 8px 10px; }
+.field input.otp, .pwrow input.otp { width: 150px; flex: 0 0 150px; font-family: var(--mono); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r); padding: 8px 10px; }
+.qr { width: 208px; height: 208px; background: #fff; border-radius: calc(var(--r) * .5); padding: 4px; } .qr svg { width: 100%; height: 100%; display: block; }
+.codes { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; font-family: var(--mono); }
+.codes span { padding: 6px 8px; background: var(--raised); border-radius: calc(var(--r) * .5); text-align: center; }
 .field input[type=text], .field select { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r); padding: 8px 10px; min-width: 0; }
 .seg { flex-wrap: wrap; }
 .btn.small { padding: 4px 10px; font-size: calc(12.5px * var(--fz)); }
@@ -1721,10 +1725,10 @@ function planPanel(c) {
 const PAIR_HINT = "Pair it in Settings → Pairing with your password, or run: python3 -m hlidskjalv pair --open";
 const OWNER = {  // `key` is a session token: it ends after security.session_minutes without a request
   key: store.get("session", null),
-  paired: false, expires: 0, passwordSet: false,
-  forget() { this.key = null; this.paired = false; this.expires = 0; store.set("session", null); },
+  paired: false, expires: 0, passwordSet: false, totp: false, fresh: false, system: "",
+  forget() { this.key = null; this.paired = false; this.expires = 0; this.fresh = false; store.set("session", null); },
   accept(r) { this.key = r.token; this.paired = true; this.passwordSet = !!r.password_set; this.expires = Date.now() + (r.expires_in || 0) * 1000; store.set("session", r.token); },
-  async login(password) { this.accept(await this.post("/api/pair", { password })); },
+  async login(password, code) { this.accept(await this.post("/api/pair", code ? { password, code } : { password })); if (code) this.fresh = true; },
   async logout() { try { await this.post("/api/logout"); } catch {} this.forget(); },
   async post(path, body) {
     const r = await fetch(path, { method: "POST", cache: "no-store",
@@ -1732,7 +1736,7 @@ const OWNER = {  // `key` is a session token: it ends after security.session_min
       body: JSON.stringify(body || {}) });
     let data = {}; try { data = await r.json(); } catch {}
     if (r.status === 401) this.forget();
-    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    if (!r.ok) { const err = new Error(data.error || `HTTP ${r.status}`); err.stepUp = !!data.step_up; err.needsCode = !!data.needs_code; throw err; }
     return data;
   },
   async init() {
@@ -1743,14 +1747,35 @@ const OWNER = {  // `key` is a session token: it ends after security.session_min
       catch (e) { toast("Pairing failed: " + e.message); }
     }
     if (this.key) {
-      try { const r = await this.post("/api/ping"); this.paired = true; this.passwordSet = !!r.password_set; this.expires = Date.now() + (r.expires_in || 0) * 1000; }
+      try { const r = await this.post("/api/ping"); this.paired = true; this.passwordSet = !!r.password_set; this.totp = !!r.totp; this.fresh = !!r.fresh; this.expires = Date.now() + (r.expires_in || 0) * 1000; }
       catch { this.paired = false; }
     }
   },
 };
 
+/* Second factor: a code from the authenticator app, asked for when the server says so. */
+function askCode(why) {
+  return new Promise(res => {
+    let done = false;
+    const inp = h("input", { type: "text", inputmode: "numeric", autocomplete: "one-time-code", placeholder: "6-digit code, or a recovery code", "aria-label": "Second-factor code" });
+    const form = h("form", { class: "pwrow", onsubmit: async e => {
+      e.preventDefault();
+      try { await OWNER.post("/api/2fa/verify", { code: inp.value.trim() }); OWNER.fresh = true; done = true; closeFn(); res(true); }
+      catch (err) { toast("Not accepted: " + err.message); inp.value = ""; inp.focus(); }
+    } }, inp, h("button", { type: "submit", class: "btn primary" }, "Verify"));
+    const m = openModal("Second-factor code", h("div", { class: "fields" },
+      h("p", { class: "muted", style: "margin:0", text: why || "This needs a fresh code from your authenticator app." }), form), { onClose: () => { if (!done) res(false); } });
+    const closeFn = () => (m && m.close ? m.close() : document.querySelector(".modal-back")?.remove());
+    inp.focus();
+  });
+}
+async function withStepUp(fn) {  // retry once after a code when the server asks for one
+  try { return await fn(); }
+  catch (e) { if (!e.stepUp || !(await askCode())) throw e; return await fn(); }
+}
+
 /* =========================================================== terminal */
-const TERM = { term: null, fit: null, ws: null, loading: null, status: null };
+const TERM = { term: null, fit: null, ws: null, loading: null, status: null, rootNote: "" };
 function loadVendor() {
   if (TERM.loading) return TERM.loading;
   const add = (tag, attrs) => new Promise((ok, fail) => { const el = h(tag, attrs); el.onload = ok; el.onerror = fail; document.head.append(el); });
@@ -1801,17 +1826,23 @@ function termConnect(fresh) {
   if (!key) return termStatus("This browser isn't paired. " + PAIR_HINT);
   const ws = new WebSocket(`ws://${location.host}/api/term`); ws.binaryType = "arraybuffer"; TERM.ws = ws;
   termStatus("Connecting…");
+  TERM.rootNote = "";
   ws.onopen = () => ws.send(JSON.stringify({ key, size: [term.cols, term.rows] }));
   ws.onmessage = m => {
-    if (typeof m.data !== "string") { termStatus(`Shell in ${world.snapshot.project} · runs as you`); return term.write(new Uint8Array(m.data)); }
+    if (typeof m.data !== "string") { termStatus(`Shell in ${world.snapshot.project} · runs as you${TERM.rootNote}`); return term.write(new Uint8Array(m.data)); }
     let msg; try { msg = JSON.parse(m.data); } catch { return; }
+    if ("root" in msg) TERM.rootNote = msg.root ? " · root allowed (sudo asks for your password)" : msg.why ? ` · ${msg.why}` : "";
     if (msg.exit != null) term.write(`\r\n\x1b[2m[shell ended with code ${msg.exit}. Press New shell for another.]\x1b[0m\r\n`);
     if (msg.error) term.write(`\r\n\x1b[31m${msg.error}\x1b[0m\r\n`);
   };
   ws.onclose = e => {
     if (TERM.ws !== ws) return;
     TERM.ws = null;
-    if (e.code === 1008) { OWNER.forget(); termStatus("This browser isn't paired, or its session ended. " + PAIR_HINT); }
+    if (e.code === 1008 && e.reason === "second factor needed") {
+      termStatus("A root-capable shell needs a fresh code from your authenticator app.");
+      askCode("Root is allowed in the terminal, so a fresh code is needed to open a shell.").then(ok => { if (ok) termConnect(true); });
+    }
+    else if (e.code === 1008) { OWNER.forget(); termStatus("This browser isn't paired, or its session ended. " + PAIR_HINT); }
     else if (e.code === 1013) termStatus("Too many terminals open. Close another Hlidskjalv tab first.");
     else if (e.code === 1006) termStatus("Connection lost. If Hlidskjalv just restarted, press New shell.");
     else termStatus((e.reason ? `Disconnected: ${e.reason}. ` : "Disconnected. ") + "Press New shell to start another.");
@@ -1821,7 +1852,7 @@ function termConnect(fresh) {
 
 /* =========================================================== settings: defaults, look, background */
 // Same as settings.defaults() on the server; a test keeps the two identical.
-const DEFAULT_PREFS = /*DEFAULTS*/{"setup_done":false,"look":{"mode":"system","palette":"neutral","accent":null,"surface":null,"text":null,"font":"system","font_size":15,"brightness":0,"density":"comfortable","radius":12,"animations":true,"background":{"type":"solid","colors":[],"angle":135,"particles":{"density":60,"speed":1.0,"size":2.0,"color":null,"links":true}}},"layout":{"nav_position":"top","nav_labels":false,"views":["live","replay","learn","details","terminal","alerts"],"hidden":[],"default_view":"live"},"features":{"terminal":false,"xp":true},"alerts":{"ai_commands":true,"refused_access":true,"persistence":true,"system_log":true,"cost":true,"view":"grouped","toast_min":"high","notify":false,"sound":false,"colors":{"info":null,"medium":null,"high":null,"critical":null}},"sources":{"trioditis_log":null,"claude_code":true},"security":{"session_minutes":240},"usage":{"fresh_threshold":150000,"week_anchor":null}}/*END*/;
+const DEFAULT_PREFS = /*DEFAULTS*/{"setup_done":false,"look":{"mode":"system","palette":"neutral","accent":null,"surface":null,"text":null,"font":"system","font_size":15,"brightness":0,"density":"comfortable","radius":12,"animations":true,"background":{"type":"solid","colors":[],"angle":135,"particles":{"density":60,"speed":1.0,"size":2.0,"color":null,"links":true}}},"layout":{"nav_position":"top","nav_labels":false,"views":["live","replay","learn","details","terminal","alerts"],"hidden":[],"default_view":"live"},"features":{"terminal":false,"terminal_root":false,"xp":true},"alerts":{"ai_commands":true,"refused_access":true,"persistence":true,"system_log":true,"cost":true,"view":"grouped","toast_min":"high","notify":false,"sound":false,"colors":{"info":null,"medium":null,"high":null,"critical":null}},"sources":{"trioditis_log":null,"claude_code":true},"security":{"session_minutes":240},"usage":{"fresh_threshold":150000,"week_anchor":null}}/*END*/;
 const clone = o => JSON.parse(JSON.stringify(o));
 function deepMerge(base, change) {
   const out = clone(base);
@@ -2003,7 +2034,7 @@ function applyPrefs() { applyLook(PREFS); store.set("prefsCache", PREFS); }
 { const cached = store.get("prefsCache", null); if (cached) { try { PREFS = deepMerge(DEFAULT_PREFS, cached); } catch {} } }
 async function loadPrefs() {
   if (mode === "demo") PREFS = deepMerge(DEFAULT_PREFS, store.get("demoPrefs", {}));
-  else { try { const r = await (await fetch("/api/settings", { cache: "no-store" })).json(); PREFS = deepMerge(DEFAULT_PREFS, r.settings || {}); OWNER.passwordSet = !!r.password_set; } catch {} }
+  else { try { const r = await (await fetch("/api/settings", { cache: "no-store" })).json(); PREFS = deepMerge(DEFAULT_PREFS, r.settings || {}); OWNER.passwordSet = !!r.password_set; OWNER.totp = !!r.totp; OWNER.system = r.system || ""; } catch {} }
   applyPrefs(); return PREFS;
 }
 /* Live: saved on your computer through the owner key (the server validates). Demo: kept in this browser. */
@@ -2013,7 +2044,7 @@ async function savePrefs(change) {
     return { settings: PREFS, restart: false };
   }
   if (!OWNER.key) throw new Error("this browser isn't paired. " + PAIR_HINT);
-  const r = await OWNER.post("/api/settings", { change });
+  const r = await withStepUp(() => OWNER.post("/api/settings", { change }));
   PREFS = deepMerge(DEFAULT_PREFS, r.settings); applyPrefs();
   return r;
 }
@@ -2201,6 +2232,11 @@ function layoutSection(draft, set) {
 function featuresSection(draft, set) {
   return [
     field("In-page terminal", "A real shell in the project folder, for paired browsers only. Applies after a restart. Linux and macOS; Windows is experimental.", toggleCtl(draft.features.terminal, v => set("features.terminal", v), "On")),
+    OWNER.system === "Linux" ? field("Root in the terminal", OWNER.passwordSet
+        ? "Lets the shell in the Terminal tab use sudo, with your password as usual. Hlidskjalv itself stays sandboxed. Refused while sudo needs no password on this computer; with two-factor on, a fresh code is asked for."
+        : "Set a pairing password first (Settings → Pairing). Then the shell in the Terminal tab may use sudo.",
+      toggleCtl(draft.features.terminal_root, v => set("features.terminal_root", v), "Allow")) : null,
+    OWNER.system === "Darwin" ? field("Root in the terminal", "On macOS the shell in the Terminal tab can always use sudo, with your password; there is no way to forbid it there.", h("span", { class: "chip ok", text: "always possible" })) : null,
     field("Levels and XP", "Points for real work, levels and badges.", toggleCtl(draft.features.xp, v => set("features.xp", v), "On")),
     field("Long-context warning", "Flag Claude Code sessions where one turn carries more context than this (Details → Claude Code usage).",
       rangeCtl(10000, 1000000, 10000, draft.usage.fresh_threshold, v => fmt(v) + " tokens", v => set("usage.fresh_threshold", v))),
@@ -2313,11 +2349,21 @@ function spanMin(ms) { const m = Math.max(0, Math.round(ms / 60000)); return m >
 function pairingPane(set, render) {
   const paired = mode !== "demo" && OWNER.paired, minutes = PREFS.security.session_minutes;
   const pw = h("input", { type: "password", autocomplete: "current-password", placeholder: "Password", "aria-label": "Password" });
+  const otp = OWNER.totp ? h("input", { type: "text", inputmode: "numeric", autocomplete: "one-time-code", placeholder: "App code", "aria-label": "Second-factor code", class: "otp" }) : null;
   const loginRow = h("form", { class: "pwrow", onsubmit: async e => {
     e.preventDefault();
-    try { await OWNER.login(pw.value); toast("This browser is paired."); render(); }
-    catch (err) { toast("Not paired: " + err.message); pw.value = ""; pw.focus(); }
-  } }, pw, h("button", { type: "submit", class: "btn primary" }, "Pair"));
+    try { await OWNER.login(pw.value, otp ? otp.value.trim() : undefined); toast("This browser is paired."); render(); }
+    catch (err) { toast("Not paired: " + err.message); pw.value = ""; if (otp) otp.value = ""; pw.focus(); }
+  } }, pw, otp, h("button", { type: "submit", class: "btn primary" }, "Pair"));
+  const offCode = h("input", { type: "text", inputmode: "numeric", autocomplete: "one-time-code", placeholder: "App code", "aria-label": "Second-factor code", class: "otp" });
+  const twoFactor = !paired ? null : OWNER.totp
+    ? field("Two-factor", "On. Pairing with the password also needs a code from your authenticator app; root shells and security changes ask for a fresh one. Recovery codes work once each.",
+        h("form", { class: "pwrow", onsubmit: async e => { e.preventDefault();
+          try { await OWNER.post("/api/2fa/disable", { code: offCode.value.trim() }); OWNER.totp = false; toast("Two-factor authentication is off."); render(); }
+          catch (err) { toast("Not changed: " + err.message); offCode.value = ""; } } },
+          h("span", { class: "chip ok", text: "on" }), offCode, h("button", { type: "submit", class: "btn" }, "Turn off")))
+    : field("Two-factor", "Adds a code from an authenticator app (Aegis, Google Authenticator, 1Password, …) to the password. You get recovery codes for a lost phone; the one-time link still works from this computer.",
+        h("button", { type: "button", class: "btn primary", onclick: () => setupTwoFactor(render) }, "Set up…"));
   const newPw = h("input", { type: "password", autocomplete: "new-password", placeholder: "New password (8+ characters)", "aria-label": "New password" });
   const curPw = OWNER.passwordSet ? h("input", { type: "password", autocomplete: "current-password", placeholder: "Current password", "aria-label": "Current password" }) : null;
   const savePw = async (clear) => {
@@ -2336,11 +2382,43 @@ function pairingPane(set, render) {
     !paired && mode !== "demo" ? field("Pair with the password", OWNER.passwordSet ? "The one set in this Hlidskjalv. Five wrong tries lock this for a minute." : "No password is set yet: pair once with the link below, then set one here.", OWNER.passwordSet ? loginRow : null) : null,
     paired ? field("Session length", "How long a paired browser stays paired without activity.", rangeCtl(15, 1440, 15, minutes, v => spanMin(v * 60000), v => set("security.session_minutes", v))) : null,
     paired ? field(OWNER.passwordSet ? "Password" : "Set a password", "Lets any browser on this computer pair by typing it, instead of a one-time link.", pwForm) : null,
+    OWNER.passwordSet ? twoFactor : null,
     field("Pair with a link", "Prints a link that works once, for 10 minutes.", h("div", { class: "cmd", text: "python3 -m hlidskjalv pair --open" })),
     field("Un-pair every browser", "Ends every session right away.", h("div", { class: "cmd", text: "python3 -m hlidskjalv pair --rotate" })),
     mode !== "demo" ? field("Address", "The same page under a name. Works in Chrome, Edge and Firefox as is; Safari needs 127.0.0.1. Pairing is per address.",
       h("a", { href: `http://hlidskjalv.localhost:${location.port || 80}/`, text: `http://hlidskjalv.localhost:${location.port || 80}/` })) : null,
   ];
+}
+function setupTwoFactor(render) {
+  const box = h("div", { class: "fields" });
+  const m = openModal("Set up two-factor authentication", box);
+  const closeFn = () => (m && m.close ? m.close() : document.querySelector(".modal-back")?.remove());
+  const add = (tag, attrs) => new Promise((ok, fail) => { const el = h(tag, attrs); el.onload = ok; el.onerror = fail; document.head.append(el); });
+  (async () => {
+    const d = await OWNER.post("/api/2fa/begin");
+    if (!window.qrcode) await add("script", { src: "/static/vendor/qrcode.js" });
+    const qr = window.qrcode(0, "M"); qr.addData(d.uri); qr.make();
+    const pic = h("div", { class: "qr" }); pic.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+    const code = h("input", { type: "text", inputmode: "numeric", autocomplete: "one-time-code", placeholder: "Code the app shows", "aria-label": "Code", class: "otp" });
+    const form = h("form", { class: "pwrow", onsubmit: async e => {
+      e.preventDefault();
+      try {
+        const r = await OWNER.post("/api/2fa/confirm", { code: code.value.trim() });
+        OWNER.totp = true; OWNER.fresh = true;
+        const text = r.recovery.join("\n");
+        fill(box, h("p", { text: "Two-factor authentication is on. These recovery codes each work once if the phone is lost. Save them now: they are not shown again." }),
+          h("div", { class: "codes" }, ...r.recovery.map(c => h("span", { text: c }))),
+          h("div", { class: "pwrow" },
+            h("button", { type: "button", class: "btn", onclick: () => navigator.clipboard?.writeText(text).then(() => toast("Copied.")) }, "Copy"),
+            h("a", { class: "btn", href: URL.createObjectURL(new Blob([text + "\n"], { type: "text/plain" })), download: "hlidskjalv-recovery-codes.txt" }, "Download"),
+            h("button", { type: "button", class: "btn primary", onclick: () => { closeFn(); render(); } }, "Done")));
+      } catch (err) { toast("Not confirmed: " + err.message); code.value = ""; code.focus(); }
+    } }, code, h("button", { type: "submit", class: "btn primary" }, "Confirm"));
+    fill(box, h("p", { class: "muted", style: "margin:0", text: "1. Scan this with your authenticator app, or enter the key by hand." }), pic,
+      h("div", { class: "cmd", text: d.secret }),
+      h("p", { class: "muted", style: "margin:0", text: "2. Enter the six-digit code the app shows." }), form);
+    code.focus();
+  })().catch(err => { toast("Couldn't start: " + err.message); closeFn(); });
 }
 function dataPane() {
   const file = h("input", { type: "file", accept: "application/json", hidden: true, onchange: async e => {
