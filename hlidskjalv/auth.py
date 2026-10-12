@@ -50,7 +50,7 @@ class Owner:
         self.pair_file = home / "pair"
         self._lock = threading.Lock()
         self._launch: tuple[str, float] | None = None
-        self._mtime: int | None = None
+        self._stamp: tuple | None = None
         self._key = ""
         if len(self.key) < 40:
             write_private(self.key_file, new_token())
@@ -59,11 +59,15 @@ class Owner:
     def key(self) -> str:
         """Re-read when the file changes, so `pair --rotate` applies without a restart."""
         try:
-            mtime = self.key_file.stat().st_mtime_ns
-            if mtime != self._mtime:
-                self._key, self._mtime = self.key_file.read_text(encoding="utf-8").strip(), mtime
+            st = self.key_file.stat()
+            # mtime alone is not enough: Windows stamps files with the ~1-15 ms system tick, so a
+            # rotation right after the previous write can look unchanged. write_private replaces
+            # the file, which gives it a new inode / file id, so that is compared too.
+            stamp = (st.st_mtime_ns, st.st_ino, st.st_size)
+            if stamp != self._stamp:
+                self._key, self._stamp = self.key_file.read_text(encoding="utf-8").strip(), stamp
         except OSError:
-            self._key, self._mtime = "", None
+            self._key, self._stamp = "", None
         return self._key
 
     def check(self, given) -> bool:

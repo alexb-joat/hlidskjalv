@@ -158,7 +158,9 @@ class ConPtyShell:
         return os.read(self.fd_out, 65536)
 
     def write(self, data: bytes) -> None:
-        os.write(self.fd_in, data)
+        # Enter is CR on a Windows console; a bare LF makes PowerShell wait for more lines.
+        # A POSIX pty maps CR to NL on input (ICRNL); this is the mirror image of that.
+        os.write(self.fd_in, data.replace(b"\r\n", b"\r").replace(b"\n", b"\r"))
 
     def resize(self, size) -> None:
         if not self._closed.is_set():

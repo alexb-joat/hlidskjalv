@@ -7,7 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from hlidskjalv.__main__ import HOOKS, check_folder
 from hlidskjalv.redact import redact
@@ -229,7 +229,8 @@ class WsClient:
     open: list = []
 
     def __init__(self, port, origin=None, host=None):
-        self.sock = socket.create_connection(("127.0.0.1", port), timeout=5)
+        # PowerShell under ConPTY can take a few seconds to print its first prompt on a CI runner.
+        self.sock = socket.create_connection(("127.0.0.1", port), timeout=20 if os.name == "nt" else 5)
         WsClient.open.append(self)
         origin = origin or f"http://127.0.0.1:{port}"
         req = (f"GET /api/term HTTP/1.1\r\nHost: {host or f'127.0.0.1:{port}'}\r\nUpgrade: websocket\r\n"
@@ -260,7 +261,6 @@ class WsClient:
         return b1 & 0x0F, self.f.read(n)
 
     def read_until(self, needle: bytes, limit=None):
-        # PowerShell under ConPTY takes several seconds to start on a Windows CI runner.
         out, end = b"", time.time() + (limit or (20.0 if os.name == "nt" else 5.0))
         while needle not in out and time.time() < end:
             op, data = self.recv()
@@ -509,7 +509,7 @@ class WriteApiTest(unittest.TestCase):
 class AutostartTest(unittest.TestCase):
     def test_unit_is_hardened_and_quotes_paths(self):
         from hlidskjalv import autostart as a
-        unit = a.render_unit(Path("/home/me/My Project"), 8790)
+        unit = a.render_unit(PurePosixPath("/home/me/My Project"), 8790)  # a Linux file, on any test OS
         self.assertIn("ExecStart=", unit)
         self.assertIn("'/home/me/My Project' --no-open --port 8790", unit)
         for rule in ("UMask=0077", "NoNewPrivileges=true", "Restart=on-failure"):
@@ -518,7 +518,7 @@ class AutostartTest(unittest.TestCase):
 
     def test_plist_escapes(self):
         from hlidskjalv import autostart as a
-        plist = a.render_plist(Path("/Users/me/a&b"), 8788, Path("/tmp/log"))
+        plist = a.render_plist(PurePosixPath("/Users/me/a&b"), 8788, PurePosixPath("/tmp/log"))
         self.assertIn("<string>/Users/me/a&amp;b</string>", plist)
 
     def test_status_reads_systemd_without_changing_anything(self):
@@ -827,13 +827,15 @@ class ProgramsTest(unittest.TestCase):
     def test_programs_come_from_system_dirs_not_path(self):
         from hlidskjalv.programs import which
         fake = Path(tempfile.mkdtemp())
-        (fake / "git").write_text("#!/bin/sh\necho pwned\n")
-        os.chmod(fake / "git", 0o755)
+        name = "git.exe" if os.name == "nt" else "git"  # Windows only runs PATHEXT names
+        (fake / name).write_text("#!/bin/sh\necho pwned\n")
+        os.chmod(fake / name, 0o755)
         old = os.environ.get("PATH", "")
         os.environ["PATH"] = f"{fake}{os.pathsep}{old}"
         try:
             import shutil
-            self.assertEqual(shutil.which("git"), str(fake / "git"))   # PATH would hand us the fake
+            found = shutil.which("git") or ""
+            self.assertTrue(found.lower().startswith(str(fake).lower()), found)  # PATH would hand us the fake
             got = which("git")
             self.assertTrue(got is None or not got.startswith(str(fake)))
             self.assertIsNone(which("definitely-not-a-program-xyz"))

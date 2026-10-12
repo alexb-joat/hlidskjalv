@@ -163,8 +163,8 @@ class Terminal:
             else:
                 from .conpty import ConPtyShell
                 shell = ConPtyShell(self.shell(), self.root, env, size)
-        except OSError as e:
-            ws.send(OP_TEXT, json.dumps({"error": f"couldn't start a shell: {e.strerror or e}"}).encode())
+        except Exception as e:  # OSError, or a ctypes error from the Windows pseudo-console
+            ws.send(OP_TEXT, json.dumps({"error": f"couldn't start a shell: {getattr(e, 'strerror', None) or e}"}).encode())
             return ws.close(1011)
 
         def pump():  # shell -> browser
