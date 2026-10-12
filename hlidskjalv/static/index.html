@@ -253,7 +253,7 @@ h3 { font-size: calc(17px * var(--fz)); margin: 0; font-weight: 800; text-wrap: 
 .dgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 @media (max-width: 980px) { .dgrid { grid-template-columns: minmax(0, 1fr); } }
 .dcol { display: grid; gap: 16px; min-width: 0; }
-.dpanel { padding: calc(16px * var(--pad)); display: grid; gap: 12px; min-width: 0; }
+.dpanel { padding: calc(16px * var(--pad)); display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-width: 0; }
 .dpanel > header { display: flex; gap: 10px; align-items: center; min-width: 0; }
 .dpanel > header .ico { width: 38px; height: 38px; border-radius: calc(var(--r) * 0.833333); display: grid; place-items: center; color: var(--c, var(--muted)); background: color-mix(in srgb, var(--c, var(--muted)) 16%, transparent); flex: none; }
 .dpanel > header .ico svg { width: 20px; height: 20px; }
@@ -263,7 +263,10 @@ h3 { font-size: calc(17px * var(--fz)); margin: 0; font-weight: 800; text-wrap: 
 .kv dd { margin: 0; overflow-wrap: anywhere; }
 .kv dd small { display: block; color: var(--muted); font-size: calc(12.5px * var(--fz)); }
 .dlist { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.dlist li { padding: 8px 10px; border-radius: calc(var(--r) * 0.833333); background: var(--raised); font-size: calc(14px * var(--fz)); overflow-wrap: anywhere; }
+.dlist li { padding: 8px 10px; border-radius: calc(var(--r) * 0.833333); background: var(--raised); font-size: calc(14px * var(--fz)); overflow-wrap: anywhere; min-width: 0; }
+/* A grid item is never narrower than its widest content unless told so; without this an open
+   config.yaml block or a wide table pushes a whole panel past its border. */
+.dlist, .dpanel > *, .tablewrap, .dlist li > details, .dlist li > .cmd { min-width: 0; max-width: 100%; }
 .dlist li small { display: block; color: var(--muted); font-size: calc(12.5px * var(--fz)); }
 .dlist li.bad { box-shadow: inset 3px 0 0 var(--danger); } .dlist li.warn { box-shadow: inset 3px 0 0 var(--warn); }
 .dlist li.ok { box-shadow: inset 3px 0 0 var(--ok); } .dlist li.ai { box-shadow: inset 3px 0 0 var(--ai); }
