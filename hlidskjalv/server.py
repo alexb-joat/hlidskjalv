@@ -49,7 +49,8 @@ ICONS = {"/icon.svg": ("image/svg+xml", ICON_SVG.encode()), "/mask.svg": ("image
 
 
 def csp(port: int) -> str:
-    ws = " ".join(f"ws://{h}:{port}" for h in ("127.0.0.1", "localhost", "[::1]", NICE_HOST))
+    # No [::1]: the server binds 127.0.0.1 only, and WebKit rejects an IPv6 literal in a CSP source list.
+    ws = " ".join(f"ws://{h}:{port}" for h in ("127.0.0.1", "localhost", NICE_HOST))
     return ("default-src 'none'; script-src 'self' 'unsafe-inline'; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             f"font-src https://fonts.gstatic.com; connect-src 'self' {ws}; img-src 'self' data:; "
@@ -239,7 +240,7 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
             + resources.files("hlidskjalv").joinpath("static/index.html").read_bytes()
             + b"</body></html>")
     # *.localhost resolves to loopback in Chrome, Edge and Firefox without any setup.
-    allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}", f"{NICE_HOST}:{port}"}
+    allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"{NICE_HOST}:{port}"}
     allowed_origins = {"http://" + h for h in allowed_hosts}
     policy = csp(port)
 
