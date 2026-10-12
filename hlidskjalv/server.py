@@ -142,6 +142,7 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
     class Handler(BaseHTTPRequestHandler):
         server_version = "hlidskjalv"
         sys_version = ""
+        timeout = 60  # a half-open local connection can't hold a thread forever (the terminal lifts this once paired)
 
         def log_message(self, *args):  # keep the terminal quiet
             pass
@@ -194,7 +195,10 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                 with hub.cond:
                     self._json({"snapshot": hub.snapshot, "events": list(hub.events)})
             elif url.path == "/api/events":
-                self._stream(int((q.get("after") or ["0"])[0] or 0))
+                after = (q.get("after") or ["0"])[0]
+                if not after.isdigit():
+                    return self._json({"error": "after must be a number"}, HTTPStatus.BAD_REQUEST)
+                self._stream(int(after))
             elif url.path == "/api/sessions":
                 self._json(list_sessions(sessions))
             elif url.path.startswith("/static/vendor/") and url.path[15:] in VENDOR:

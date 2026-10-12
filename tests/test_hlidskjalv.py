@@ -822,6 +822,37 @@ class ProviderDataTest(unittest.TestCase):
         self.assertEqual(accounts(home)["providers"]["openrouter"]["limit"], 5)
 
 
+class ProgramsTest(unittest.TestCase):
+    def test_programs_come_from_system_dirs_not_path(self):
+        from hlidskjalv.programs import which
+        fake = Path(tempfile.mkdtemp())
+        (fake / "git").write_text("#!/bin/sh\necho pwned\n")
+        os.chmod(fake / "git", 0o755)
+        old = os.environ.get("PATH", "")
+        os.environ["PATH"] = f"{fake}{os.pathsep}{old}"
+        try:
+            import shutil
+            self.assertEqual(shutil.which("git"), str(fake / "git"))   # PATH would hand us the fake
+            got = which("git")
+            self.assertTrue(got is None or not got.startswith(str(fake)))
+            self.assertIsNone(which("definitely-not-a-program-xyz"))
+        finally:
+            os.environ["PATH"] = old
+
+    def test_bad_after_is_a_400_not_a_crash(self):
+        port = free_port()
+        httpd = serve(Hub("demo", [], None, {}), Path(tempfile.mkdtemp()), port)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            c.request("GET", "/api/events?after=abc", headers={"Host": f"127.0.0.1:{port}"})
+            r = c.getresponse(); r.read()
+            self.assertEqual(r.status, 400)
+            c.close()
+        finally:
+            httpd.shutdown(); httpd.server_close()
+
+
 class ServerTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

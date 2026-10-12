@@ -15,6 +15,7 @@ import subprocess
 import time
 from pathlib import Path
 
+from .programs import which
 from .redact import redact
 
 SKIP_DIRS = {
@@ -142,7 +143,7 @@ class GitWatcher:
 
     def __init__(self, root: Path):
         self.root = root
-        self.git = shutil.which("git")
+        self.git = which("git")
         self.head: str | None = None
         self.branch: str | None = None
         self.next_check = 0.0

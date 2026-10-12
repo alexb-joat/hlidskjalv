@@ -34,6 +34,7 @@ import threading
 import time
 from pathlib import Path
 
+from .programs import which
 from .redact import redact
 
 SEVERITIES = ("info", "medium", "high", "critical")
@@ -175,7 +176,7 @@ class Target:
         if self.reader:
             return self.reader()
         if self.command:
-            exe = shutil.which(self.command[0])
+            exe = which(self.command[0])
             if not exe:
                 return {}
             try:
@@ -369,7 +370,7 @@ class SystemLogWatcher:
         self.cursor: str | None = None
         self.available, self.why = False, "only on Linux"
         self._next = 0.0
-        if _system() == "linux" and (runner or shutil.which("journalctl")):
+        if _system() == "linux" and (runner or which("journalctl")):
             out = self.run(["-n", "1", "-o", "json", "--system", *self.MATCHES])
             if out is None:
                 self.why = "journalctl failed"
@@ -385,7 +386,7 @@ class SystemLogWatcher:
 
     @staticmethod
     def _journalctl(args: list[str]) -> str | None:
-        exe = shutil.which("journalctl")
+        exe = which("journalctl")
         if not exe:
             return None
         try:

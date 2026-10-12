@@ -17,11 +17,12 @@ from __future__ import annotations
 import os
 import platform
 import shlex
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 from xml.sax.saxutils import escape
+
+from .programs import which
 
 UNIT = "hlidskjalv.service"
 LABEL = "io.github.hlidskjalv.watch"
@@ -132,7 +133,7 @@ def plist_path() -> Path:
 
 
 def _run(*args: str, timeout: float = 15) -> tuple[int, str]:
-    exe = shutil.which(args[0])
+    exe = which(args[0])
     if not exe:
         return 127, f"{args[0]} not found"
     try:
