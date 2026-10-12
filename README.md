@@ -106,7 +106,7 @@ The first time you open it, a short setup asks how it should look; skip it and e
 - **Features and sources:** the in-page terminal, levels and XP, Trioditis's log, Claude Code.
 - **Your settings:** export, import, reset, or run the setup again.
 
-Settings are saved in `~/.hlidskjalv/settings.json` and checked on every change. Changing them needs a paired browser (see below).
+The live map starts with the last seven days of earlier sessions (up to 3000 events), so a restart doesn't wipe the activity log, and lifetime XP is kept in `~/.hlidskjalv/progress.json` even after old sessions are pruned.\n\nSettings are saved in `~/.hlidskjalv/settings.json` and checked on every change. Changing them needs a paired browser (see below).
 
 ## Start at login (optional)
 
@@ -154,7 +154,7 @@ Watching needs nothing. Anything that **changes** something (settings, the termi
 - **Password.** Set one with `python3 -m hlidskjalv password` (or, once paired, in Settings → Pairing), then type it in Settings → Pairing of any browser on this computer. It is stored as a salted hash in `~/.hlidskjalv/password` (readable only by you); five wrong tries in ten minutes lock it for a minute, and every wrong try shows up in Alerts.
 - **One-time link.** The link Hlidskjalv opens at start pairs that browser automatically. For a Hlidskjalv started with `--no-open` or at login: `python3 -m hlidskjalv pair` prints a link (add `--open` to open it). Links work **once** and expire after 10 minutes, so a copied link is worthless.
 
-Sessions are stored hashed in `~/.hlidskjalv/web-sessions.json` and survive restarts. The owner key in `~/.hlidskjalv/owner.key` never leaves your files; `python3 -m hlidskjalv pair --rotate` replaces it and ends every session at once. "Log out" in Settings → Pairing ends the session of that browser only.
+Sessions are stored hashed in `~/.hlidskjalv/web-sessions.json` and survive restarts. The same page is also at `http://hlidskjalv.localhost:8788/` in Chrome, Edge and Firefox (Safari needs `127.0.0.1`); each address pairs separately. The owner key in `~/.hlidskjalv/owner.key` never leaves your files; `python3 -m hlidskjalv pair --rotate` replaces it and ends every session at once. "Log out" in Settings → Pairing ends the session of that browser only.
 
 Changes must also come from Hlidskjalv's own page (Origin check) and be JSON, so other websites can't send them. Settings are saved in `~/.hlidskjalv/settings.json`.
 

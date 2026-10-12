@@ -53,8 +53,8 @@ def accept_key(key: str) -> str:
 class WebSocket:
     """Minimal RFC 6455 server side: masked client frames in, unmasked frames out."""
 
-    def __init__(self, rfile, wfile):
-        self.rfile, self.wfile = rfile, wfile
+    def __init__(self, rfile, wfile, sock=None):
+        self.rfile, self.wfile, self.sock = rfile, wfile, sock
         self.lock = threading.Lock()
         self.closed = False
 
@@ -108,11 +108,22 @@ class WebSocket:
             self.wfile.write(head + payload)
             self.wfile.flush()
 
-    def close(self, code: int = 1000, reason: str = "") -> None:
+    def close(self, code: int = 1000, reason: str = "", drain: bool = False) -> None:
+        """Send a close frame. With drain (only from the thread that reads this socket), wait briefly
+        for the browser's own close frame: dropping the connection with it still in flight makes
+        the kernel reset the socket, and the browser then reports 1006 instead of our code."""
         try:
             self.send(OP_CLOSE, struct.pack("!H", code) + reason.encode()[:120])
         except OSError:
             pass
+        if drain and self.sock is not None and not self.closed:
+            try:
+                self.sock.settimeout(1.0)
+                for _ in range(8):
+                    if self.recv()[0] == OP_CLOSE:
+                        break
+            except (OSError, ConnectionError, ValueError):
+                pass
         self.closed = True
 
 
@@ -138,7 +149,7 @@ class Terminal:
         """Authenticate, then bridge the WebSocket and a fresh pty shell until either ends."""
         if not self.slots.acquire(blocking=False):
             self.on_refused("info", "A terminal was refused: too many open", f"At most {MAX_SESSIONS} at a time.", "term-slots")
-            return ws.close(1013, "too many terminals open")
+            return ws.close(1013, "too many terminals open", drain=True)
         try:
             sock.settimeout(AUTH_TIMEOUT_S)
             try:
@@ -149,7 +160,7 @@ class Terminal:
             if not isinstance(hello, dict) or not self.owner.check(hello.get("key")):
                 self.on_refused("medium", "A terminal connection without the owner key was refused",
                                 "Only a paired browser may open a shell.", "term-key")
-                return ws.close(1008, "not paired")
+                return ws.close(1008, "not paired", drain=True)
             sock.settimeout(None)
             self._bridge(ws, hello.get("size"))
         finally:
@@ -165,7 +176,7 @@ class Terminal:
                 shell = ConPtyShell(self.shell(), self.root, env, size)
         except Exception as e:  # OSError, or a ctypes error from the Windows pseudo-console
             ws.send(OP_TEXT, json.dumps({"error": f"couldn't start a shell: {getattr(e, 'strerror', None) or e}"}).encode())
-            return ws.close(1011)
+            return ws.close(1011, drain=True)
 
         def pump():  # shell -> browser
             try:

@@ -21,7 +21,7 @@ from importlib import resources
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from .auth import Owner
+from .auth import Owner, write_private
 from .settings import Settings, SettingsError
 from .terminal import Terminal, WebSocket, accept_key
 
@@ -34,8 +34,15 @@ VENDOR = {"xterm.js": "text/javascript; charset=utf-8", "addon-fit.js": "text/ja
           "xterm.css": "text/css; charset=utf-8"}
 
 
+NICE_HOST = "hlidskjalv.localhost"
+FAVICON = ("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E"
+           "%3Crect x='2' y='2' width='28' height='28' rx='8' fill='%233b5bdb'/%3E"
+           "%3Cpath d='M9 21l4-10 3 7 2-4 5 7' fill='none' stroke='%23fff' stroke-width='2.6'"
+           " stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+
+
 def csp(port: int) -> str:
-    ws = " ".join(f"ws://{h}:{port}" for h in ("127.0.0.1", "localhost", "[::1]"))
+    ws = " ".join(f"ws://{h}:{port}" for h in ("127.0.0.1", "localhost", "[::1]", NICE_HOST))
     return ("default-src 'none'; script-src 'self' 'unsafe-inline'; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             f"font-src https://fonts.gstatic.com; connect-src 'self' {ws}; img-src 'self' data:; "
@@ -48,12 +55,89 @@ def private_file(path: Path):
     return os.fdopen(fd, "a", encoding="utf-8", buffering=1)
 
 
-class Hub:
-    """Holds this session's events, writes them to the session file, wakes listeners."""
+# Same as XP_RULES / xpOf in the page; a test keeps the two identical.
+XP_RULES = {"file_created": 10, "file_changed": 5, "file_deleted": 2, "command": 3, "commit": 50, "branch": 10, "ai_call": 2}
+HISTORY_EVENTS = 3000  # how much of earlier sessions the live view starts with ...
+HISTORY_DAYS = 7  # ... and no older than this
 
-    def __init__(self, project: str, snapshot: list[dict], session_path: Path | None, meta: dict):
+
+def xp_of(ev: dict) -> int:
+    if ev.get("actor") == "ai":
+        return 0
+    return XP_RULES.get(ev.get("type"), 0) + (3 if ev.get("type") == "ai_call" and ev.get("local") else 0)
+
+
+def load_history(folder: Path, limit: int = HISTORY_EVENTS, days: int = HISTORY_DAYS) -> list[dict]:
+    """Events of earlier sessions, newest files first until `limit`, in time order: a restart
+    (Settings do one) must not wipe the activity log."""
+    out: list[dict] = []
+    oldest = time.time() - days * 86400
+    for s in list_sessions(folder):
+        if len(out) >= limit:
+            break
+        evs = [e for e in (read_session(folder, s["id"]) or []) if e.get("type") != "snapshot" and e.get("ts", 0) >= oldest]
+        out = evs[-(limit - len(out)):] + out if evs else out
+    return out
+
+
+class Progress:
+    """Lifetime XP, in ~/.hlidskjalv/progress.json: the sessions the activity log starts with are
+    pruned after a while, but what you earned stays."""
+
+    def __init__(self, home: Path, sessions: Path):
+        self.path = home / "progress.json"
+        self.lock = threading.Lock()
+        self._saved = 0.0
+        self._timer: threading.Timer | None = None
+        try:
+            d = json.loads(self.path.read_text(encoding="utf-8"))
+            self.xp, self.events, self.since = int(d["xp"]), int(d["events"]), float(d["since"])
+        except (OSError, ValueError, KeyError, TypeError):
+            # First run with a ledger: count what the kept sessions already hold.
+            self.xp = self.events = 0
+            self.since = time.time()
+            for s in list_sessions(sessions):
+                for e in read_session(sessions, s["id"]) or []:
+                    if e.get("type") != "snapshot":
+                        self.xp += xp_of(e)
+                        self.events += 1
+                        self.since = min(self.since, float(e.get("ts") or self.since))
+            self.save()
+
+    def add(self, ev: dict) -> None:
+        with self.lock:
+            self.xp += xp_of(ev)
+            self.events += 1
+            if time.time() - self._saved > 5:
+                self.save()
+            elif self._timer is None:  # a burst of events: one write, a few seconds later
+                self._timer = threading.Timer(5, self._flush)
+                self._timer.daemon = True
+                self._timer.start()
+
+    def _flush(self) -> None:
+        with self.lock:
+            self._timer = None
+            self.save()
+
+    def save(self) -> None:
+        try:
+            write_private(self.path, json.dumps({"xp": self.xp, "events": self.events, "since": self.since}))
+        except OSError:
+            pass
+        self._saved = time.time()
+
+
+class Hub:
+    """Holds this session's events (after those of recent earlier sessions), writes the new ones to
+    the session file, wakes listeners."""
+
+    def __init__(self, project: str, snapshot: list[dict], session_path: Path | None, meta: dict,
+                 history: list[dict] | None = None, progress: Progress | None = None):
         self.cond = threading.Condition()
-        self.events: list[dict] = []
+        self.events: list[dict] = [{**e, "id": i + 1} for i, e in enumerate((history or [])[:MAX_EVENTS])]
+        self.history_n = len(self.events)
+        self.progress = progress
         self.snapshot = {"type": "snapshot", "ts": time.time(), "project": project,
                          "files": snapshot, **meta}
         self.out = private_file(session_path) if session_path else None
@@ -67,7 +151,15 @@ class Hub:
                 self.events.append(ev)
             if self.out:
                 self.out.write(json.dumps(ev, ensure_ascii=False) + "\n")
+            if self.progress:
+                self.progress.add(ev)
             self.cond.notify_all()
+
+    def archived_xp(self) -> int:
+        """XP earned before the events the live view holds (lifetime minus what is loaded)."""
+        if not self.progress:
+            return 0
+        return max(0, self.progress.xp - sum(xp_of(e) for e in self.events))
 
     def after(self, last_id: int, timeout: float) -> list[dict]:
         with self.cond:
@@ -132,10 +224,11 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
     # hosted demo, which adds them); add them here for the local server.
     page = (b'<!doctype html><html lang="en"><head><meta charset="utf-8">'
             b'<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
-            b'<link rel="icon" href="data:,"></head><body>'
+            + f'<link rel="icon" href="{FAVICON}">'.encode() + b'</head><body>'
             + resources.files("hlidskjalv").joinpath("static/index.html").read_bytes()
             + b"</body></html>")
-    allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
+    # *.localhost resolves to loopback in Chrome, Edge and Firefox without any setup.
+    allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}", f"{NICE_HOST}:{port}"}
     allowed_origins = {"http://" + h for h in allowed_hosts}
     policy = csp(port)
 
@@ -193,7 +286,8 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                 self.wfile.write(page)
             elif url.path == "/api/state":
                 with hub.cond:
-                    self._json({"snapshot": hub.snapshot, "events": list(hub.events)})
+                    self._json({"snapshot": hub.snapshot, "events": list(hub.events),
+                                "progress": {"archived_xp": hub.archived_xp(), "history": hub.history_n}})
             elif url.path == "/api/events":
                 after = (q.get("after") or ["0"])[0]
                 if not after.isdigit():
@@ -258,7 +352,7 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
             self.wfile.flush()
             self.close_connection = True
             try:
-                terminal.run(WebSocket(self.rfile, self.wfile), self.connection)
+                terminal.run(WebSocket(self.rfile, self.wfile, self.connection), self.connection)
             except (ConnectionError, OSError):
                 pass
 

@@ -6,6 +6,7 @@ import socket
 import tempfile
 import threading
 import time
+import re
 import unittest
 from unittest import mock
 from pathlib import Path, PurePosixPath
@@ -15,7 +16,7 @@ from hlidskjalv.redact import redact
 from hlidskjalv import terminal as term
 from hlidskjalv.auth import Owner, issue_pair_code, rotate_key
 from hlidskjalv.settings import Settings, SettingsError, defaults, merge
-from hlidskjalv.server import Hub, read_session, serve
+from hlidskjalv.server import XP_RULES, Hub, Progress, load_history, read_session, serve, xp_of
 from hlidskjalv.sources import (
     ClaudeCodeWatcher, CommandWatcher, FileWatcher, TrioditisWatcher, claude_code_project_dir,
 )
@@ -1048,3 +1049,45 @@ class CliTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HistoryAndProgressTest(unittest.TestCase):
+    def write_session(self, folder, name, events):
+        folder.mkdir(parents=True, exist_ok=True)
+        with (folder / name).open("w", encoding="utf-8") as f:
+            f.write(json.dumps({"type": "snapshot", "ts": 1, "project": "p", "files": []}) + "\n")
+            for e in events:
+                f.write(json.dumps(e) + "\n")
+
+    def test_xp_rules_match_the_page(self):
+        page = (Path(__file__).resolve().parent.parent / "hlidskjalv" / "static" / "index.html").read_text(encoding="utf-8")
+        literal = re.search(r"const XP_RULES = \{([^}]*)\}", page).group(1)
+        rules = {k.strip(): int(v) for k, v in (kv.split(":") for kv in literal.split(","))}
+        self.assertEqual(rules, XP_RULES)
+        self.assertEqual(xp_of({"type": "ai_call", "local": True}), 5)
+        self.assertEqual(xp_of({"type": "commit", "actor": "ai"}), 0)
+
+    def test_live_view_continues_from_recent_sessions(self):
+        home = Path(tempfile.mkdtemp()); sessions = home / "sessions"
+        now = time.time()
+        self.write_session(sessions, "20260101-000000-p.jsonl", [{"type": "commit", "ts": now - 30 * 86400}])  # too old
+        self.write_session(sessions, "20260102-000000-p.jsonl", [{"type": "file_created", "ts": now - 100, "id": 7}])
+        self.write_session(sessions, "20260103-000000-p.jsonl", [{"type": "command", "ts": now - 50, "id": 1}, {"type": "commit", "ts": now - 10, "id": 2}])
+        hist = load_history(sessions)
+        self.assertEqual([e["type"] for e in hist], ["file_created", "command", "commit"])
+        self.assertEqual([e["type"] for e in load_history(sessions, limit=2)], ["command", "commit"])
+        prog = Progress(home, sessions)  # first run: counts every kept session, the old one included
+        self.assertEqual((prog.xp, prog.events), (50 + 10 + 3 + 50, 4))
+        self.assertTrue((home / "progress.json").exists())
+        hub = Hub("p", [], sessions / "20260104-000000-p.jsonl", {}, history=hist, progress=prog)
+        self.assertEqual([e["id"] for e in hub.events], [1, 2, 3])  # renumbered, in order
+        self.assertEqual(hub.history_n, 3)
+        self.assertEqual(hub.archived_xp(), 50)  # the pruned-away old commit still counts
+        prog._saved = 0  # as if the last write were long ago: this one is written at once
+        hub.publish({"type": "file_changed"})
+        self.assertEqual(hub.events[-1]["id"], 4)
+        self.assertEqual((prog.xp, prog.events), (118, 5))
+        lines = (sessions / "20260104-000000-p.jsonl").read_text().splitlines()
+        self.assertEqual(len(lines), 2)  # snapshot + the new event only: history is not re-recorded
+        self.assertEqual(Progress(home, sessions).xp, 118)  # persisted
+        self.assertEqual(Hub("p", [], None, {}).archived_xp(), 0)

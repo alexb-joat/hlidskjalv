@@ -1128,11 +1128,11 @@ function sourceChips(snap) {
     chip(snap.terminal, "Shell", "The Terminal tab runs a real shell in this folder.", { body: "The in-browser terminal is off. Start Hlidskjalv with --terminal to switch it on.", where: "python -m hlidskjalv watch <folder> --terminal" }),
   );
 }
-function startWorld(snap, events) {
+function startWorld(snap, events, archivedXp = 0) {
   world = newWorld(snap); worldView.clear(); liveEvents = [...events];
   $("#project").textContent = snap.project + (snap.branch ? ` · ${snap.branch}` : "");
   sourceChips(snap);
-  workXp = 0;
+  workXp = archivedXp;  // earned in sessions no longer loaded (the server keeps the total)
   events.forEach((ev, i) => { applyEvent(world, ev); workXp += xpOf(ev); if (i >= events.length - 300) worldView.add(ev); alertEvent(ev, false); });
   worldView.render(world); updateLevel();
 }
@@ -1150,7 +1150,7 @@ async function boot() {
     await OWNER.init();
     setMode("live");
     $("#world-eyebrow").textContent = "Live map";
-    startWorld(state.snapshot, state.events);
+    startWorld(state.snapshot, state.events, (state.progress || {}).archived_xp || 0);
     let last = state.events.length ? state.events[state.events.length - 1].id : 0;
     const es = new EventSource("/api/events?after=" + last);
     es.onmessage = m => { const ev = JSON.parse(m.data); if (ev.id > last) { last = ev.id; liveEvent(ev); } setMode("live"); };
@@ -2332,6 +2332,8 @@ function pairingPane(set, render) {
     paired ? field(OWNER.passwordSet ? "Password" : "Set a password", "Lets any browser on this computer pair by typing it, instead of a one-time link.", pwForm) : null,
     field("Pair with a link", "Prints a link that works once, for 10 minutes.", h("div", { class: "cmd", text: "python3 -m hlidskjalv pair --open" })),
     field("Un-pair every browser", "Ends every session right away.", h("div", { class: "cmd", text: "python3 -m hlidskjalv pair --rotate" })),
+    mode !== "demo" ? field("Address", "The same page under a name. Works in Chrome, Edge and Firefox as is; Safari needs 127.0.0.1. Pairing is per address.",
+      h("a", { href: `http://hlidskjalv.localhost:${location.port || 80}/`, text: `http://hlidskjalv.localhost:${location.port || 80}/` })) : null,
   ];
 }
 function dataPane() {
