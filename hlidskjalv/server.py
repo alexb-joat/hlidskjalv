@@ -23,6 +23,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 from pathlib import Path
+from typing import Callable
 from urllib.parse import parse_qs, urlparse
 
 from .auth import Owner, write_private
@@ -32,6 +33,7 @@ from .settings import Settings, SettingsError
 from .terminal import Terminal, WebSocket, accept_key
 
 SESSION_NAME = re.compile(r"^\d{8}-\d{6}-[A-Za-z0-9._-]{1,60}\.jsonl$")
+HEALTH_EVERY_S = 15.0  # source health on the event stream
 MAX_EVENTS = 20_000
 MAX_POST = 64 * 1024
 
@@ -160,6 +162,7 @@ class Hub:
         self.history_n = len(hist)
         self.progress = progress
         self.boot = round(time.time(), 3)  # a restarted Hlidskjalv has a new stamp: the page reloads on it
+        self.health: Callable[[], dict] | None = None  # per-source poll health (poller.py), for /api/state and the stream
         self.snapshot = {"type": "snapshot", "ts": time.time(), "project": project,
                          "files": snapshot, "boot": self.boot, **meta}
         self.out = private_file(session_path) if session_path else None
@@ -327,6 +330,7 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
             elif url.path == "/api/state":
                 with hub.cond:
                     self._json({"snapshot": hub.snapshot, "events": list(hub.events),
+                                "sources": hub.health() if hub.health else {},
                                 "progress": {"archived_xp": hub.archived_xp(), "history": hub.history_n,
                                              "academy": dict(hub.progress.academy) if hub.progress else {}}})
             elif url.path == "/api/events":
@@ -425,6 +429,7 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
             try:
                 self.wfile.write(f"event: hello\ndata: {json.dumps({'boot': hub.boot})}\n\n".encode())  # which process this is
                 self.wfile.flush()
+                next_health = time.monotonic() + HEALTH_EVERY_S
                 while True:
                     new = hub.after(last, timeout=15)
                     if not new:
@@ -432,6 +437,9 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                     for ev in new:
                         self.wfile.write(f"id: {ev['id']}\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n".encode())
                         last = ev["id"]
+                    if hub.health and time.monotonic() >= next_health:  # how each source is doing, now and then
+                        next_health = time.monotonic() + HEALTH_EVERY_S
+                        self.wfile.write(f"event: health\ndata: {json.dumps(hub.health())}\n\n".encode())
                     self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
                 return
