@@ -259,8 +259,9 @@ class WsClient:
             n = int.from_bytes(self.f.read(8), "big")
         return b1 & 0x0F, self.f.read(n)
 
-    def read_until(self, needle: bytes, limit=5.0):
-        out, end = b"", time.time() + limit
+    def read_until(self, needle: bytes, limit=None):
+        # PowerShell under ConPTY takes several seconds to start on a Windows CI runner.
+        out, end = b"", time.time() + (limit or (20.0 if os.name == "nt" else 5.0))
         while needle not in out and time.time() < end:
             op, data = self.recv()
             if op == term.OP_CLOSE:
