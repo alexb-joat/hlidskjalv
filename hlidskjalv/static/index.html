@@ -58,6 +58,7 @@ html.no-anim *, html.no-anim *::before, html.no-anim *::after { animation: none 
 .mode::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .mode.live { color: var(--ok); } .mode.live::before { animation: blink 1.6s infinite; }
 .mode.demo { color: var(--warn); } .mode.off { color: var(--danger); }
+.chip.stalled { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
 .level { display: flex; align-items: center; gap: 10px; min-width: 190px; flex: 1 1 190px; max-width: 320px; }
 html.no-xp .level, html.no-xp #badges, html.no-xp #badges-title { display: none !important; }
 .lvl-badge { font-weight: 800; font-size: calc(17px * var(--fz)); width: 38px; height: 38px; display: grid; place-items: center; border-radius: var(--r); background: var(--accent); color: var(--accent-text); flex: none; }
@@ -471,6 +472,7 @@ code { font: calc(12.5px * var(--fz))/1.45 var(--mono); overflow-wrap: anywhere;
       <span><b>Red tiles</b> hold secrets. Never share them.</span>
       <button type="button" id="hint-x">Got it</button>
     </div>
+    <div class="hint" id="cap-note" hidden></div>
     <div id="world-slot"></div>
   </section>
 
@@ -1139,6 +1141,15 @@ function setMode(m) {
     : { title: "Reconnecting", body: "Lost the connection to Hlidskjalv on your computer. Is it still running?" });
   el.setAttribute("data-tip", "");
 }
+const SOURCE_LABELS = { files: "Files", git: "Git", commands: "Terminal", trioditis: "AI", claude_code: "Claude Code",
+  persistence: "Persistence", system_log: "sudo and logins", security: "Refused access", cost: "Spend" };
+let HEALTH = {};  // per-source poll health from the server (updated on the event stream)
+function stalledChips() {
+  return Object.entries(HEALTH).filter(([, s]) => s && s.stalled).map(([name, s]) =>
+    h("span", { class: "chip no stalled", tip: { title: (SOURCE_LABELS[name] || name) + " stalled",
+      body: `This source hasn't finished a check for ${Math.round(s.silent_s)} s` + (s.error ? ` (last error: ${s.error})` : s.busy ? " (a check is still running)" : "") + ". The others keep going." } },
+      "◌ " + (SOURCE_LABELS[name] || name) + " stalled"));
+}
 function sourceChips(snap) {
   const chip = (ok, label, on, offTip) => h("span", { class: "chip " + (ok ? "ok" : "no"), tip: ok ? { title: label, body: on } : { title: label + " (off)", body: offTip.body, where: offTip.where } }, (ok ? "● " : "○ ") + label);
   $("#sources").replaceChildren(
@@ -1148,12 +1159,22 @@ function sourceChips(snap) {
     chip(snap.trioditis, "AI", "Reading Trioditis's log: route, model, tokens. Never your prompts.", { body: "Start Hlidskjalv with --trioditis-log to see AI steps.", where: "--trioditis-log ~/trioditis/logs/decisions.jsonl" }),
     chip(snap.claude_code, "Claude Code", "Reading Claude Code's own session transcripts for this folder: model and tokens only, never text.", { body: "No Claude Code sessions for this folder yet. Run claude here and its steps appear.", where: "claude" }),
     chip(snap.terminal, "Shell", "The Terminal tab runs a real shell in this folder.", { body: "The in-browser terminal is off. Start Hlidskjalv with --terminal to switch it on.", where: "python -m hlidskjalv watch <folder> --terminal" }),
+    ...stalledChips(),
   );
+}
+function capNote(snap) {
+  const el = $("#cap-note"); el.hidden = !snap.truncated;
+  if (!snap.truncated) return;
+  const shown = (snap.files || []).length, total = snap.files_total || shown;
+  el.replaceChildren(
+    h("span", {}, h("b", { text: `Showing the first ${shown.toLocaleString()} of ${total.toLocaleString()} files.` }),
+      " The rest of the folder isn't watched. Leave big folders out (data, logs, caches) and the map stays complete."),
+    h("button", { type: "button", onclick: () => openSettings("sources") }, "Skip folders in Settings"));
 }
 function startWorld(snap, events, archivedXp = 0) {
   world = newWorld(snap); worldView.clear(); liveEvents = [...events];
   $("#project").textContent = snap.project + (snap.branch ? ` · ${snap.branch}` : "");
-  sourceChips(snap);
+  sourceChips(snap); capNote(snap);
   workXp = archivedXp;  // earned in sessions no longer loaded (the server keeps the total)
   events.forEach((ev, i) => { applyEvent(world, ev); workXp += xpOf(ev); if (i >= events.length - 300) worldView.add(ev); alertEvent(ev, false); });
   worldView.render(world); updateLevel();
@@ -1182,6 +1203,7 @@ async function boot() {
     const state = await fetchState();
     if (!state) throw new Error();
     BOOT = (state.snapshot && state.snapshot.boot) || null;
+    HEALTH = state.sources || {};
     await OWNER.init();
     setMode("live");
     $("#world-eyebrow").textContent = "Live map";
@@ -1192,6 +1214,10 @@ async function boot() {
     es.addEventListener("hello", e => {  // another process than the one this page loaded from: start over
       let b = null; try { b = JSON.parse(e.data).boot; } catch {}
       if (BOOT && b && b !== BOOT) { es.close(); location.reload(); }
+    });
+    es.addEventListener("health", e => {  // a source that stopped answering gets a "stalled" pill
+      try { HEALTH = JSON.parse(e.data) || {}; } catch { return; }
+      if (world) sourceChips(state.snapshot);
     });
     es.onmessage = m => {
       const ev = JSON.parse(m.data);
@@ -1888,7 +1914,7 @@ function termConnect(fresh) {
 
 /* =========================================================== settings: defaults, look, background */
 // Same as settings.defaults() on the server; a test keeps the two identical.
-const DEFAULT_PREFS = /*DEFAULTS*/{"setup_done":false,"look":{"mode":"system","palette":"neutral","accent":null,"surface":null,"text":null,"font":"system","font_size":15,"brightness":0,"density":"comfortable","radius":12,"animations":true,"background":{"type":"solid","colors":[],"angle":135,"particles":{"density":60,"speed":1.0,"size":2.0,"color":null,"links":true}}},"layout":{"nav_position":"top","nav_labels":false,"views":["live","replay","learn","details","terminal","alerts"],"hidden":[],"default_view":"live"},"features":{"terminal":false,"terminal_root":false,"xp":true},"alerts":{"ai_commands":true,"refused_access":true,"persistence":true,"system_log":true,"cost":true,"view":"grouped","toast_min":"high","notify":false,"sound":false,"colors":{"info":null,"medium":null,"high":null,"critical":null}},"sources":{"trioditis_log":null,"claude_code":true},"security":{"session_minutes":240},"usage":{"fresh_threshold":150000,"week_anchor":null}}/*END*/;
+const DEFAULT_PREFS = /*DEFAULTS*/{"setup_done":false,"look":{"mode":"system","palette":"neutral","accent":null,"surface":null,"text":null,"font":"system","font_size":15,"brightness":0,"density":"comfortable","radius":12,"animations":true,"background":{"type":"solid","colors":[],"angle":135,"particles":{"density":60,"speed":1.0,"size":2.0,"color":null,"links":true}}},"layout":{"nav_position":"top","nav_labels":false,"views":["live","replay","learn","details","terminal","alerts"],"hidden":[],"default_view":"live"},"features":{"terminal":false,"terminal_root":false,"xp":true},"alerts":{"ai_commands":true,"refused_access":true,"persistence":true,"system_log":true,"cost":true,"view":"grouped","toast_min":"high","notify":false,"sound":false,"colors":{"info":null,"medium":null,"high":null,"critical":null}},"sources":{"trioditis_log":null,"claude_code":true,"skip_dirs":[]},"security":{"session_minutes":240},"usage":{"fresh_threshold":150000,"week_anchor":null}}/*END*/;
 const clone = o => JSON.parse(JSON.stringify(o));
 function deepMerge(base, change) {
   const out = clone(base);
@@ -2287,6 +2313,9 @@ function sourcesSection(draft, set) {
   return [
     field("Trioditis log", "Where Trioditis writes its decisions. Applies after a restart.", path),
     field("Claude Code", "Show Claude Code's AI steps for this folder (model and tokens only). Applies after a restart.", toggleCtl(draft.sources.claude_code, v => set("sources.claude_code", v), "On")),
+    field("Skip folders", "Folder names to leave out of the map, separated by commas (anywhere in the project, on top of the built-in list: .git, node_modules, .venv, build…). Up to 5,000 files are watched; skip data and log folders to stay under it. Applies after a restart.",
+      h("input", { type: "text", value: (draft.sources.skip_dirs || []).join(", "), placeholder: "data, logs, assets", spellcheck: "false",
+        onchange: e => set("sources.skip_dirs", e.target.value.split(",").map(x => x.trim()).filter(Boolean)) })),
   ];
 }
 

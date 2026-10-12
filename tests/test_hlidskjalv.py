@@ -75,7 +75,62 @@ class FileWatcherTest(unittest.TestCase):
         ev = self.w.poll()[0]
         self.assertTrue(ev["sensitive"])
         self.assertNotIn("added", ev)
-        self.assertNotIn(".env", self.w.lines)
+        self.assertNotIn(".env", self.w.cache)
+        self.assertNotIn(".env", self.w.info)
+        self.assertFalse(hasattr(self.w, "lines"))  # no file's text is held beyond the small LRU cache
+
+    def test_memory_is_bounded_and_big_changes_are_quick(self):
+        from hlidskjalv import sources as src
+        big = "x" * 100 + "\n"
+        (self.tmp / "big.log").write_text(big * 1500)  # ~150 KB: over the cache size, under the text limit
+        t = time.monotonic()
+        ev = self.w.poll()[0]
+        self.assertEqual((ev["type"], ev["lines"], ev["added"]), ("file_created", 1500, 1500))
+        self.assertNotIn("big.log", self.w.cache)  # too big to keep its lines
+        self.assertIn("big.log", self.w.info)
+        (self.tmp / "big.log").write_text(big * 1600 + "tail\n")
+        ev = self.w.poll()[0]
+        self.assertEqual((ev["added"], ev["removed"], ev["lines"]), (101, 0, 1601))  # a net delta, not a diff
+        self.assertLess(time.monotonic() - t, 2.0)
+        with mock.patch.object(src, "CACHE_FILES", 3):
+            for i in range(5):
+                (self.tmp / f"f{i}.txt").write_text(f"{i}\n")
+            self.w.poll()
+            self.assertEqual(len(self.w.cache), 3)
+            self.assertEqual(list(self.w.cache), ["f2.txt", "f3.txt", "f4.txt"])  # the oldest left first
+        self.assertEqual(len(self.w.info), 7)  # the digest and line count are kept for every text file
+
+    def test_same_contents_saved_again_is_no_event(self):
+        import os
+        p = self.tmp / "a.py"
+        p.write_text("one\ntwo\n")
+        os.utime(p, ns=(time.time_ns() + 10 ** 9, time.time_ns() + 10 ** 9))  # mtime changed, bytes not
+        self.assertEqual(self.w.poll(), [])
+        p.write_text("one\ntwo\nthree\n")
+        self.assertEqual([(e["added"], e["removed"]) for e in self.w.poll()], [(1, 0)])
+
+    def test_cap_is_stable_and_never_invents_deletions(self):
+        from hlidskjalv import sources as src
+        for i in range(6):
+            (self.tmp / f"m{i}.txt").write_text("m\n")
+        with mock.patch.object(src, "MAX_FILES", 5):
+            w = FileWatcher(self.tmp)
+            snap = [f["path"] for f in w.snapshot()]
+            self.assertEqual((len(snap), w.truncated, w.total), (5, True, 7))  # 7 seen, 5 shown
+            self.assertEqual(snap, sorted(snap))
+            self.assertEqual(w.poll(), [])  # the same five every time
+            (self.tmp / "0first.txt").write_text("early\n")  # sorts first: pushes the fifth file past the cap
+            evs = w.poll()
+            self.assertEqual([(e["type"], e["path"]) for e in evs], [("file_created", "0first.txt")])
+            self.assertNotIn("m3.txt", w.state)  # dropped quietly, not reported as deleted
+            (self.tmp / "a.py").unlink()
+            self.assertIn(("file_deleted", "a.py"), [(e["type"], e["path"]) for e in w.poll()])
+
+    def test_skip_dirs_setting_adds_to_the_builtin_list(self):
+        (self.tmp / "data").mkdir()
+        (self.tmp / "data" / "x.csv").write_text("1\n")
+        self.assertIn("data/x.csv", [f["path"] for f in FileWatcher(self.tmp).snapshot()])
+        self.assertNotIn("data/x.csv", [f["path"] for f in FileWatcher(self.tmp, skip_dirs={"data"}).snapshot()])
 
     @unittest.skipIf(os.name == "nt", "symlinks need admin rights on Windows")
     def test_symlinks_are_ignored(self):
@@ -579,6 +634,13 @@ class SettingsTest(unittest.TestCase):
                 self.s.update(bad)
         self.assertEqual(self.s.data, defaults())
         self.assertFalse(self.path.exists())
+
+    def test_skip_dirs_are_folder_names(self):
+        data, restart = self.s.update({"sources": {"skip_dirs": ["data", "logs", "data"]}})
+        self.assertEqual((data["sources"]["skip_dirs"], restart), (["data", "logs"], True))
+        for bad in (["a/b"], ["."], [""], ["x" * 101], "data", ["d"] * 51):
+            with self.assertRaises(SettingsError, msg=bad):
+                self.s.update({"sources": {"skip_dirs": bad}})
 
     def test_damaged_file_falls_back_per_field(self):
         self.path.write_text(json.dumps({"look": {"mode": "dark", "font_size": 500}, "junk": 1}))
@@ -1204,6 +1266,12 @@ class ServerTest(unittest.TestCase):
         state = json.loads(body)
         self.assertEqual(state["snapshot"]["project"], "demo")
         self.assertEqual(state["events"][-1]["cmd"], "ls")
+        self.assertEqual(state["sources"], {})  # no pollers behind this test hub
+        self.hub.health = lambda: {"files": {"stalled": False}}
+        try:
+            self.assertEqual(json.loads(self.get("/api/state")[1])["sources"], {"files": {"stalled": False}})
+        finally:
+            self.hub.health = None
 
     def test_rejects_foreign_host_and_writes(self):
         self.assertEqual(self.get("/", host="evil.example:80")[0], 403)
@@ -1267,6 +1335,81 @@ class HubTest(unittest.TestCase):
         hub = Hub("p", [], None, {}, history=[{"type": "commit"}] * 3)
         hub.publish({"type": "command"})
         self.assertEqual([e["id"] for e in hub.events], [1, 2, 3, 4])
+
+
+class PollerTest(unittest.TestCase):
+    def test_a_slow_source_does_not_hold_the_others_back(self):
+        from hlidskjalv.poller import start_all, health_of
+        gate = threading.Event()
+
+        class Slow:
+            def poll(self):
+                gate.wait(5)
+                return [{"type": "slow"}]
+
+        class Quick:
+            def poll(self):
+                return [{"type": "quick"}]
+
+        got = []
+        pollers = start_all({"slow": Slow(), "quick": Quick(), "off": None}, 0.05, got.append)
+        try:
+            self.assertEqual(set(pollers), {"slow", "quick"})
+            deadline = time.monotonic() + 3
+            while len([e for e in got if e["type"] == "quick"]) < 3 and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertGreaterEqual(len([e for e in got if e["type"] == "quick"]), 3)  # while slow is still blocked
+            self.assertEqual([e for e in got if e["type"] == "slow"], [])
+            h = health_of(pollers)
+            self.assertEqual(set(h["quick"]), {"ok", "silent_s", "stalled", "error", "error_at", "busy", "polls", "errors"})
+            self.assertTrue(h["slow"]["busy"] and not h["quick"]["busy"])
+            self.assertFalse(h["slow"]["stalled"])  # silent, but not for 30 s yet
+            self.assertTrue(pollers["slow"].health(now=time.time() + 31)["stalled"])
+        finally:
+            gate.set()
+            for p in pollers.values():
+                p.stop.set()
+
+    def test_errors_are_recorded_and_said_once_a_minute(self):
+        from hlidskjalv.poller import Poller
+
+        class Bad:
+            def poll(self):
+                raise RuntimeError("journal is away")
+
+        said = []
+        p = Poller("system_log", Bad(), 1, lambda ev: None, warn=said.append)
+        p.once(); p.once(); p.once()
+        self.assertEqual(said, ["warning: system_log: RuntimeError: journal is away"])
+        h = p.health()
+        self.assertEqual((h["errors"], h["polls"], h["error"]), (3, 3, "RuntimeError: journal is away"))
+        p.source = mock.Mock(poll=lambda: [{"type": "x"}])
+        p.once()
+        self.assertIsNone(p.health()["error"])  # a good poll clears it
+
+
+class ReadmeTest(unittest.TestCase):
+    def test_sections_the_code_points_at_exist(self):
+        import re
+        root = Path(__file__).resolve().parents[1]
+        readme = (root / "README.md").read_text(encoding="utf-8")
+        headings = {re.sub(r"[^a-z0-9 -]", "", ln.lstrip("# ").lower()).replace(" ", "-") for ln in readme.splitlines() if ln.startswith("#")}
+        for py in (root / "hlidskjalv").glob("*.py"):
+            for ref in re.findall(r"README > ([^\"\n]+?)(?:\"|\)|$)", py.read_text(encoding="utf-8"), re.M):
+                slug = re.sub(r"[^a-z0-9 -]", "", ref.strip().lower()).replace(" ", "-")
+                self.assertTrue(any(hd == slug or hd.startswith(slug + "-") for hd in headings), ref)  # "(optional)" may follow
+        for anchor in re.findall(r"\]\(#([a-z0-9-]+)\)", readme):  # in-page links
+            self.assertIn(anchor, headings, anchor)
+        self.assertNotIn("\\n\\n", readme)
+        self.assertNotIn("never sends anything anywhere", readme)
+        self.assertIn("| **Alerts** |", readme)
+
+    def test_page_names_the_cap_and_stalled_sources(self):
+        from importlib import resources
+        page = resources.files("hlidskjalv").joinpath("static/index.html").read_text(encoding="utf-8")
+        self.assertRegex(page, r"Showing the first \$\{shown\.toLocaleString\(\)\} of \$\{total\.toLocaleString\(\)\} files")
+        self.assertIn('addEventListener("health"', page)
+        self.assertIn(" stalled", page)
 
 
 class HistoryAndProgressTest(unittest.TestCase):

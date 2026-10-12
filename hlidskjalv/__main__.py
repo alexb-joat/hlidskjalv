@@ -8,7 +8,6 @@ import os
 import platform
 import re
 import sys
-import threading
 import time
 import webbrowser
 from pathlib import Path
@@ -16,6 +15,7 @@ from pathlib import Path
 from . import __version__
 from .alerts import Acks, Alerter, PersistenceWatcher, TrioditisSecurityWatcher, SystemLogWatcher
 from .cost_alerts import CostWatcher
+from .poller import health_of, start_all
 from .server import NICE_HOST, AlertsContext, Hub, Progress, UsageContext, list_sessions, load_history, serve
 from .sso import PROVIDERS, Sso, SsoError
 from .sync import Syncer, start_worker
@@ -130,7 +130,7 @@ def watch(args, argv: list[str]) -> None:
     sb_log = (args.trioditis_log or (os.environ.get("HLIDSKJALV_TRIODITIS_LOG") or os.environ.get("ARCADE_SWITCHBOARD_LOG"))
               or prefs["sources"]["trioditis_log"])
     sb_path = Path(sb_log).expanduser().resolve() if sb_log else None
-    files = FileWatcher(root)
+    files = FileWatcher(root, skip_dirs=set(prefs["sources"]["skip_dirs"]))
     git = GitWatcher(root)
     cmds = CommandWatcher(root, home / "commands.log")
     ai = TrioditisWatcher(sb_path, load_prices(home / "prices.json"))
@@ -145,7 +145,7 @@ def watch(args, argv: list[str]) -> None:
         "trioditis": bool(sb_path and sb_path.exists()),
         "claude_code": bool(claude_code and claude_code.available()),
         "terminal": bool((args.terminal or prefs["features"]["terminal"]) and term.supported()),
-        "truncated": files.truncated, "version": __version__,
+        "truncated": files.truncated, "files_total": files.total, "version": __version__,
     }
     session_path = sessions / f"{time.strftime('%Y%m%d-%H%M%S')}-{name}.jsonl"
     # The live view continues from recent sessions, and lifetime XP survives pruning.
@@ -161,17 +161,13 @@ def watch(args, argv: list[str]) -> None:
     alerts_ctx = AlertsContext(alerter, home / "alerts.jsonl", Acks(home / "alerts-ack.json"),
                                lambda: {"available": syslog.available, "why": syslog.why})
 
-    def loop():
-        while True:
-            for source in (s for s in (files, git, cmds, ai, claude_code, persistence, syslog, sb_security, cost) if s):
-                try:
-                    for ev in source.poll():
-                        hub.publish(ev)
-                except Exception as e:  # one bad poll must not stop the game
-                    print(f"warning: {type(source).__name__}: {e}", file=sys.stderr)
-            time.sleep(args.interval)
+    # One thread per source, each on its own cadence; a slow one never holds the others back.
+    pollers = start_all({
+        "files": files, "git": git, "commands": cmds, "trioditis": ai, "claude_code": claude_code,
+        "persistence": persistence, "system_log": syslog, "security": sb_security, "cost": cost,
+    }, args.interval, hub.publish)
+    hub.health = lambda: health_of(pollers)
 
-    threading.Thread(target=loop, daemon=True).start()
     def restart():
         """Start over with the same command line (new settings apply); same PID under systemd."""
         again = [a for a in argv if a != "--no-open"] + ["--no-open"]
@@ -205,9 +201,9 @@ def watch(args, argv: list[str]) -> None:
     elif args.terminal or prefs["features"]["terminal"]:
         print("  note: the in-browser terminal needs Linux, macOS or Windows 10 (1809+); it stays off on this system")
     if files.truncated:
-        print("  note: more than 5000 files; showing the first 5000")
+        print(f"  note: {files.total:,} files; showing the first {len(snapshot):,}. Leave folders out in Settings > Sources > Skip folders")
     if not meta["commands_hook"]:
-        print("  tip: terminal commands aren't recorded yet; see README > Record terminal commands")
+        print("  tip: terminal commands aren't recorded yet; see README > See your terminal commands")
     if sb_log and not meta["trioditis"]:
         print(f"  note: Trioditis log not found yet at {sb_path}; it appears after the first AI call")
     if claude_code and not meta["claude_code"]:

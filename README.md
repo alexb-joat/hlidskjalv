@@ -19,8 +19,9 @@ Made for people who are new to coding and work with an AI helper in VS Code.
 | **Learn** | Five short levels (terminal, Python, Git, working with AI, Trioditis), a command decoder and badges |
 | **Details** | Click anything (a log entry, a file tile, a folder, the model ribbon) for every detail: why a model was picked, tokens, cost, what each piece of a command does, a file's history. Plus where your tokens and money go, and how to spend less |
 | **Terminal** | Optional: a real shell in the project folder, inside the page (off unless you start with `--terminal`) |
+| **Alerts** | Things you didn't do yourself: risky commands an AI ran, login items and startup files that changed, refused requests, spending caps, `sudo` and logins |
 
-It only **watches**: it never changes your files, never runs anything from your project, and never sends anything anywhere. The one exception is the optional terminal, which you switch on yourself. No dependencies beyond Python itself.
+It only **watches**: it never changes your files and never runs anything from your project. The one exception is the optional terminal, which you switch on yourself. It talks to no server of its own; the few outbound connections it can make are listed under [Outbound connections](#outbound-connections), and every one is opt-in except the fonts. No dependencies beyond Python itself.
 
 ## Start (2 minutes)
 
@@ -31,6 +32,8 @@ git clone https://github.com/alexb-joat/hlidskjalv.git
 cd hlidskjalv
 python3 -m hlidskjalv watch ~/projects/my-app      # Windows: py -3 -m hlidskjalv watch C:\Users\you\projects\my-app
 ```
+
+Or install it, so the `hlidskjalv` command works from any folder: `pip install .` inside the clone (or `pipx install .`), then `hlidskjalv watch ~/projects/my-app`. Nothing else is downloaded: it has no dependencies.
 
 Your browser opens at `http://127.0.0.1:8788`. Leave that terminal running while you work; press **Ctrl+C** to stop (the session is saved for Replay).
 
@@ -103,10 +106,12 @@ The first time you open it, a short setup asks how it should look; skip it and e
 - **Look:** light, dark or follow the system; seven palettes, or your own accent, surface and text colours picked on a colour wheel (with a readability check); brightness; fourteen fonts; text size, density, corner rounding, animations.
 - **Background:** plain, gradient, glow, or slow particles (they pause when the tab is hidden and respect your system's reduce-motion setting).
 - **Layout:** the icon navigation at the top, bottom, left or right, with or without names; which views to show, in what order, and which one opens first.
-- **Features and sources:** the in-page terminal, levels and XP, Trioditis's log, Claude Code.
+- **Features and sources:** the in-page terminal, levels and XP, Trioditis's log, Claude Code, and folders to leave out of the map. Up to 5,000 files are watched (build and library folders are skipped already); past that the page says how many were left out, and *Skip folders* in Settings → Sources brings a big project back under the cap. Each source polls on its own thread, so a slow one (a huge folder, a sluggish system journal) never holds the others back; a source that hasn't answered for 30 seconds shows a "stalled" pill next to the source chips.
 - **Your settings:** export, import, reset, or run the setup again.
 
-The live map starts with the last seven days of earlier sessions (up to 3000 events), so a restart doesn't wipe the activity log, and lifetime XP is kept in `~/.hlidskjalv/progress.json` even after old sessions are pruned.\n\nSettings are saved in `~/.hlidskjalv/settings.json` and checked on every change. Changing them needs a paired browser (see below).
+The live map starts with the last seven days of earlier sessions (up to 3000 events), so a restart doesn't wipe the activity log, and lifetime XP is kept in `~/.hlidskjalv/progress.json` even after old sessions are pruned.
+
+Settings are saved in `~/.hlidskjalv/settings.json` and checked on every change. Changing them needs a paired browser (see below).
 
 ## Start at login (optional)
 
@@ -208,7 +213,18 @@ The terminal display is [xterm.js](https://xtermjs.org/) (MIT), shipped unmodifi
 - File **contents** never leave your computer and are never shown; only names and line counts. Files that look secret (`.env`, `*.pem`, `id_rsa`, `*secret*`, `*credential*`…) aren't even read.
 - Git is run with repository hooks and fsmonitor switched off, so a cloned repo can't make it run anything.
 - Sessions live in `~/.hlidskjalv/sessions` (owner-only permissions); the last 50 are kept (`--keep` to change).
-- The page loads fonts from Google Fonts; everything else is local. Offline it falls back to system fonts.
+
+### Outbound connections
+
+Hlidskjalv has no server of its own and sends no telemetry. These are the only connections the page or the program can make, each to a service you chose:
+
+| Connection | When | What leaves your computer |
+|---|---|---|
+| Google Fonts (`fonts.googleapis.com`, `fonts.gstatic.com`) | When the page loads, for the code font, and when you pick one of the Google fonts in Settings → Look. Offline it falls back to system fonts. | The font's name; Google sees your IP address, as with any web request. |
+| GitHub Gist (`api.github.com`) | Only after you set up [Sync](#sync-between-your-computers-optional) with a Gist; off by default. | Your settings, XP and Learn progress, encrypted on your computer before upload. |
+| GitHub or Google sign-in | Only after you set up [Sign in with GitHub or Google](#pairing-a-browser); off by default. | That you use Hlidskjalv, at each sign-in, as the OAuth app registered under your own name. |
+
+Nothing else: no update check, no crash reports, no analytics. A plain install that never touches Settings makes only the font request.
 
 ## Try it without installing
 
