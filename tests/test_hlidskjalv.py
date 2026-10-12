@@ -1154,6 +1154,25 @@ class CostAlertsTest(unittest.TestCase):
         self.assertTrue(any("limit used up" in t for t in titles))
         self.assertEqual(next(e["severity"] for e in got if "reached" in e["title"]), "high")
 
+    def test_calls_without_a_price_raise_one_alert_a_day(self):
+        import sqlite3
+        from hlidskjalv.alerts import Alerter
+        from hlidskjalv.cost_alerts import CostWatcher
+        home = Path(tempfile.mkdtemp())
+        con = sqlite3.connect(home / "metrics.db")
+        con.execute("CREATE TABLE calls (id INTEGER PRIMARY KEY, ts REAL, route TEXT, model TEXT, local INTEGER, status INTEGER,"
+                    " latency_ms INTEGER, tokens_in INTEGER, tokens_out INTEGER, cost REAL, fallbacks INTEGER, sensitive TEXT, provider TEXT)")
+        con.execute("CREATE TABLE provider_limits (provider TEXT, name TEXT, lim INTEGER, remaining INTEGER, reset_at REAL, seen REAL)")
+        con.execute("INSERT INTO calls (ts, route, model, local, status, cost, provider) VALUES (?, 'code', 'mystery', 0, 200, NULL, 'x')", (time.time(),))
+        con.execute("INSERT INTO calls (ts, route, model, local, status, cost, provider) VALUES (?, 'code', 'mystery', 0, 200, NULL, 'x')", (time.time(),))
+        con.commit(); con.close()
+        got = []
+        w = CostWatcher(home, Alerter(got.append), every_s=0)
+        w.poll(); w.poll()
+        unpriced = [e for e in got if "without a price" in e["title"]]
+        self.assertEqual(len(unpriced), 1)
+        self.assertTrue(unpriced[0]["title"].startswith("2 cloud calls"))
+
 
 class ServerTest(unittest.TestCase):
     @classmethod
@@ -1227,6 +1246,27 @@ class CliTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HubTest(unittest.TestCase):
+    def test_ring_keeps_ids_monotonic_and_signals_gaps(self):
+        from hlidskjalv import server as srv
+        with mock.patch.object(srv, "MAX_EVENTS", 50):
+            hub = Hub("p", [], None, {})
+            self.assertIn("boot", hub.snapshot)
+            for i in range(55):
+                hub.publish({"type": "command", "cmd": str(i)})
+            self.assertEqual(len(hub.events), 50)  # the oldest five fell off ...
+            self.assertEqual([e["id"] for e in hub.after(50, 0)], [51, 52, 53, 54, 55])  # ... ids kept counting
+            self.assertEqual(hub.after(55, 0), [])
+            behind = hub.after(2, 0)  # a page that last saw id 2: ids 3-5 are gone
+            self.assertEqual((behind[0]["id"], behind[0].get("gap"), len(behind)), (6, True, 50))
+            self.assertNotIn("gap", hub.after(5, 0)[0])  # id 6 is the first held: no gap
+            hub.publish({"type": "command", "cmd": "more"})
+            self.assertEqual(hub.after(55, 0)[0]["id"], 56)
+        hub = Hub("p", [], None, {}, history=[{"type": "commit"}] * 3)
+        hub.publish({"type": "command"})
+        self.assertEqual([e["id"] for e in hub.events], [1, 2, 3, 4])
 
 
 class HistoryAndProgressTest(unittest.TestCase):
