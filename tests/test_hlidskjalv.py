@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from pathlib import Path, PurePosixPath
 
 from hlidskjalv.__main__ import HOOKS, check_folder
@@ -545,12 +546,37 @@ class AutostartTest(unittest.TestCase):
         self.assertEqual(arcade["logs"], ["line1", "line2"])
         self.assertTrue(all(c[0] in ("systemctl", "journalctl") and c[2] in ("show", "-u") for c in calls))
 
+    def test_task_states_one_powershell_call(self):
+        from hlidskjalv import autostart as a
+        calls = []
+
+        def fake(*args, timeout=15):
+            calls.append(args)
+            return 0, "Ready\r\nnot installed\r\n"
+
+        with mock.patch.object(a, "_run", fake):
+            states = a._task_states(["Hlidskjalv", "Trioditis"])
+        self.assertEqual(states, ["Ready", "not installed"])
+        self.assertEqual(len(calls), 1)  # both tasks in one launch
+        self.assertIn("'Hlidskjalv','Trioditis'", calls[0][-1])
+        self.assertEqual(a._task_status("Hlidskjalv", "Running"),
+                         {"kind": "Scheduled Task", "name": "Hlidskjalv", "installed": True, "enabled": True,
+                          "active": True, "state": "Running", "stop": "Stop-ScheduledTask -TaskName 'Hlidskjalv'"})
+        self.assertFalse(a._task_status("Trioditis", "not installed")["installed"])
+        with mock.patch.object(a, "_run", lambda *args, timeout=15: (1, "boom")):
+            self.assertEqual(a._task_states(["x", "y"]), ["not installed", "not installed"])
+
     def test_endpoint_is_owner_only(self):
+        from hlidskjalv import autostart as a
         home = Path(tempfile.mkdtemp())
         port = free_port()
         owner = Owner(home)
         httpd = serve(Hub("demo", [], None, {}), home / "sessions", port, None, owner, Settings(home / "s.json"))
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        # The status probe runs systemctl / launchctl / powershell; this test is about who may ask.
+        patched = mock.patch.object(a, "_run", lambda *args, timeout=15: (127, "not found"))
+        patched.start()
+        self.addCleanup(patched.stop)
         try:
             c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
             hdr = {"Host": f"127.0.0.1:{port}", "Origin": f"http://127.0.0.1:{port}",

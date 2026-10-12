@@ -229,12 +229,24 @@ def _launchd_status(label: str, file: Path, log: Path | None, logs: int) -> dict
     return out
 
 
-def _task_status(name: str) -> dict:
-    code, txt = _run("powershell", "-NoProfile", "-NonInteractive", "-Command",
-                     f"(Get-ScheduledTask -TaskName {_ps_quote(name)} -ErrorAction Stop).State")
-    return {"kind": "Scheduled Task", "name": name, "installed": code == 0, "enabled": code == 0 and txt != "Disabled",
-            "active": txt.strip() == "Running", "state": txt.strip() if code == 0 else "not installed",
-            "stop": f"Stop-ScheduledTask -TaskName '{name}'"}
+NOT_INSTALLED = "not installed"
+
+
+def _task_states(names: list[str]) -> list[str]:
+    """One PowerShell launch for all tasks: Windows PowerShell takes seconds to start, so one call,
+    not one per task. Get-ScheduledTask's State is an enum name, the same in every Windows language."""
+    script = "foreach ($n in @(" + ",".join(_ps_quote(n) for n in names) + \
+             ")) { try { (Get-ScheduledTask -TaskName $n -ErrorAction Stop).State } catch { " + \
+             _ps_quote(NOT_INSTALLED) + " } }"
+    code, txt = _run("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+    lines = [ln.strip() for ln in txt.splitlines() if ln.strip()] if code == 0 else []
+    return [lines[i] if i < len(lines) else NOT_INSTALLED for i in range(len(names))]
+
+
+def _task_status(name: str, state: str) -> dict:
+    installed = state != NOT_INSTALLED
+    return {"kind": "Scheduled Task", "name": name, "installed": installed, "enabled": installed and state != "Disabled",
+            "active": state == "Running", "state": state, "stop": f"Stop-ScheduledTask -TaskName '{name}'"}
 
 
 def status(home: Path, logs: int = 50) -> dict:
@@ -247,7 +259,8 @@ def status(home: Path, logs: int = 50) -> dict:
         this = _launchd_status(LABEL, plist_path(), home / "hlidskjalv.log", logs)
         sb = _launchd_status(TRIODITIS["darwin"], plist_path().with_name(TRIODITIS["darwin"] + ".plist"), None, logs)
     elif sysname == "windows":
-        this, sb = _task_status(TASK), _task_status(TRIODITIS["windows"])
+        states = _task_states([TASK, TRIODITIS["windows"]])
+        this, sb = _task_status(TASK, states[0]), _task_status(TRIODITIS["windows"], states[1])
     else:
         return {"system": sysname, "services": []}
     this.update(app="Hlidskjalv", what="Watches one project folder and serves this page on 127.0.0.1",
