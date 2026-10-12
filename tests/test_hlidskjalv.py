@@ -570,6 +570,20 @@ class WriteApiTest(unittest.TestCase):
         self.assertEqual(self.post("/api/restart", {}, key=self.owner.start_session())[0], 202)
         self.assertTrue(self.restarted.wait(2))
 
+    def test_icons_for_every_browser(self):
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        c.request("GET", "/", headers={"Host": f"127.0.0.1:{self.port}"})
+        head = c.getresponse().read(1500).decode()
+        for tag in ('rel="icon" type="image/png"', 'rel="icon" type="image/svg+xml"', 'rel="apple-touch-icon"', 'rel="mask-icon"'):
+            self.assertIn(tag, head)
+        for path, ctype, magic in (("/icon-32.png", "image/png", b"\x89PNG"), ("/icon-180.png", "image/png", b"\x89PNG"),
+                                   ("/icon.svg", "image/svg+xml", b"<svg"), ("/mask.svg", "image/svg+xml", b"<svg")):
+            c.request("GET", path, headers={"Host": f"127.0.0.1:{self.port}"})
+            r = c.getresponse(); body = r.read()
+            self.assertEqual((r.status, r.getheader("Content-Type")), (200, ctype), path)
+            self.assertTrue(body.startswith(magic), path)
+        c.close()
+
     def test_settings_are_readable(self):
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
         c.request("GET", "/api/settings", headers={"Host": f"127.0.0.1:{self.port}"})

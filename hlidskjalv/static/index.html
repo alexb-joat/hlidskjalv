@@ -25,6 +25,12 @@
   --sev-critical: #ff6b6b; --sev-high: #ff922b; --sev-medium: #ffd43b; --sev-info: #74c0fc;
   color-scheme: dark;
 }
+/* Browsers without color-mix() (Safari before 16.2, Firefox before 113, Chrome before 111) get
+   fixed mixes for the derived tokens, so lines, muted text and raised surfaces still show. */
+@supports not (color: color-mix(in srgb, red, blue)) {
+  :root { --raised: #f0f0ee; --line: #dcdcd9; --muted: #6b6b68; }
+  :root[data-theme="dark"] { --raised: #242427; --line: #37373b; --muted: #a3a3a0; }
+}
 * { box-sizing: border-box; }
 html, body { min-height: 100%; }
 body {
@@ -41,7 +47,7 @@ html.no-anim *, html.no-anim *::before, html.no-anim *::after { animation: none 
 /* ---------- header */
 .hud {
   position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
-  background: color-mix(in srgb, var(--bg) 86%, transparent); backdrop-filter: blur(10px);
+  background: color-mix(in srgb, var(--bg) 86%, transparent); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--line);
 }
 .hud-in { max-width: 1320px; margin: 0 auto; padding: 10px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
@@ -359,7 +365,7 @@ details > summary { cursor: pointer; color: var(--muted); font-weight: 700; }
 .swatchbtn i { width: 26px; height: 26px; border-radius: calc(var(--r) * .5); border: 1px solid color-mix(in srgb, var(--text) 25%, transparent); }
 .swatchbtn .hexv, .hexin { font-family: var(--mono); font-size: calc(12.5px * var(--fz)); }
 .swatchbtn .hexv { color: var(--muted); }
-.hexin { width: 96px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r); padding: 7px 8px; }
+.field input.hexin { width: 110px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r); padding: 7px 8px; }  /* beats the full-width text-input rule */
 .wheelpop { padding: 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--raised); }
 .wheel { display: grid; gap: 10px; justify-items: center; }
 .disc { position: relative; width: 168px; height: 168px; border-radius: 50%; cursor: crosshair; touch-action: none; overflow: hidden;

@@ -10,6 +10,7 @@ answered.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -35,10 +36,16 @@ VENDOR = {"xterm.js": "text/javascript; charset=utf-8", "addon-fit.js": "text/ja
 
 
 NICE_HOST = "hlidskjalv.localhost"
-FAVICON = ("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E"
-           "%3Crect x='2' y='2' width='28' height='28' rx='8' fill='%233b5bdb'/%3E"
-           "%3Cpath d='M9 21l4-10 3 7 2-4 5 7' fill='none' stroke='%23fff' stroke-width='2.6'"
-           " stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+# The logo as icons. SVG for Chrome, Edge and Firefox; PNG for Safari (no SVG favicons) and for
+# iOS home screens; a one-colour SVG for Safari's pinned tabs. PNGs were rendered from the SVG.
+ICON_SVG = ("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='2' y='2' width='28' height='28' rx='8' fill='#3b5bdb'/>"
+            "<path d='M9 21l4-10 3 7 2-4 5 7' fill='none' stroke='#fff' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/></svg>")
+MASK_SVG = ("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='2' y='2' width='28' height='28' rx='8'/>"
+            "<path d='M9 21l4-10 3 7 2-4 5 7' fill='none' stroke='#fff' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/></svg>")
+ICON_PNG_32 = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABRElEQVR42mNgGAU4gHX0bQMgng/E94H4P5n4PtQMA1IsFgDifgosxYVBZgoQY/l5GlgOw+fxOoJGPscICXxx/p9O2ACbA+bT0QHzsTngPh0dcB+bA4jSnFD1CIwpdQRZDgBZDAOUOoIsB2w79AnuABCbrg5wT737//PXv/+RAUiM3Ggh2QEtM178Rwdz1779n9PyBM4HsWnmgFsPfoAtAYXCs1e/wGwQfe7aN7gDQHxYqFDVAciJDxT3IJ/jAofOfKG+A5ATH8gxIF+iA1iogAAouqjmAOTEB4oGbI4CRUNIwQO4OhAN4lPFAciJD9lnyNECS3zIapEdS5EDkBMfegLDlv1AaQA5l1DkAPTER0ziAjkSOT3gKh9IdgApBQ1y2UCRAyipfAjpG5TV8YA3SAa2STbgjdJB0Swf8I7JoOiajTgAAGsakyxUKeJdAAAAAElFTkSuQmCC")
+ICON_PNG_180 = base64.b64decode("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")
+ICONS = {"/icon.svg": ("image/svg+xml", ICON_SVG.encode()), "/mask.svg": ("image/svg+xml", MASK_SVG.encode()),
+         "/icon-32.png": ("image/png", ICON_PNG_32), "/icon-180.png": ("image/png", ICON_PNG_180)}
 
 
 def csp(port: int) -> str:
@@ -224,7 +231,11 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
     # hosted demo, which adds them); add them here for the local server.
     page = (b'<!doctype html><html lang="en"><head><meta charset="utf-8">'
             b'<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
-            + f'<link rel="icon" href="{FAVICON}">'.encode() + b'</head><body>'
+            b'<link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png">'
+            b'<link rel="icon" type="image/svg+xml" href="/icon.svg">'
+            b'<link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png">'
+            b'<link rel="mask-icon" href="/mask.svg" color="#3b5bdb">'
+            b'<meta name="theme-color" content="#3b5bdb"></head><body>'
             + resources.files("hlidskjalv").joinpath("static/index.html").read_bytes()
             + b"</body></html>")
     # *.localhost resolves to loopback in Chrome, Edge and Firefox without any setup.
@@ -295,6 +306,10 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                 self._stream(int(after))
             elif url.path == "/api/sessions":
                 self._json(list_sessions(sessions))
+            elif url.path in ICONS:
+                ctype, data = ICONS[url.path]
+                self._headers(200, ctype, len(data))
+                self.wfile.write(data)
             elif url.path.startswith("/static/vendor/") and url.path[15:] in VENDOR:
                 data = resources.files("hlidskjalv").joinpath("static/vendor/" + url.path[15:]).read_bytes()
                 self._headers(200, VENDOR[url.path[15:]], len(data))

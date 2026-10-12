@@ -147,6 +147,18 @@ python3 -m hlidskjalv status
 
 prints the Claude plan windows, Trioditis spend against its caps (and per provider), the last-reported rate limits, account balances, unread alerts and whether both services run: the same numbers as Details, without a browser. Run it from the project folder for that project's windows.
 
+## Browsers and systems
+
+Hlidskjalv is one page of plain HTML, CSS and JavaScript with no build step. It needs a browser from 2023 or later:
+
+| Browser | From | Notes |
+|---|---|---|
+| Chrome, Edge, Brave, Opera | 111 | |
+| Firefox | 113 | ESR 115 and later included |
+| Safari | 16.2 (macOS 11.7, 12.6, 13.1; iOS 16.2) | `hlidskjalv.localhost` needs a line in `/etc/hosts` (see Pairing); SVG icons are replaced by PNG ones automatically |
+
+Older browsers still show the page, only with plainer colours (the derived shades fall back to fixed ones). The server side runs on Linux, macOS and Windows 10 (1809) or later with Python 3.10+, and CI runs the whole suite on all three.
+
 ## Pairing a browser
 
 Watching needs nothing. Anything that **changes** something (settings, the terminal) needs a paired browser. Pairing gives the browser a **session** that ends after a period without activity (Settings → Pairing, 4 hours by default; using the page extends it). A browser pairs in one of two ways:
@@ -154,7 +166,7 @@ Watching needs nothing. Anything that **changes** something (settings, the termi
 - **Password.** Set one with `python3 -m hlidskjalv password` (or, once paired, in Settings → Pairing), then type it in Settings → Pairing of any browser on this computer. It is stored as a salted hash in `~/.hlidskjalv/password` (readable only by you); five wrong tries in ten minutes lock it for a minute, and every wrong try shows up in Alerts.
 - **One-time link.** The link Hlidskjalv opens at start pairs that browser automatically. For a Hlidskjalv started with `--no-open` or at login: `python3 -m hlidskjalv pair` prints a link (add `--open` to open it). Links work **once** and expire after 10 minutes, so a copied link is worthless.
 
-Sessions are stored hashed in `~/.hlidskjalv/web-sessions.json` and survive restarts. The same page is also at `http://hlidskjalv.localhost:8788/` in Chrome, Edge and Firefox (Safari needs `127.0.0.1`); each address pairs separately. The owner key in `~/.hlidskjalv/owner.key` never leaves your files; `python3 -m hlidskjalv pair --rotate` replaces it and ends every session at once. "Log out" in Settings → Pairing ends the session of that browser only.
+Sessions are stored hashed in `~/.hlidskjalv/web-sessions.json` and survive restarts. The same page is also at `http://hlidskjalv.localhost:8788/` in Chrome, Edge and Firefox, which resolve `*.localhost` by themselves; Safari asks the system instead, so on a Mac add `127.0.0.1 hlidskjalv.localhost` to `/etc/hosts` first (or stay with `127.0.0.1`). Each address pairs separately. The owner key in `~/.hlidskjalv/owner.key` never leaves your files; `python3 -m hlidskjalv pair --rotate` replaces it and ends every session at once. "Log out" in Settings → Pairing ends the session of that browser only.
 
 Changes must also come from Hlidskjalv's own page (Origin check) and be JSON, so other websites can't send them. Settings are saved in `~/.hlidskjalv/settings.json`.
 
