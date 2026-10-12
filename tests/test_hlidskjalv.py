@@ -853,6 +853,32 @@ class ProgramsTest(unittest.TestCase):
             httpd.shutdown(); httpd.server_close()
 
 
+class CostAlertsTest(unittest.TestCase):
+    def test_caps_and_exhausted_limits_raise_once_per_period(self):
+        import sqlite3
+        from hlidskjalv.alerts import Alerter
+        from hlidskjalv.cost_alerts import CostWatcher
+        home = Path(tempfile.mkdtemp())
+        con = sqlite3.connect(home / "metrics.db")
+        con.execute("CREATE TABLE calls (id INTEGER PRIMARY KEY, ts REAL, route TEXT, model TEXT, local INTEGER, status INTEGER,"
+                    " latency_ms INTEGER, tokens_in INTEGER, tokens_out INTEGER, cost REAL, fallbacks INTEGER, sensitive TEXT, provider TEXT)")
+        con.execute("CREATE TABLE provider_limits (provider TEXT, name TEXT, lim INTEGER, remaining INTEGER, reset_at REAL, seen REAL, PRIMARY KEY (provider, name))")
+        now = time.time()
+        con.execute("INSERT INTO calls (ts, route, model, local, status, cost, provider) VALUES (?, 'code', 'm', 0, 200, 0.8, 'anthropic')", (now,))
+        con.execute("INSERT INTO provider_limits VALUES ('anthropic', 'requests', 50, 0, ?, ?)", (now + 30, now))
+        con.commit(); con.close()
+        (home / "budget.json").write_text(json.dumps({"daily_usd": 1.0, "monthly_usd": 15.0, "providers": {"anthropic": {"daily_usd": 0.5}}}))
+        got = []
+        w = CostWatcher(home, Alerter(got.append), every_s=0)
+        w.poll(); w.poll()
+        titles = sorted(e["title"] for e in got)
+        self.assertEqual(len(got), 3, titles)   # global 80% warning, provider cap reached, rate limit used up; each once
+        self.assertTrue(any(t.startswith("Daily cap: 80%") for t in titles))
+        self.assertTrue(any(t.startswith("anthropic: daily cap reached") for t in titles))
+        self.assertTrue(any("limit used up" in t for t in titles))
+        self.assertEqual(next(e["severity"] for e in got if "reached" in e["title"]), "high")
+
+
 class ServerTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

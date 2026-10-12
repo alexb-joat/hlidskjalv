@@ -65,6 +65,7 @@ SCHEMA: dict = {
         "refused_access": ("bool", True),
         "persistence": ("bool", True),
         "system_log": ("bool", True),
+        "cost": ("bool", True),
         "view": ("enum", "grouped", ["grouped", "timeline", "compact"]),
         "toast_min": ("enum", "high", SEVERITIES),
         "notify": ("bool", False),

@@ -14,6 +14,7 @@ from pathlib import Path
 
 from . import __version__
 from .alerts import Acks, Alerter, PersistenceWatcher, TrioditisSecurityWatcher, SystemLogWatcher
+from .cost_alerts import CostWatcher
 from .server import AlertsContext, Hub, UsageContext, list_sessions, serve
 from .usage import ClaudeUsage
 from . import terminal as term
@@ -151,12 +152,13 @@ def watch(args, argv: list[str]) -> None:
     persistence = PersistenceWatcher(root, alerter, expected=home / "expected.json")
     syslog = SystemLogWatcher(alerter)
     sb_security = TrioditisSecurityWatcher(sb_path.parent / "security.jsonl" if sb_path else None, alerter)
+    cost = CostWatcher(home, alerter)
     alerts_ctx = AlertsContext(alerter, home / "alerts.jsonl", Acks(home / "alerts-ack.json"),
                                lambda: {"available": syslog.available, "why": syslog.why})
 
     def loop():
         while True:
-            for source in (s for s in (files, git, cmds, ai, claude_code, persistence, syslog, sb_security) if s):
+            for source in (s for s in (files, git, cmds, ai, claude_code, persistence, syslog, sb_security, cost) if s):
                 try:
                     for ev in source.poll():
                         hub.publish(ev)
@@ -206,6 +208,59 @@ def watch(args, argv: list[str]) -> None:
         print("\nSaved this session for Replay.")
 
 
+def status_text(home: Path) -> str:
+    """The usage panel, for the terminal: plan windows, spend, alerts, services."""
+    from . import usage as u
+    from .alerts import Acks, read_history
+    from .autostart import status as auto_status
+    from .cost_alerts import u_money
+    from .sources import claude_code_project_dir
+    lines = []
+    cc = claude_code_project_dir(Path.cwd())
+    w = u.ClaudeUsage(cc, all_projects=True).windows()
+    prefs = Settings(home / "settings.json").data
+    anchor = prefs.get("usage", {}).get("week_anchor")
+    if anchor:
+        w = u.ClaudeUsage(cc, all_projects=True).windows(week_anchor=u._epoch(anchor))
+    lines.append("Claude plan (estimate from Claude Code transcripts on this computer)")
+    for key, label in (("session", "Session (5h)"), ("week", "Weekly (7d)")):
+        x = w.get(key) or {}
+        if x.get("active"):
+            left = x["resets_at"] - time.time()
+            fam = ", ".join(f"{k} {v / 1e6:.1f}M" for k, v in (x.get("by_family") or {}).items())
+            lines.append(f"  {label:<13} {x['turns']:>4} turns  {(x['in'] + x['out']) / 1e6:6.1f}M tokens  "
+                         f"resets in {left / 3600:.1f} h   [{fam}]")
+        else:
+            lines.append(f"  {label:<13} no active window")
+    b = u.budget(home)
+    if b.get("available"):
+        lines.append("Trioditis spend")
+        lines.append(f"  today      {u_money(b['today']):>8} of {u_money(b['caps']['daily_usd'])}")
+        lines.append(f"  this month {u_money(b['month']):>8} of {u_money(b['caps']['monthly_usd'])}")
+        for name, p in sorted((b.get("providers") or {}).items()):
+            caps = p.get("caps") or {}
+            cap = f" of {u_money(caps['monthly_usd'])}" if "monthly_usd" in caps else ""
+            lines.append(f"  {name:<10} {u_money(p['month']):>8}{cap} this month, {p['calls_month']} calls")
+        for lim in b.get("limits") or []:
+            if lim.get("remaining") is not None:
+                lines.append(f"  {lim['provider']} {lim['name'].replace('_', ' ')}: {lim['remaining']:,} left"
+                             + (f" of {lim['limit']:,}" if lim.get("limit") else ""))
+    acct = u.accounts(home)
+    for name, a in sorted((acct.get("providers") or {}).items()):
+        if not a.get("error") and a.get("limit") is not None:
+            lines.append(f"  {name}: {a.get('label', 'account')} {u_money(a['used'])} of {u_money(a['limit'])}")
+    acks = set(Acks(home / "alerts-ack.json").ids)
+    unread = [a for a in read_history(home / "alerts.jsonl") if not a.get("expected") and a.get("uid") not in acks]
+    worst = max((a["severity"] for a in unread), default=None, key=lambda s: ["info", "medium", "high", "critical"].index(s))
+    lines.append(f"Alerts: {len(unread)} unread" + (f", highest {worst}" if worst else ""))
+    for a in unread[-3:]:
+        lines.append(f"  [{a['severity']}] {a['title']}")
+    st = auto_status(home, logs=0)
+    for s in st.get("services", []):
+        lines.append(f"{s['app']}: " + ("running" if s.get("active") else "on, not running" if s.get("enabled") else "not set to start at login"))
+    return "\n".join(lines)
+
+
 def pair(args) -> None:
     home = data_home()
     if args.rotate:
@@ -237,6 +292,8 @@ def main(argv: list[str] | None = None) -> None:
     w.add_argument("--terminal", action="store_true",
                    help="also allow a real shell in the browser (Terminal tab); off by default")
 
+    sub.add_parser("status", help="plan windows, spend against caps, unread alerts and services, in the terminal")
+
     pr = sub.add_parser("pair", help="print a one-time link that pairs a browser with the running Hlidskjalv")
     pr.add_argument("--open", action="store_true", help="also open it in the browser")
     pr.add_argument("--rotate", action="store_true", help="new owner key first: un-pairs every browser")
@@ -256,6 +313,8 @@ def main(argv: list[str] | None = None) -> None:
         watch(args, list(argv if argv is not None else sys.argv[1:]))
     elif args.cmd == "pair":
         pair(args)
+    elif args.cmd == "status":
+        print(status_text(data_home()))
     elif args.cmd == "autostart":
         from . import autostart
         home = data_home()

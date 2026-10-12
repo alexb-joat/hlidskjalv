@@ -1783,7 +1783,7 @@ function termConnect(fresh) {
 
 /* =========================================================== settings: defaults, look, background */
 // Same as settings.defaults() on the server; a test keeps the two identical.
-const DEFAULT_PREFS = /*DEFAULTS*/{"setup_done":false,"look":{"mode":"system","palette":"neutral","accent":null,"surface":null,"text":null,"font":"system","font_size":15,"density":"comfortable","radius":12,"animations":true,"background":{"type":"solid","colors":[],"angle":135,"particles":{"density":60,"speed":1.0,"size":2.0,"color":null,"links":true}}},"layout":{"nav_position":"top","nav_labels":false,"views":["live","replay","learn","details","terminal","alerts"],"hidden":[],"default_view":"live"},"features":{"terminal":false,"xp":true},"alerts":{"ai_commands":true,"refused_access":true,"persistence":true,"system_log":true,"view":"grouped","toast_min":"high","notify":false,"sound":false,"colors":{"info":null,"medium":null,"high":null,"critical":null}},"sources":{"trioditis_log":null,"claude_code":true},"usage":{"fresh_threshold":150000,"week_anchor":null}}/*END*/;
+const DEFAULT_PREFS = /*DEFAULTS*/{"setup_done":false,"look":{"mode":"system","palette":"neutral","accent":null,"surface":null,"text":null,"font":"system","font_size":15,"density":"comfortable","radius":12,"animations":true,"background":{"type":"solid","colors":[],"angle":135,"particles":{"density":60,"speed":1.0,"size":2.0,"color":null,"links":true}}},"layout":{"nav_position":"top","nav_labels":false,"views":["live","replay","learn","details","terminal","alerts"],"hidden":[],"default_view":"live"},"features":{"terminal":false,"xp":true},"alerts":{"ai_commands":true,"refused_access":true,"persistence":true,"system_log":true,"cost":true,"view":"grouped","toast_min":"high","notify":false,"sound":false,"colors":{"info":null,"medium":null,"high":null,"critical":null}},"sources":{"trioditis_log":null,"claude_code":true},"usage":{"fresh_threshold":150000,"week_anchor":null}}/*END*/;
 const clone = o => JSON.parse(JSON.stringify(o));
 function deepMerge(base, change) {
   const out = clone(base);
@@ -2225,6 +2225,7 @@ const ALERT_SOURCES = {
   refused_access: { label: "Refused access", tip: "Requests Hlidskjalv or Trioditis turned away: other websites, wrong keys, other host names." },
   persistence: { label: "Persistence changes", tip: "Something set itself up to run later: login items, scheduled jobs, shell startup files, SSH keys, Git hooks." },
   system_log: { label: "sudo and logins", tip: "Administrator commands and logins, from the system journal." },
+  cost: { label: "Spend and limits", tip: "A spending cap 75% used or reached, or a provider rate limit used up." },
 };
 const AL = { list: new Map(), acks: new Set(), syslog: null, filter: { q: "", source: "", min: "info" } };
 ICONS.alert = ICONS["v-alerts"];
