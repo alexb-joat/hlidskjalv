@@ -291,6 +291,7 @@ table.dt { width: 100%; border-collapse: collapse; font-size: calc(13.5px * var(
 .trow .tt2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; font-size: calc(13.5px * var(--fz)); }
 .trow time { font-size: calc(11px * var(--fz)); color: var(--muted); font-variant-numeric: tabular-nums; }
 pre.raw { font: calc(12px * var(--fz))/1.5 var(--mono); background: var(--bg); border: 1px solid var(--line); border-radius: calc(var(--r) * 0.833333); padding: 10px; overflow: auto; max-height: 280px; margin: 8px 0 0; }
+.recover { display: grid; gap: 6px; } .recover p { margin: 4px 0 0; } .recover .cmd { margin: 0; } .recover small { margin-bottom: 4px; }
 details > summary { cursor: pointer; color: var(--muted); font-weight: 700; }
 #tip .more { margin-top: 8px; font-size: calc(12px * var(--fz)); color: var(--muted); }
 
@@ -2383,6 +2384,13 @@ function pairingPane(set, render) {
     paired ? field("Session length", "How long a paired browser stays paired without activity.", rangeCtl(15, 1440, 15, minutes, v => spanMin(v * 60000), v => set("security.session_minutes", v))) : null,
     paired ? field(OWNER.passwordSet ? "Password" : "Set a password", "Lets any browser on this computer pair by typing it, instead of a one-time link.", pwForm) : null,
     OWNER.passwordSet ? twoFactor : null,
+    mode !== "demo" ? field("Forgot your password?", "There is no reset email: Hlidskjalv has no account server. The recovery is this computer itself, because anyone who can use your user account here already owns everything in it.",
+      h("details", { class: "recover" }, h("summary", { text: "What to do" }),
+        h("p", { class: "muted", text: "Open a terminal on this computer, in the Hlidskjalv folder, and run one of these:" }),
+        h("div", { class: "cmd", text: "python3 -m hlidskjalv password" }), h("small", { class: "muted", text: "Sets a new password; the old one isn't needed." }),
+        h("div", { class: "cmd", text: "python3 -m hlidskjalv pair --open" }), h("small", { class: "muted", text: "Pairs this browser once with a link; then set a new password above." }),
+        OWNER.totp ? h("div", { class: "cmd", text: "python3 -m hlidskjalv 2fa off" }) : null,
+        OWNER.totp ? h("small", { class: "muted", text: "Switches two-factor off, if the phone and the recovery codes are both gone." }) : null)) : null,
     field("Pair with a link", "Prints a link that works once, for 10 minutes.", h("div", { class: "cmd", text: "python3 -m hlidskjalv pair --open" })),
     field("Un-pair every browser", "Ends every session right away.", h("div", { class: "cmd", text: "python3 -m hlidskjalv pair --rotate" })),
     mode !== "demo" ? field("Address", "The same page under a name. Works in Chrome, Edge and Firefox as is; Safari needs 127.0.0.1. Pairing is per address.",
