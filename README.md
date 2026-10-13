@@ -86,18 +86,7 @@ Details also shows, read-only:
 
 ### Connect VS Code to Trioditis (Cline)
 
-[Cline](https://marketplace.visualstudio.com/items?itemName=saoudrizwan.claude-dev) is a free, open-source AI coding helper for VS Code that asks before every edit and command.
-
-1. Start Trioditis: `python -m trioditis serve` (in the Trioditis folder).
-2. In VS Code: Extensions → search **Cline** → Install.
-3. Open Cline's settings and choose:
-   - **API Provider:** OpenAI Compatible
-   - **Base URL:** `http://127.0.0.1:8787/v1`
-   - **API Key:** your `TRIODITIS_API_KEY`, or any text if you didn't set one
-   - **Model ID:** `auto`
-4. Your Claude and OpenAI keys now live only in Trioditis's `.env`, not in VS Code. Trioditis sends easy steps to free local models and hard ones to the cloud.
-
-Cline's requests carry a large instruction block, and small local models (3B–8B) often struggle to follow it for multi-step edits. Keep a strong cloud model first in Trioditis's `code` route, and let local models take the quick and writing routes.
+[Cline](https://marketplace.visualstudio.com/items?itemName=saoudrizwan.claude-dev) is a free, open-source AI coding helper for VS Code that asks before every edit and command. Point it at Trioditis (API Provider *OpenAI Compatible*, base URL `http://127.0.0.1:8787/v1`, model `route/code`) and every step it takes shows up here: route, model, tokens, cost, and which models were skipped and why. The full recipe, including the local-model context setting that keeps a small model from "forgetting" the task, is in [Trioditis's README](https://github.com/alexb-joat/trioditis#vs-code-cline).
 
 ## Make it yours
 
