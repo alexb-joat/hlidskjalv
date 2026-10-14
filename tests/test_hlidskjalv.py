@@ -595,19 +595,28 @@ class OwnerTest(unittest.TestCase):
         self.assertTrue(self.owner.check(self.owner.start_session()))
 
     def test_sessions_end_after_idle_time(self):
-        self.owner.ttl_provider = lambda: 0.05
-        token = self.owner.start_session()
-        self.assertTrue(self.owner.check(token))
-        self.assertLessEqual(self.owner.session_info(token)["expires_in"], 1)
-        time.sleep(0.1)
-        self.assertFalse(self.owner.check(token))
-        self.owner.ttl_provider = None
-        token = self.owner.start_session()
-        self.owner.end_session(token)
-        self.assertFalse(self.owner.check(token))
-        a, b = self.owner.start_session(), self.owner.start_session()
-        self.owner.end_all()
-        self.assertFalse(self.owner.check(a) or self.owner.check(b))
+        """Idle time is measured on a controlled clock: a real 50 ms lifetime raced the session file's write
+        and failed on slow runners."""
+        from hlidskjalv import auth as A
+        clock = [1_000_000.0]
+        with mock.patch.object(A.time, "time", lambda: clock[0]):
+            self.owner.ttl_provider = lambda: 60
+            token = self.owner.start_session()
+            self.assertTrue(self.owner.check(token))
+            self.assertEqual(self.owner.session_info(token)["expires_in"], 60)
+            clock[0] += 50
+            self.assertTrue(self.owner.check(token))   # using it keeps it alive (a sliding window) ...
+            clock[0] += 50
+            self.assertTrue(self.owner.check(token))
+            clock[0] += 61                             # ... until it has been idle for the whole lifetime
+            self.assertFalse(self.owner.check(token))
+            self.owner.ttl_provider = None
+            token = self.owner.start_session()
+            self.owner.end_session(token)
+            self.assertFalse(self.owner.check(token))
+            a, b = self.owner.start_session(), self.owner.start_session()
+            self.owner.end_all()
+            self.assertFalse(self.owner.check(a) or self.owner.check(b))
 
     def test_password_pairs_and_locks_after_wrong_tries(self):
         self.assertFalse(self.owner.has_password())
