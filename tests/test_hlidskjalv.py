@@ -498,31 +498,39 @@ class TerminalTest(unittest.TestCase):
 
     @unittest.skipUnless(os.path.exists("/proc/self/status") and __import__("hlidskjalv.terminal", fromlist=["x"]).user_manager_ok(),
                          "needs a running systemd user manager")
+    @unittest.skipIf(os.name == "nt", "the user-manager path is Linux")
     def test_root_shell_through_the_user_manager(self):
+        """With root allowed and the page sandboxed, the shell is started through `systemd-run --user`, not as a
+        child of the service, and without no-new-privileges. A stand-in systemd-run records what it was asked for
+        and runs the shell directly: the real one needs a live user session, which hosted CI runners do not
+        reliably have (a real run is part of the manual check in the launch plan)."""
         from hlidskjalv import terminal as tm
+        tmp = Path(tempfile.mkdtemp())
+        record = tmp / "asked.txt"
+        fake = tmp / "systemd-run"
+        fake.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" > "{record}"\nwhile [ "$1" != "--" ]; do shift; done\nshift\nexec "$@"\n')
+        os.chmod(fake, 0o700)
         self.shell.root_allowed = lambda: True
-        with mock.patch.object(tm, "sudo_passwordless", lambda: False), mock.patch.object(tm, "sandboxed", lambda: True):
+        with mock.patch.object(tm, "sudo_passwordless", lambda: False), mock.patch.object(tm, "sandboxed", lambda: True), \
+                mock.patch.object(tm, "user_manager_ok", lambda: str(fake)):
             ws = WsClient(self.port)
             ws.hello(key=self.owner.start_session())
             op, data = ws.recv()
             self.assertEqual((op, json.loads(data)["root"]), (term.OP_TEXT, True))
-            # systemd-run needs a moment to connect the terminal; input typed earlier can be dropped. Probe until
-            # the shell answers, then send the real command, and wait for an end marker (not the label: the
-            # digit can arrive in a later read than "NoNewPrivs:").
-            ready = b""
-            for _ in range(15):
-                ws.send(term.OP_BIN, b"echo ready-$((6*7))\n")
-                ready += ws.read_until(b"ready-42\r\n", limit=2)
-                if b"ready-42\r\n" in ready:
-                    break
-            self.assertIn(b"ready-42\r\n", ready)
+            # Wait for an end marker, not for the label: the digit can arrive in a later read than "NoNewPrivs:".
             ws.send(term.OP_BIN, b"grep --color=never NoNewPrivs /proc/self/status; echo end-$((6*7)); exit 5\n")
             out = ws.read_until(b"end-42\r\n", limit=20)
-            self.assertIn(b"NoNewPrivs:\t0", out)
+            self.assertIn(b"NoNewPrivs:\t0", out)  # root is allowed: the shell must not get the flag
             while True:
                 op, data = ws.recv()
                 if op == term.OP_TEXT and "exit" in json.loads(data):
                     self.assertEqual(json.loads(data), {"exit": 5}); break
+        asked = record.read_text().splitlines()
+        self.assertEqual(asked[:2], ["--user", "--quiet"])
+        for expected in ("--pty", "--wait", "--collect", "-p", "MemoryMax=2G", "TERM=xterm-256color"):
+            self.assertIn(expected, asked)
+        self.assertTrue(any(a.startswith("--unit=hlidskjalv-shell-") for a in asked))
+        self.assertTrue(any(a.startswith("--working-directory=") for a in asked))
 
     def test_off_by_default(self):
         port = free_port()
