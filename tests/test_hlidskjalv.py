@@ -1229,7 +1229,7 @@ class ProgramsTest(unittest.TestCase):
         fake = Path(tempfile.mkdtemp())
         name = "git.exe" if os.name == "nt" else "git"  # Windows only runs PATHEXT names
         (fake / name).write_text("#!/bin/sh\necho pwned\n")
-        os.chmod(fake / name, 0o755)
+        os.chmod(fake / name, 0o700)
         old = os.environ.get("PATH", "")
         os.environ["PATH"] = f"{fake}{os.pathsep}{old}"
         try:
@@ -1335,7 +1335,7 @@ class ServerTest(unittest.TestCase):
         script_src = re.search(r"script-src ([^;]*)", r.getheader("Content-Security-Policy")).group(1)
         self.assertEqual(script_src, "'self'")
         self.assertIn(b'<script src="/static/app.js"></script>', page)
-        self.assertEqual(re.findall(rb"<script(?![^>]*\bsrc=)[^>]*>", page), [])  # no inline script left
+        self.assertEqual(re.findall(rb"<script(?![^>]*\bsrc=)[^>]*>", page, re.I), [])  # no inline script left
         self.assertNotRegex(page.decode(), r"(?i)\son[a-z]+=")  # no inline event-handler attributes
         status, js, r = self.get("/static/app.js")
         self.assertEqual((status, r.getheader("Content-Type"), r.getheader("Cache-Control")), (200, "text/javascript; charset=utf-8", "no-store"))
@@ -1472,6 +1472,26 @@ class PollerTest(unittest.TestCase):
         p.source = mock.Mock(poll=lambda: [{"type": "x"}])
         p.once()
         self.assertIsNone(p.health()["error"])  # a good poll clears it
+
+
+class InputHardeningTest(unittest.TestCase):
+    def test_session_ids_never_become_paths(self):
+        folder = Path(tempfile.mkdtemp())
+        good = "20260101-120000-demo.jsonl"
+        (folder / good).write_text(json.dumps({"type": "snapshot", "files": []}) + "\n")
+        (folder.parent / "20260101-120000-outside.jsonl").write_text("{}\n")
+        self.assertEqual(read_session(folder, good), [{"type": "snapshot", "files": []}])
+        for bad in ("../20260101-120000-outside.jsonl", "20260101-120000-demo.jsonl/../x", good + "\n", "", "/etc/passwd",
+                    "20260101-120000-nothere.jsonl", good.replace("demo", "a/b")):
+            self.assertIsNone(read_session(folder, bad), bad)
+
+    def test_gist_ids_are_checked_before_they_reach_an_api_path(self):
+        from hlidskjalv import sync as S
+        S.GistBackend("tok", "aa5a315d61ae9438b18d")  # a real-looking id is fine
+        S.GistBackend("tok")  # none yet: a new gist is created
+        for bad in ("../user", "abc/../../user/keys", "id?x=1", "zz", "a" * 65, " abc12345", "abc12345\n"):
+            with self.assertRaises(S.SyncError, msg=bad):
+                S.GistBackend("tok", bad)
 
 
 class VendorTest(unittest.TestCase):
@@ -1647,9 +1667,9 @@ class SyncTest(unittest.TestCase):
             calls.append((req.get_method(), req.full_url, req.get_header("Authorization")))
             body = json.loads(req.data.decode()) if req.data else None
             if req.get_method() == "POST" and req.full_url.endswith("/gists"):
-                store_.update(body["files"]); return Resp({"id": "abc123"})
+                store_.update(body["files"]); return Resp({"id": "abc123def4567890abc123def4567890"})
             if req.get_method() == "PATCH":
-                store_.update(body["files"]); return Resp({"id": "abc123"})
+                store_.update(body["files"]); return Resp({"id": "abc123def4567890abc123def4567890"})
             if req.get_method() == "GET":
                 if "missing" in req.full_url:
                     raise S.error.HTTPError(req.full_url, 404, "nope", {}, None)
@@ -1663,12 +1683,12 @@ class SyncTest(unittest.TestCase):
             with self.assertRaises(S.SyncError):
                 ya.setup("gist", "correct horse battery", token="ghp_x", gist_id="missing")
             st = ya.setup("gist", "correct horse battery", token="ghp_x")
-            self.assertEqual((st["kind"], ya.cfg["gist_id"]), ("gist", "abc123"))
+            self.assertEqual((st["kind"], ya.cfg["gist_id"]), ("gist", "abc123def4567890abc123def4567890"))
             self.assertIn(S.BLOB_NAME, store_); self.assertNotIn("ghp_x", store_[S.BLOB_NAME]["content"])
             self.assertTrue(all(a == "Bearer ghp_x" for _, _, a in calls))
             B = self.home(); sb, pb = Settings(B / "settings.json"), Progress(B, B / "sessions")
             yb = S.Syncer(B, sb, pb, device="desktop")
-            self.assertEqual(sorted(yb.setup("gist", "correct horse battery", token="ghp_x", gist_id="abc123")["devices"]), ["laptop"])
+            self.assertEqual(sorted(yb.setup("gist", "correct horse battery", token="ghp_x", gist_id="abc123def4567890abc123def4567890")["devices"]), ["laptop"])
         self.assertNotIn("ghp_x", (A / "settings.json").read_text() if (A / "settings.json").exists() else "")
 
     def test_sync_endpoints_and_learn_progress(self):

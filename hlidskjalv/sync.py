@@ -17,6 +17,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 import os
 import socket
 import struct
@@ -212,6 +213,9 @@ class GistBackend:
     API = "https://api.github.com"
 
     def __init__(self, token: str, gist_id: str | None = None):
+        # The id becomes part of an API path carrying your token: only what a gist id looks like is accepted.
+        if gist_id is not None and not re.fullmatch(r"[0-9a-fA-F]{8,64}", gist_id):
+            raise SyncError("that doesn't look like a gist id (letters a-f and digits, as in the end of the gist's address)")
         self.token, self.gist_id = token, gist_id
 
     def where(self) -> str:

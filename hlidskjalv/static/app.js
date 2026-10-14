@@ -111,7 +111,7 @@ function fileInfo(path) {
   if (known) [kind, glyph, title, what] = known;
   else if (EXTS[ext]) { [kind, glyph, title] = EXTS[ext]; what = ""; }
   else { kind = "other"; glyph = ext ? ext.slice(0, 3).toUpperCase() : "•"; title = ext ? `.${ext} file` : "File"; what = ""; }
-  if (kind === "code" && (/(^|\/)tests?\//.test(path) || /^test_|_test\.|\.test\.|\.spec\./.test(lower))) {
+  if (kind === "code" && (/(^|\/)tests?\//.test(path) || /(?:^test_|_test\.|\.test\.|\.spec\.)/.test(lower))) {
     kind = "test"; title = "Test"; what = "An automatic check. It runs your code and complains if something broke.";
   }
   if (SENSITIVE.test(name)) { kind = "secret"; glyph = "🔒"; what = what || "Probably holds a password or key. Keep it out of Git, chats and screenshots."; }

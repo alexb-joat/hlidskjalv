@@ -221,8 +221,10 @@ def list_sessions(folder: Path) -> list[dict]:
 def read_session(folder: Path, sid: str) -> list[dict] | None:
     if not SESSION_NAME.match(sid):
         return None
-    path = folder / sid
-    if path.parent.resolve() != folder.resolve() or not path.is_file():
+    # The file is picked from the folder's own listing by exact name, never built from the request,
+    # so no value from the client ever becomes part of a path.
+    path = next((p for p in folder.iterdir() if p.name == sid and p.is_file()), None) if folder.is_dir() else None
+    if path is None:
         return None
     events = []
     with path.open(encoding="utf-8", errors="replace") as f:
