@@ -108,9 +108,11 @@ BLOB_NAME = "hlidskjalv-sync.json"
 FORMAT = 1
 
 
-def seal(key: bytes, salt: bytes, device: str, payload: dict) -> str:
+def seal(key: bytes, salt: bytes, device: str, payload: dict, after: float = 0.0) -> str:
     nonce = os.urandom(12)
-    aad = {"v": FORMAT, "device": device[:60], "updated": round(time.time(), 3)}
+    # `after`: the newest copy this computer has seen. A pull only takes a copy that is newer than what it
+    # has seen, and a coarse clock (Windows ticks every ~15 ms) could stamp two quick pushes the same.
+    aad = {"v": FORMAT, "device": device[:60], "updated": round(max(time.time(), after + 0.001), 3)}
     aad_bytes = json.dumps(aad, sort_keys=True, separators=(",", ":")).encode()
     ct = aead_encrypt(key, nonce, aad_bytes, json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode())
     return json.dumps({"v": FORMAT, "salt": base64.b64encode(salt).decode(), "nonce": base64.b64encode(nonce).decode(),
@@ -421,7 +423,8 @@ class Syncer:
         with self.lock:
             if not self.backend:
                 return
-            text = seal(base64.b64decode(self.cfg["key"]), base64.b64decode(self.cfg["salt"]), self.cfg["device"], self._payload())
+            text = seal(base64.b64decode(self.cfg["key"]), base64.b64decode(self.cfg["salt"]), self.cfg["device"], self._payload(),
+                        after=float(self.cfg.get("seen_updated") or 0))
             self.backend.write(text)
             self.cfg["seen_updated"] = peek(text)["updated"]
             self.cfg["last_push"] = time.time()

@@ -506,7 +506,16 @@ class TerminalTest(unittest.TestCase):
             ws.hello(key=self.owner.start_session())
             op, data = ws.recv()
             self.assertEqual((op, json.loads(data)["root"]), (term.OP_TEXT, True))
-            # Wait for an end marker, not for the label: the digit can arrive in a later read than "NoNewPrivs:".
+            # systemd-run needs a moment to connect the terminal; input typed earlier can be dropped. Probe until
+            # the shell answers, then send the real command, and wait for an end marker (not the label: the
+            # digit can arrive in a later read than "NoNewPrivs:").
+            ready = b""
+            for _ in range(15):
+                ws.send(term.OP_BIN, b"echo ready-$((6*7))\n")
+                ready += ws.read_until(b"ready-42\r\n", limit=2)
+                if b"ready-42\r\n" in ready:
+                    break
+            self.assertIn(b"ready-42\r\n", ready)
             ws.send(term.OP_BIN, b"grep --color=never NoNewPrivs /proc/self/status; echo end-$((6*7)); exit 5\n")
             out = ws.read_until(b"end-42\r\n", limit=20)
             self.assertIn(b"NoNewPrivs:\t0", out)
@@ -1472,6 +1481,17 @@ class PollerTest(unittest.TestCase):
         p.source = mock.Mock(poll=lambda: [{"type": "x"}])
         p.once()
         self.assertIsNone(p.health()["error"])  # a good poll clears it
+
+
+class SyncClockTest(unittest.TestCase):
+    def test_a_copy_is_always_newer_than_the_one_it_replaces_even_on_a_coarse_clock(self):
+        from hlidskjalv import sync as S
+        key, salt = os.urandom(32), os.urandom(16)
+        with mock.patch.object(S.time, "time", return_value=1000.0):  # the clock did not tick between two pushes
+            first = S.peek(S.seal(key, salt, "laptop", {}))["updated"]
+            second = S.peek(S.seal(key, salt, "desktop", {}, after=first))["updated"]
+            third = S.peek(S.seal(key, salt, "laptop", {}, after=second))["updated"]
+        self.assertTrue(first < second < third)
 
 
 class InputHardeningTest(unittest.TestCase):
