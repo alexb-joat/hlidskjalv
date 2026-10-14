@@ -175,10 +175,10 @@ class ClaudeCodeWatcherTest(unittest.TestCase):
         self.claude_home = Path(tempfile.mkdtemp())
 
     def test_project_dir_encoding(self):
-        got = claude_code_project_dir(Path("/home/alexb/projects/hello-test"), self.claude_home)
-        self.assertEqual(got, self.claude_home / "projects" / "-home-alexb-projects-hello-test")
-        got = claude_code_project_dir(Path("/home/alexb/My Projects/my.app"), self.claude_home)
-        self.assertEqual(got.name, "-home-alexb-My-Projects-my-app")
+        got = claude_code_project_dir(Path("/home/sam/projects/hello-test"), self.claude_home)
+        self.assertEqual(got, self.claude_home / "projects" / "-home-sam-projects-hello-test")
+        got = claude_code_project_dir(Path("/home/sam/My Projects/my.app"), self.claude_home)
+        self.assertEqual(got.name, "-home-sam-My-Projects-my-app")
 
     def test_subagents_and_synthetic_messages(self):
         proj_dir = claude_code_project_dir(self.root, self.claude_home)
@@ -1038,10 +1038,10 @@ class AlertsTest(unittest.TestCase):
             self.skipTest("Linux only")
         w = SystemLogWatcher(self.alerter, every_s=0, runner=runner)
         lines[:] = [
-            {"__CURSOR": "c1", "SYSLOG_IDENTIFIER": "sudo", "MESSAGE": "alexb : TTY=pts/1 ; PWD=/home/alexb ; USER=root ; COMMAND=/usr/bin/apt update"},
-            {"__CURSOR": "c2", "SYSLOG_IDENTIFIER": "sudo", "MESSAGE": "alexb : 3 incorrect password attempts ; TTY=pts/1"},
-            {"__CURSOR": "c3", "SYSLOG_IDENTIFIER": "sshd-session", "MESSAGE": "Accepted publickey for alexb from 10.0.0.9 port 51515 ssh2"},
-            {"__CURSOR": "c4", "SYSLOG_IDENTIFIER": "systemd-logind", "MESSAGE": "New session 12 of user alexb."},
+            {"__CURSOR": "c1", "SYSLOG_IDENTIFIER": "sudo", "MESSAGE": "sam : TTY=pts/1 ; PWD=/home/sam ; USER=root ; COMMAND=/usr/bin/apt update"},
+            {"__CURSOR": "c2", "SYSLOG_IDENTIFIER": "sudo", "MESSAGE": "sam : 3 incorrect password attempts ; TTY=pts/1"},
+            {"__CURSOR": "c3", "SYSLOG_IDENTIFIER": "sshd-session", "MESSAGE": "Accepted publickey for sam from 10.0.0.9 port 51515 ssh2"},
+            {"__CURSOR": "c4", "SYSLOG_IDENTIFIER": "systemd-logind", "MESSAGE": "New session 12 of user sam."},
         ]
         w.poll()
         self.assertEqual([e["severity"] for e in self.got], ["medium", "high", "high", "info"])
@@ -1708,7 +1708,7 @@ class FakeProvider:
     """GitHub's device flow, in-process: start, pending a few polls, then a token and an identity."""
 
     def __init__(self, who=None, pending=2, grant=True):
-        self.who, self.pending, self.grant, self.calls = who or {"id": 42, "login": "alexb"}, pending, grant, []
+        self.who, self.pending, self.grant, self.calls = who or {"id": 42, "login": "sam"}, pending, grant, []
 
     def __call__(self, req, timeout=0):
         import io
@@ -1772,9 +1772,9 @@ class SsoTest(unittest.TestCase):
             flow = sso.start("github", "link")
             self.assertEqual((flow["user_code"], flow["uri"], flow["provider"]), ("ABCD-EFGH", "https://example.test/device", "GitHub"))
             st = self.wait(sso, flow["id"])
-        self.assertEqual((st["status"], st["identity"]), ("ok", "alexb"))
-        self.assertEqual(sso.linked("github"), {"id": "42", "name": "alexb"})
-        self.assertEqual(M.Sso(self.home).linked("github")["name"], "alexb")  # persisted, owner-only
+        self.assertEqual((st["status"], st["identity"]), ("ok", "sam"))
+        self.assertEqual(sso.linked("github"), {"id": "42", "name": "sam"})
+        self.assertEqual(M.Sso(self.home).linked("github")["name"], "sam")  # persisted, owner-only
         if os.name == "posix":
             self.assertEqual((self.home / "sso.json").stat().st_mode & 0o777, 0o600)
         self.assertTrue(all(cid == "cid-1" for m, which, cid in fake.calls if which in ("device", "token")))
@@ -1783,7 +1783,7 @@ class SsoTest(unittest.TestCase):
             flow = sso.start("github", "pair")
             st = self.wait(sso, flow["id"])
         self.assertEqual(st["status"], "ok")
-        self.assertEqual(sso.consume(flow["id"])["identity"], "alexb")
+        self.assertEqual(sso.consume(flow["id"])["identity"], "sam")
         self.assertIsNone(sso.consume(flow["id"]))  # once
         with mock.patch.object(M.request, "urlopen", FakeProvider(who={"id": 7, "login": "mallory"})):
             st = self.wait(sso, sso.start("github", "pair")["id"])
