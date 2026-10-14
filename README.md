@@ -5,7 +5,7 @@
   <img alt="Hlidskjalv: see what you and your AI helper are doing" src="docs/img/banner-light.svg" width="720">
 </picture>
 
-**See what you and your AI coding helper are doing.** Hlidskjalv watches a project folder and draws it as a live map: every edit, command, Git save point and AI step lights up, lands in an activity log, and anything you did not do yourself raises an alert. Hover over anything for a plain-English explanation.
+**A live, plain-English map of your project and everything your AI coding helper does in it.** Hlidskjalv watches one folder: every edit, command, Git save point and AI step lights up and lands in an activity log, and anything you did not do yourself raises an alert. Hover over anything for an explanation.
 
 [![ci](https://github.com/alexb-joat/hlidskjalv/actions/workflows/ci.yml/badge.svg)](https://github.com/alexb-joat/hlidskjalv/actions/workflows/ci.yml)
 [![codeql](https://github.com/alexb-joat/hlidskjalv/actions/workflows/codeql.yml/badge.svg)](https://github.com/alexb-joat/hlidskjalv/actions/workflows/codeql.yml)
@@ -55,8 +55,10 @@ You need Python 3.10 or newer (on Windows, install it from [python.org](https://
 
 ```bash
 git clone https://github.com/alexb-joat/hlidskjalv.git && cd hlidskjalv
-python3 -m hlidskjalv watch ~/projects/my-app      # Windows: py -3 -m hlidskjalv watch C:\Users\you\projects\my-app
+python3 -m hlidskjalv watch ~/projects/my-app
 ```
+
+On Windows use `py -3 -m hlidskjalv watch C:\Users\you\projects\my-app`.
 
 Your browser opens at `http://127.0.0.1:8788`. Leave the terminal running while you work; **Ctrl+C** stops it and saves the session for Replay. Point it at **one project folder**, not your whole home folder or drive (it refuses those).
 
@@ -84,7 +86,7 @@ Open a new terminal afterwards. Commands are written to `~/.hlidskjalv/commands.
 
 ## Go further
 
-| | |
+| Topic | What it covers |
 |---|---|
 | **AI steps and cost** | Connect [Trioditis](https://github.com/alexb-joat/trioditis) or Claude Code and see which model handled each step, tokens, cost, caps and limits. [docs/ai-and-cost.md](docs/ai-and-cost.md) |
 | **Alerts** | What raises an alert, and how to tune it. [docs/alerts.md](docs/alerts.md) |
