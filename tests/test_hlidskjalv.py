@@ -1572,6 +1572,8 @@ class ReadmeTest(unittest.TestCase):
         self.assertRegex(page, r"Showing the first \$\{shown\.toLocaleString\(\)\} of \$\{total\.toLocaleString\(\)\} files")
         self.assertIn('addEventListener("health"', page)
         self.assertIn(" stalled", page)
+        index = resources.files("hlidskjalv").joinpath("static/index.html").read_text(encoding="utf-8")
+        self.assertIn(".hint[hidden] { display: none; }", index)  # the banner is hidden until files are left out
 
 
 class HistoryAndProgressTest(unittest.TestCase):

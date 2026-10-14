@@ -250,6 +250,7 @@ h3 { font-size: calc(17px * var(--fz)); margin: 0; font-weight: 800; text-wrap: 
 .badge.got .medal { background: var(--accent); color: var(--accent-text); }
 
 .hint { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 10px 14px; border-radius: calc(var(--r) * 1); border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent); color: var(--muted); font-size: calc(13.5px * var(--fz)); margin-bottom: 14px; align-items: center; }
+.hint[hidden] { display: none; }  /* .hint's display:flex would otherwise win over the hidden attribute */
 .hint b { color: var(--accent); }
 .hint button { margin-left: auto; background: none; border: 0; color: var(--muted); cursor: pointer; text-decoration: underline; }
 
