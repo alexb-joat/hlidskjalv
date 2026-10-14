@@ -1,62 +1,39 @@
-# Security
+# Security policy
 
-## What Hlidskjalv is, and what that means for the threat model
+## Reporting a vulnerability
 
-Hlidskjalv runs on your computer as you, watches one project folder, and serves a web page on `127.0.0.1`. It reads
-file names and line counts, your Git history, terminal commands you chose to record, Claude Code's and Trioditis's
-logs (metadata only), and some system files to raise alerts. Optionally it opens a shell in the page. It has no
-server of its own and no accounts. The design assumes:
+Please report it **privately**: open the repository's **Security** tab and choose **Report a vulnerability**
+([direct link](https://github.com/alexb-joat/hlidskjalv/security/advisories/new)). Please do not open a public issue.
 
-- **Other websites can reach `127.0.0.1`.** Any page open in your browser can send requests to it. Defences: it
-  binds `127.0.0.1` only; every request must carry a `Host` of this computer (`127.0.0.1`, `localhost` or
-  `hlidskjalv.localhost` with the port), which stops DNS rebinding; changes need a paired browser's session key
-  *and* an `Origin` of the page itself; the terminal's WebSocket checks the same. Refusals are logged as Alerts.
-- **Injected script is the main browser risk**, since a paired browser keeps a session key in localStorage. The page's
-  script is a served file and the CSP is `script-src 'self'` without `'unsafe-inline'`, so an injected inline
-  script or handler does not run. Styles still allow inline for now (a known gap, tracked).
-- **The terminal is a shell as you.** It is off unless started with `--terminal` or switched on in Settings, needs a
-  paired browser, and on Linux starts with no-new-privileges so `sudo` cannot elevate unless you switch on
-  "Root in the terminal" (which needs a password, is refused while passwordless sudo works, asks for a fresh
-  two-factor code when one is set up, and raises an alert). Shells start through a small single-threaded stub, not
-  `preexec_fn`. The flag travels on the command line, never the environment.
-- **Pairing.** A browser pairs with a one-time link (needs your user account on this computer) or a password (salted
-  hash, rate limited, optional authenticator-app code and recovery codes) or an optional GitHub/Google device-flow
-  sign-in. The owner key and password are readable only by you (`0600`).
-- **File contents never leave a module.** Only names and line counts become events. Files that look secret (`.env`,
-  keys, `*secret*`, `*credential*`…) are not even read. Commands are masked for tokens, passwords and URLs with
-  credentials before they are shown or saved. Git runs with hooks and fsmonitor switched off.
-- **Outbound connections are opt-in** and listed in the README (Outbound connections). A default install makes none.
-- **Dependencies.** The Python side uses the standard library only. The browser side vendors three files
-  (xterm.js, its fit addon, qrcode-generator), copied unmodified from npm and checked against a committed checksum
-  manifest by a unit test (`static/vendor/SHA256SUMS`).
-- **Autostart.** Nothing starts at login unless you run `autostart enable` yourself; the Linux unit runs as you with
-  `NoNewPrivileges`, `UMask=0077` and a memory cap.
-- **Compromised CI.** Workflows are read-only, actions are pinned to commit SHAs, nothing persists credentials, and
-  CodeQL and dependency review run on every pull request.
+Include the version (`python3 -m hlidskjalv --version`), your system and browser, what you expected and what happened,
+and the smallest steps that reproduce it. Never include your owner key, pairing links or anything from `~/.hlidskjalv`.
 
-## Not covered (yet)
+This is a small project with one maintainer. Expect an acknowledgement within a week; confirmed issues get a fix or a
+documented mitigation as soon as practical, and reporters are credited unless they prefer not to be.
 
-- **A hostile local user or program running as you.** It can read `~/.hlidskjalv` like you can. Hlidskjalv is not a
-  sandbox and does not claim to be.
-- **Inline styles** in the CSP (see above) and the page's `style=""` attributes.
-- **Passkeys (WebAuthn).** Verifying them needs ES256 signature checks, which the standard library lacks. The choice
-  is between vendoring a verifier (with a checksum, reviewed) and staying with the password, an authenticator-app code
-  and provider sign-in. Not built: this is a recorded decision, not an oversight.
-- **Multi-user machines.** One owner key per user account; no per-user isolation inside one running instance.
-- **Detection is pattern-based.** The alert rules for risky commands, persistence changes and secret-looking names
-  are a safety net and will miss things.
+## Supported versions
 
-## Operating checklist
+Fixes land on `main` and ship in the next release. Please reproduce on the latest release or `main` first.
 
-- Pair with the one-time link (`python3 -m hlidskjalv pair`) or set a password; add two-factor if others use this
-  computer.
-- Leave "Root in the terminal" off unless you need it.
-- Keep `~/.hlidskjalv` private (the program sets `0700`); do not sync it with a service you do not trust, because
-  it holds the owner key and session records.
-- If a pairing link, owner key or recovery code was ever pasted anywhere, rotate it: `python3 -m hlidskjalv pair --rotate`.
+## In scope
 
-## Reporting
+Anything that lets someone who is not the owner read, change or run something through Hlidskjalv: bypassing the
+`Host` or `Origin` checks, pairing, the session or second-factor checks; making the page run injected script; reaching
+the terminal without a paired browser or getting root without the opt-in; file contents, secrets or session data leaving
+the computer; a path or request that escapes the folders it is meant to read; or a weakness in the install, vendored
+files or CI supply chain.
 
-Please report vulnerabilities privately through GitHub Security Advisories ("Report a vulnerability" in the Security
-tab), not in public issues. Include the version (`python3 -m hlidskjalv --version`), your system and browser, and steps
-to reproduce. Never include your owner key or `~/.hlidskjalv` files.
+## Out of scope
+
+Someone who already runs code as your user (they can read `~/.hlidskjalv` as you can); alert rules and secret masks that
+miss a pattern (they are a safety net; new patterns are welcome as ordinary pull requests); weaknesses in GitHub,
+Google or Gist themselves; using the opt-in terminal to do what any shell can do.
+
+## Using it safely
+
+- Pair with the one-time link or a password, and add two-factor if others use the computer.
+- Leave "Root in the terminal" off unless you need it, and the terminal off unless you use it.
+- Keep `~/.hlidskjalv` private (the program sets `0700`). If a pairing link or owner key was ever pasted somewhere,
+  run `python3 -m hlidskjalv pair --rotate`.
+
+The design, its controls and its limits are described in [docs/security-model.md](docs/security-model.md).
