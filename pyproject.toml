@@ -22,4 +22,4 @@ hlidskjalv = "hlidskjalv.__main__:main"
 packages = ["hlidskjalv"]
 
 [tool.setuptools.package-data]
-hlidskjalv = ["static/*.html", "static/vendor/*"]
+hlidskjalv = ["static/*.html", "static/*.js", "static/vendor/*"]

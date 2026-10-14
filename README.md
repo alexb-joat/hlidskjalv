@@ -209,11 +209,11 @@ Hlidskjalv has no server of its own and sends no telemetry. These are the only c
 
 | Connection | When | What leaves your computer |
 |---|---|---|
-| Google Fonts (`fonts.googleapis.com`, `fonts.gstatic.com`) | When the page loads, for the code font, and when you pick one of the Google fonts in Settings → Look. Offline it falls back to system fonts. | The font's name; Google sees your IP address, as with any web request. |
+| Google Fonts (`fonts.googleapis.com`, `fonts.gstatic.com`) | Only when you pick one of the Google fonts in Settings → Look, or press "Preview every font". The default look needs no network. | The font's name; Google sees your IP address, as with any web request. |
 | GitHub Gist (`api.github.com`) | Only after you set up [Sync](#sync-between-your-computers-optional) with a Gist; off by default. | Your settings, XP and Learn progress, encrypted on your computer before upload. |
 | GitHub or Google sign-in | Only after you set up [Sign in with GitHub or Google](#pairing-a-browser); off by default. | That you use Hlidskjalv, at each sign-in, as the OAuth app registered under your own name. |
 
-Nothing else: no update check, no crash reports, no analytics. A plain install that never touches Settings makes only the font request.
+Nothing else: no update check, no crash reports, no analytics. A plain install that never touches Settings makes no outbound request at all, and the page's script comes from the local server, not from anywhere else (`script-src 'self'`, so an injected inline script cannot run).
 
 ## Try it without installing
 

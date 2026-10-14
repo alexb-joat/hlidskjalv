@@ -37,7 +37,7 @@ HEALTH_EVERY_S = 15.0  # source health on the event stream
 MAX_EVENTS = 20_000
 MAX_POST = 64 * 1024
 
-# Vendored terminal files (see static/vendor/README.md): the only static files served.
+# Static files served: the page's script (static/app.js) and these vendored terminal files (see static/vendor/README.md).
 VENDOR = {"xterm.js": "text/javascript; charset=utf-8", "addon-fit.js": "text/javascript; charset=utf-8",
           "xterm.css": "text/css; charset=utf-8", "qrcode.js": "text/javascript; charset=utf-8"}
 
@@ -58,7 +58,9 @@ ICONS = {"/icon.svg": ("image/svg+xml", ICON_SVG.encode()), "/mask.svg": ("image
 def csp(port: int) -> str:
     # No [::1]: the server binds 127.0.0.1 only, and WebKit rejects an IPv6 literal in a CSP source list.
     ws = " ".join(f"ws://{h}:{port}" for h in ("127.0.0.1", "localhost", NICE_HOST))
-    return ("default-src 'none'; script-src 'self' 'unsafe-inline'; "
+    # script-src 'self': the page's script is static/app.js, so an injected inline script or handler
+    # cannot run. Styles keep 'unsafe-inline' for now (the style="" attributes the page sets).
+    return ("default-src 'none'; script-src 'self'; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             f"font-src https://fonts.gstatic.com; connect-src 'self' {ws}; img-src 'self' data:; "
             "base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
@@ -270,6 +272,7 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
             b'<meta name="theme-color" content="#3b5bdb"></head><body>'
             + resources.files("hlidskjalv").joinpath("static/index.html").read_bytes()
             + b"</body></html>")
+    app_js = resources.files("hlidskjalv").joinpath("static/app.js").read_bytes()
     # *.localhost resolves to loopback in Chrome, Edge and Firefox without any setup.
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"{NICE_HOST}:{port}"}
     allowed_origins = {"http://" + h for h in allowed_hosts}
@@ -344,6 +347,9 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                 ctype, data = ICONS[url.path]
                 self._headers(200, ctype, len(data))
                 self.wfile.write(data)
+            elif url.path == "/static/app.js":
+                self._headers(200, "text/javascript; charset=utf-8", len(app_js))
+                self.wfile.write(app_js)
             elif url.path.startswith("/static/vendor/") and url.path[15:] in VENDOR:
                 data = resources.files("hlidskjalv").joinpath("static/vendor/" + url.path[15:]).read_bytes()
                 self._headers(200, VENDOR[url.path[15:]], len(data))

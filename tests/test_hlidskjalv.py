@@ -654,7 +654,7 @@ class SettingsTest(unittest.TestCase):
         """The page carries its own copy of the defaults (for the demo and the first paint)."""
         import re
         from importlib import resources
-        page = resources.files("hlidskjalv").joinpath("static/index.html").read_text(encoding="utf-8")
+        page = resources.files("hlidskjalv").joinpath("static/app.js").read_text(encoding="utf-8")
         embedded = re.search(r"/\*DEFAULTS\*/(.*?)/\*END\*/", page, re.S).group(1)
         self.assertEqual(json.loads(embedded), defaults())
 
@@ -1261,6 +1261,27 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn(b"Hlidskjalv", body)
         self.assertIn("frame-ancestors 'none'", r.getheader("Content-Security-Policy"))
+
+    def test_scripts_only_from_our_own_files(self):
+        """script-src 'self' without 'unsafe-inline': an injected inline script or handler cannot run,
+        and the page's own script is a served file, not a <script> body."""
+        import re
+        status, page, r = self.get("/")
+        script_src = re.search(r"script-src ([^;]*)", r.getheader("Content-Security-Policy")).group(1)
+        self.assertEqual(script_src, "'self'")
+        self.assertIn(b'<script src="/static/app.js"></script>', page)
+        self.assertEqual(re.findall(rb"<script(?![^>]*\bsrc=)[^>]*>", page), [])  # no inline script left
+        self.assertNotRegex(page.decode(), r"(?i)\son[a-z]+=")  # no inline event-handler attributes
+        status, js, r = self.get("/static/app.js")
+        self.assertEqual((status, r.getheader("Content-Type"), r.getheader("Cache-Control")), (200, "text/javascript; charset=utf-8", "no-store"))
+        self.assertIn(b"function boot()", js.replace(b"async function", b"function"))
+        self.assertEqual(self.get("/static/app.js", host="evil.example")[0], 403)
+        self.assertEqual(self.get("/static/other.js")[0], 404)
+
+    def test_default_page_asks_nothing_of_other_sites(self):
+        import re
+        status, page, _ = self.get("/")
+        self.assertNotRegex(page.decode(), r"""(?i)(href|src)=["']https?://""")  # nothing loads from elsewhere on a default boot
         self.hub.publish({"type": "command", "cmd": "ls", "cwd": "."})
         status, body, _ = self.get("/api/state")
         state = json.loads(body)
@@ -1406,7 +1427,7 @@ class ReadmeTest(unittest.TestCase):
 
     def test_page_names_the_cap_and_stalled_sources(self):
         from importlib import resources
-        page = resources.files("hlidskjalv").joinpath("static/index.html").read_text(encoding="utf-8")
+        page = resources.files("hlidskjalv").joinpath("static/app.js").read_text(encoding="utf-8")
         self.assertRegex(page, r"Showing the first \$\{shown\.toLocaleString\(\)\} of \$\{total\.toLocaleString\(\)\} files")
         self.assertIn('addEventListener("health"', page)
         self.assertIn(" stalled", page)
@@ -1421,7 +1442,7 @@ class HistoryAndProgressTest(unittest.TestCase):
                 f.write(json.dumps(e) + "\n")
 
     def test_xp_rules_match_the_page(self):
-        page = (Path(__file__).resolve().parent.parent / "hlidskjalv" / "static" / "index.html").read_text(encoding="utf-8")
+        page = (Path(__file__).resolve().parent.parent / "hlidskjalv" / "static" / "app.js").read_text(encoding="utf-8")
         literal = re.search(r"const XP_RULES = \{([^}]*)\}", page).group(1)
         rules = {k.strip(): int(v) for k, v in (kv.split(":") for kv in literal.split(","))}
         self.assertEqual(rules, XP_RULES)
