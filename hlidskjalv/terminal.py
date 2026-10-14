@@ -34,8 +34,10 @@ import platform
 import signal
 import struct
 import subprocess
+import sys
 import threading
 from collections import namedtuple
+from pathlib import Path
 
 from .programs import which
 
@@ -50,15 +52,7 @@ WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 MAX_FRAME = 1 << 20
 MAX_SESSIONS = 4
 AUTH_TIMEOUT_S = 10
-PR_SET_NO_NEW_PRIVS = 38
 _LINUX = platform.system() == "Linux"
-_libc = None
-if _LINUX:
-    try:
-        import ctypes
-        _libc = ctypes.CDLL(None, use_errno=True)  # loaded once here; used in the forked child
-    except OSError:
-        _libc = None
 
 Plan = namedtuple("Plan", "argv root why set_nnp unit")  # how the next shell starts
 
@@ -314,13 +308,13 @@ class PosixShell:
         _resize(master, size)
         self.unit = unit
 
-        def take_tty():  # runs in the child
-            fcntl.ioctl(0, termios.TIOCSCTTY, 0)
-            if set_nnp and _libc is not None:
-                _libc.prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)  # sudo and other setuid programs can't elevate
+        # No preexec_fn: it is unsafe in a threaded server (the child can deadlock on a lock another thread
+        # held when it forked). A small single-threaded stub sets up the tty and, when root is off,
+        # no-new-privileges, then execs the shell; the flag travels on argv, never in the environment.
+        stub = [sys.executable, "-I", str(Path(__file__).with_name("_ptyexec.py")), "--nnp" if set_nnp else "--", *argv]
         try:
-            self.proc = subprocess.Popen(argv, stdin=slave, stdout=slave, stderr=slave, cwd=cwd, env=env,
-                                         start_new_session=True, preexec_fn=take_tty, close_fds=True)
+            self.proc = subprocess.Popen(stub, stdin=slave, stdout=slave, stderr=slave, cwd=cwd, env=env,
+                                         start_new_session=True, close_fds=True)
         except OSError:
             os.close(master)
             raise

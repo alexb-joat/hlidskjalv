@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 import re
+import sys
 import unittest
 from unittest import mock
 from pathlib import Path, PurePosixPath
@@ -330,6 +331,68 @@ class WsClient:
 
 
 @unittest.skipUnless(term.supported(), "pty needs Linux or macOS")
+@unittest.skipIf(os.name == "nt", "pty shells are POSIX")
+class PtyStubTest(unittest.TestCase):
+    """preexec_fn is unsafe in a threaded server; PosixShell starts a single-threaded stub instead."""
+
+    def run_shell(self, set_nnp: bool, command: bytes, until: bytes) -> bytes:
+        shell = term.PosixShell(["/bin/sh"], tempfile.gettempdir(), {**os.environ, "PS1": "$ "}, (80, 24), set_nnp=set_nnp)
+        try:
+            shell.write(command + b"; exit\n")
+            out = b""
+            deadline = time.monotonic() + 15
+            while until not in out and time.monotonic() < deadline:
+                try:
+                    out += shell.read()
+                except OSError:
+                    break
+            return out
+        finally:
+            shell.stop(); shell.close()
+
+    def test_no_preexec_fn_and_flags_travel_on_argv(self):
+        with mock.patch.object(term.subprocess, "Popen", side_effect=OSError("stop here")) as popen:
+            with self.assertRaises(OSError):
+                term.PosixShell(["/bin/bash", "-l"], "/tmp", {"A": "1"}, (80, 24), set_nnp=True)
+        args, kwargs = popen.call_args
+        self.assertNotIn("preexec_fn", kwargs)
+        self.assertTrue(kwargs["start_new_session"])
+        self.assertEqual(args[0][:2], [sys.executable, "-I"])
+        self.assertEqual(args[0][3:], ["--nnp", "/bin/bash", "-l"])
+        self.assertNotIn("nnp", " ".join(kwargs["env"]).lower())  # the flag is argv, never the environment
+        with mock.patch.object(term.subprocess, "Popen", side_effect=OSError("stop here")) as popen:
+            with self.assertRaises(OSError):
+                term.PosixShell(["/bin/sh"], "/tmp", {}, (80, 24), set_nnp=False)
+        self.assertEqual(popen.call_args[0][0][3:], ["--", "/bin/sh"])
+
+    def test_shell_gets_a_controlling_tty_and_default_signals(self):
+        out = self.run_shell(False, b"tty; grep -E '^SigIgn' /proc/self/status 2>/dev/null; echo end-$((6*7))", b"end-42\r\n")
+        self.assertIn(b"/dev/pts/", out) if sys.platform.startswith("linux") else self.assertIn(b"/dev/tty", out)
+        if sys.platform.startswith("linux"):
+            ign = int(re.search(rb"SigIgn:\s*([0-9a-f]+)", out).group(1), 16)
+            self.assertEqual(ign & (1 << 12), 0, "SIGPIPE (13) must not stay ignored across the exec")  # Python ignores it at start-up
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "no-new-privileges is Linux only")
+    def test_no_new_privs_only_when_root_is_off(self):
+        self.assertIn(b"NoNewPrivs:\t1", self.run_shell(True, b"grep NoNewPrivs /proc/self/status", b"NoNewPrivs:\t"))
+        self.assertIn(b"NoNewPrivs:\t0", self.run_shell(False, b"grep NoNewPrivs /proc/self/status", b"NoNewPrivs:\t"))
+
+    def test_a_missing_program_says_so_on_the_terminal(self):
+        shell = term.PosixShell(["/no/such/program"], tempfile.gettempdir(), dict(os.environ), (80, 24))
+        try:
+            buf = b""
+            deadline = time.monotonic() + 10
+            while b"could not start" not in buf and time.monotonic() < deadline:
+                try:
+                    buf += shell.read()
+                except OSError:
+                    break
+            self.assertIn(b"could not start /no/such/program", buf)
+            self.assertEqual(shell.wait(), 127)
+        finally:
+            shell.close()
+
+
 class TerminalTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
