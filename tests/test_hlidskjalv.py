@@ -374,8 +374,9 @@ class PtyStubTest(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "no-new-privileges is Linux only")
     def test_no_new_privs_only_when_root_is_off(self):
-        self.assertIn(b"NoNewPrivs:\t1", self.run_shell(True, b"grep NoNewPrivs /proc/self/status", b"NoNewPrivs:\t"))
-        self.assertIn(b"NoNewPrivs:\t0", self.run_shell(False, b"grep NoNewPrivs /proc/self/status", b"NoNewPrivs:\t"))
+        cmd = b"grep NoNewPrivs /proc/self/status; echo end-$((6*7))"  # end marker: the digit may arrive in a later read
+        self.assertIn(b"NoNewPrivs:\t1", self.run_shell(True, cmd, b"end-42\r\n"))
+        self.assertIn(b"NoNewPrivs:\t0", self.run_shell(False, cmd, b"end-42\r\n"))
 
     def test_a_missing_program_says_so_on_the_terminal(self):
         shell = term.PosixShell(["/no/such/program"], tempfile.gettempdir(), dict(os.environ), (80, 24))
@@ -505,8 +506,9 @@ class TerminalTest(unittest.TestCase):
             ws.hello(key=self.owner.start_session())
             op, data = ws.recv()
             self.assertEqual((op, json.loads(data)["root"]), (term.OP_TEXT, True))
-            ws.send(term.OP_BIN, b"grep --color=never NoNewPrivs /proc/self/status; exit 5\n")
-            out = ws.read_until(b"NoNewPrivs:\t", limit=20)
+            # Wait for an end marker, not for the label: the digit can arrive in a later read than "NoNewPrivs:".
+            ws.send(term.OP_BIN, b"grep --color=never NoNewPrivs /proc/self/status; echo end-$((6*7)); exit 5\n")
+            out = ws.read_until(b"end-42\r\n", limit=20)
             self.assertIn(b"NoNewPrivs:\t0", out)
             while True:
                 op, data = ws.recv()
