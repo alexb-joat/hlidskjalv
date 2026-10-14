@@ -197,6 +197,8 @@ The terminal display is [xterm.js](https://xtermjs.org/) (MIT), shipped unmodifi
 
 ## Privacy and security
 
+The full threat model, what is not covered, and how to report a vulnerability are in [SECURITY.md](SECURITY.md). In short:
+
 - Listens on `127.0.0.1` only and rejects requests with any other `Host` header, so other devices and websites can't reach it.
 - Read-only: no endpoint changes anything and it never executes project files. The opt-in terminal above is the only exception.
 - File **contents** never leave your computer and are never shown; only names and line counts. Files that look secret (`.env`, `*.pem`, `id_rsa`, `*secret*`, `*credential*`…) aren't even read.
@@ -224,6 +226,8 @@ The page opens in a demo session when it isn't connected to a running Hlidskjalv
 ```bash
 python3 -m unittest discover -s tests -t . -v
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the ground rules (no runtime dependencies, nothing outbound by default, no inline script).
 
 ## License
 

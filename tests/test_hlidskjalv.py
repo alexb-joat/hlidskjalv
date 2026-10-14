@@ -1472,6 +1472,25 @@ class PollerTest(unittest.TestCase):
         self.assertIsNone(p.health()["error"])  # a good poll clears it
 
 
+class VendorTest(unittest.TestCase):
+    def test_vendored_files_match_the_committed_checksums(self):
+        """The browser files in static/vendor are copied unmodified from npm; a changed byte fails here."""
+        import hashlib
+        from hlidskjalv.server import VENDOR
+        vendor = Path(__file__).resolve().parent.parent / "hlidskjalv" / "static" / "vendor"
+        sums = {}
+        for line in (vendor / "SHA256SUMS").read_text().splitlines():
+            if line.strip():
+                digest, name = line.split(None, 1)
+                sums[name.strip()] = digest
+        self.assertEqual(set(sums), set(VENDOR) | {"LICENSE.xterm"})  # everything served is covered, nothing else
+        for name, digest in sums.items():
+            self.assertEqual(hashlib.sha256((vendor / name).read_bytes()).hexdigest(), digest, name)
+        readme = (vendor / "README.md").read_text(encoding="utf-8")
+        for name in VENDOR:
+            self.assertIn(name.split(".")[0], readme)  # each served file is documented with its source
+
+
 class ReadmeTest(unittest.TestCase):
     def test_sections_the_code_points_at_exist(self):
         import re

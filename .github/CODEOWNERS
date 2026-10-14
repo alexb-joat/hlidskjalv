@@ -1,1 +1,12 @@
-*  @alexb-joat
+# Every change needs the owner's review; the lines below make the
+# security-sensitive paths explicit.
+*                              @alexb-joat
+/hlidskjalv/server.py        @alexb-joat
+/hlidskjalv/auth.py          @alexb-joat
+/hlidskjalv/terminal.py      @alexb-joat
+/hlidskjalv/_ptyexec.py      @alexb-joat
+/hlidskjalv/sso.py           @alexb-joat
+/hlidskjalv/sync.py          @alexb-joat
+/hlidskjalv/settings.py      @alexb-joat
+/hlidskjalv/static/vendor/   @alexb-joat
+/.github/                      @alexb-joat
