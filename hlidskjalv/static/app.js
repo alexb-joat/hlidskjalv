@@ -1948,7 +1948,7 @@ function ssoManage(render) {
       if (!p.configured) {
         const cid = h("input", { type: "text", placeholder: `${p.name} client id`, spellcheck: "false", "aria-label": `${p.name} client id` });
         const sec = p.needs_secret ? h("input", { type: "password", autocomplete: "off", placeholder: "Client secret", "aria-label": `${p.name} client secret` }) : null;
-        return field(p.name, `Needs an OAuth app registered under your own ${p.name} account (see the README). Each sign-in tells ${p.name} that you use Hlidskjalv.`,
+        return field(p.name, `Needs an OAuth app registered under your own ${p.name} account (see docs/pairing.md in the repository). Each sign-in tells ${p.name} that you use Hlidskjalv.`,
           h("form", { class: "pwrow", onsubmit: async e => { e.preventDefault();
             try { await withStepUp(() => OWNER.post("/api/sso/configure", { provider: k, client_id: cid.value, client_secret: sec ? sec.value : null })); toast(`${p.name} is set up.`); render(); }
             catch (err) { toast("Not saved: " + err.message); } } }, cid, sec, h("button", { type: "submit", class: "btn" }, "Save")));
