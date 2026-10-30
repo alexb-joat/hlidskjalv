@@ -168,6 +168,28 @@ class CommandAndAiTest(unittest.TestCase):
         self.assertEqual(evs[1]["cost"], 0.0)
         self.assertEqual(evs[1]["sensitive"], ["email"])
 
+    def test_long_context_tier_tool_and_failure_kind(self):
+        log = Path(tempfile.mkdtemp()) / "decisions.jsonl"
+        log.write_text("")
+        tiered = {"input": 0.1, "output": 0.5, "long_context": {"threshold": 100000, "input": 0.5, "output": 2.5}}
+        w = TrioditisWatcher(log, {"haiku": tiered})
+        recs = [
+            {"route": "quick", "model": "haiku", "local": False, "client": "ninshubur",
+             "usage": {"prompt_tokens": 100000, "completion_tokens": 1000}},
+            {"route": "quick", "model": "haiku", "local": False, "client": "<b>evil</b>",
+             "usage": {"prompt_tokens": 150000, "completion_tokens": 1000}},
+            {"route": "code", "model": None, "status": 429, "error": "rate_limited", "client": "ai-sdk",
+             "failed_attempts": [{"model": "haiku", "status": 429, "retry_after": 20}]},
+            {"route": "code", "model": None, "status": 502, "error": "something else"},
+        ]
+        log.write_text("\n".join(json.dumps(r) for r in recs) + "\n")
+        evs = w.poll()
+        self.assertEqual(evs[0]["cost"], round((100000 * 0.1 + 1000 * 0.5) / 1e6, 6))  # at the threshold: base prices
+        self.assertEqual(evs[1]["cost"], round((150000 * 0.5 + 1000 * 2.5) / 1e6, 6))  # over it: the tier, whole call
+        self.assertEqual([e["client"] for e in evs], ["ninshubur", None, "ai-sdk", None])  # names only
+        self.assertEqual([e["error"] for e in evs], [None, None, "rate_limited", None])
+        self.assertEqual(evs[2]["attempts"], [{"model": "haiku", "status": 429, "retry_after": 20}])
+
 
 class ClaudeCodeWatcherTest(unittest.TestCase):
     def setUp(self):
@@ -1162,6 +1184,27 @@ class UsageTest(unittest.TestCase):
         self.assertEqual(b["calls_today"], {"total": 3, "local": 1})
         self.assertEqual((b["unpriced_today"], b["unpriced_models"]), (1, ["gpt"]))
 
+    def test_budget_per_calling_tool(self):
+        import sqlite3
+        from hlidskjalv.usage import budget
+        home = Path(tempfile.mkdtemp())
+        con = sqlite3.connect(home / "metrics.db")
+        con.execute("CREATE TABLE calls (id INTEGER PRIMARY KEY, ts REAL, route TEXT, model TEXT, local INTEGER, status INTEGER,"
+                    " latency_ms INTEGER, tokens_in INTEGER, tokens_out INTEGER, cost REAL, fallbacks INTEGER, sensitive TEXT,"
+                    " provider TEXT, unpriced INTEGER, session_fp TEXT, client TEXT)")
+        now = time.time()
+        con.executemany("INSERT INTO calls (ts, route, model, local, status, cost, client) VALUES (?, 'code', 'm', ?, 200, ?, ?)",
+                        [(now, 0, 0.30, "ninshubur"), (now, 0, 0.20, "ninshubur"), (now - 3 * 86400, 0, 1.0, "ninshubur"),
+                         (now, 1, 0.0, "ai-sdk"), (now, 0, 0.05, None)])
+        con.commit(); con.close()
+        rows = budget(home, now)["by_client"]
+        self.assertEqual([r["client"] for r in rows], ["ninshubur", "ai-sdk"])
+        nin = rows[0]
+        self.assertEqual((round(nin["today"], 2), nin["calls_today"]), (0.5, 2))
+        if time.localtime(now - 3 * 86400).tm_mon == time.localtime(now).tm_mon:
+            self.assertEqual((round(nin["month"], 2), nin["calls_month"]), (1.5, 3))
+        self.assertEqual(rows[1], {"client": "ai-sdk", "today": 0.0, "month": 0.0, "calls_today": 1, "calls_month": 1})
+
     def test_claude_usage_per_session(self):
         from hlidskjalv.usage import ClaudeUsage
         d = Path(tempfile.mkdtemp())
@@ -1244,6 +1287,7 @@ class ProviderDataTest(unittest.TestCase):
         self.assertEqual(b["providers"]["openai"], {"today": 0.0, "month": 0.0, "calls_month": 0, "caps": {"daily_usd": 1.0}})
         self.assertEqual(b["providers"]["openrouter"]["today"], 0.2)
         self.assertEqual(b["limits"][0]["remaining"], 998)
+        self.assertNotIn("by_client", b)  # a Trioditis older than 0.4 records no tool
         self.assertFalse(accounts(home)["available"])
         (home / "accounts.json").write_text(json.dumps({"providers": {"openrouter": {"used": 1, "limit": 5}}, "generated_at": now}))
         self.assertEqual(accounts(home)["providers"]["openrouter"]["limit"], 5)

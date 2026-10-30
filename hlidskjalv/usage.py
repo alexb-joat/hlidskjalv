@@ -1,7 +1,8 @@
 """Cost and usage, for the Details view. All read-only, metadata only.
 
-- budget(): today's and this month's cloud spend against the caps, from
-  Trioditis's ~/.hlidskjalv/metrics.db (opened read-only) and budget.json.
+- budget(): today's and this month's cloud spend against the caps, per provider
+  and (Trioditis 0.4+) per calling tool, from Trioditis's ~/.hlidskjalv/metrics.db
+  (opened read-only) and budget.json.
 - hardware(): Trioditis's local-model report, ~/.hlidskjalv/hardware.json.
 - claude_usage(): per Claude Code session for this project: turns, tokens
   in / cached / out, the biggest context of any one turn, models, and how
@@ -97,6 +98,14 @@ def budget(home: Path, now: float | None = None) -> dict:
             for name, c in caps_per.items():
                 providers.setdefault(name, {"today": 0.0, "month": 0.0, "calls_month": 0, "caps": c})
             out["providers"] = providers
+            if "client" in cols:  # Trioditis 0.4+: the program that sent each call
+                out["by_client"] = [
+                    {"client": name, "today": float(t), "month": float(m_), "calls_today": int(nt), "calls_month": int(n)}
+                    for name, t, m_, nt, n in con.execute(
+                        "SELECT client, COALESCE(SUM(CASE WHEN ts>=? AND local=0 THEN cost END),0), "
+                        "COALESCE(SUM(CASE WHEN local=0 THEN cost END),0), SUM(CASE WHEN ts>=? THEN 1 ELSE 0 END), COUNT(*) "
+                        "FROM calls WHERE ts>=? AND client IS NOT NULL GROUP BY client "
+                        "ORDER BY 3 DESC, 5 DESC, client LIMIT 12", (day, day, month))]
             try:
                 out["limits"] = [dict(zip(("provider", "name", "limit", "remaining", "reset_at", "seen"), r))
                                  for r in con.execute("SELECT provider, name, lim, remaining, reset_at, seen FROM provider_limits")]

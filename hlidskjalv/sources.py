@@ -331,8 +331,7 @@ class TrioditisWatcher:
             if r.get("local"):
                 cost = 0.0
             elif model in self.prices and isinstance(tin, int) and isinstance(tout, int):
-                p = self.prices[model]
-                cost = round((tin * float(p.get("input", 0)) + tout * float(p.get("output", 0))) / 1e6, 6)
+                cost = price_call(self.prices[model], tin, tout)
             events.append({
                 "type": "ai_call",
                 "route": str(r.get("route") or "?")[:40],
@@ -347,8 +346,27 @@ class TrioditisWatcher:
                 "fallbacks": len(r.get("failed_attempts") or []),
                 "reasons": [redact(str(x))[:160] for x in (r.get("reasons") or [])][:20],
                 "attempts": [_attempt(a) for a in (r.get("failed_attempts") or [])][:10],
+                # Trioditis 0.4+: the calling tool, and why no model answered
+                "client": r["client"] if isinstance(r.get("client"), str) and _CLIENT.fullmatch(r["client"]) else None,
+                "error": r["error"] if r.get("error") in _ERRORS else None,
             })
         return events
+
+
+_CLIENT = re.compile(r"[a-z0-9][a-z0-9._-]{0,39}")
+_ERRORS = {"rate_limited", "budget_exceeded", "upstream_error"}
+
+
+def price_call(p: dict, tin: int, tout: int) -> float | None:
+    """USD for one call, the way Trioditis prices it: a model with a long_context tier pays the
+    tier's prices for the whole call once the prompt is over the threshold."""
+    rates, tier = p, p.get("long_context")
+    if isinstance(tier, dict) and isinstance(tier.get("threshold"), (int, float)) and tin > tier["threshold"]:
+        rates = tier
+    try:
+        return round((tin * float(rates.get("input", 0)) + tout * float(rates.get("output", 0))) / 1e6, 6)
+    except (TypeError, ValueError):
+        return None
 
 
 def _attempt(a) -> dict:
@@ -361,6 +379,8 @@ def _attempt(a) -> dict:
             out[k] = str(a[k])[:160]
     if isinstance(a.get("status"), int):
         out["status"] = a["status"]
+    if isinstance(a.get("retry_after"), int) and not isinstance(a.get("retry_after"), bool):
+        out["retry_after"] = max(0, min(a["retry_after"], 3600))
     return out
 
 
