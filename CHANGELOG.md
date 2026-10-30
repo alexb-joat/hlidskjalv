@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.0 (2026-10-30)
+
+**Trioditis 0.4 on the page**
+- Each AI step names the program that sent it, and a step no model answered says why: **over budget** (stop) or **rate-limited · retry in N s** (wait). No cost chip, "budget → local" chip or fallback count where they don't apply, and no model called "none" in the cost table.
+- Details → **By tool**: calls and cloud spend today and this month per program.
+- Long-context price tiers, priced the way Trioditis prices them.
+- The ribbon shows the latest AI step even when it was logged before the page opened.
+
+**Security**
+- Sign-in with GitHub or Google calls https addresses only.
+- A large synced gist is fetched only from `gist.githubusercontent.com`, never from whatever address a reply names.
+
+**Engineering**
+- Browser tests in CI: a live Hlidskjalv driven in Firefox and WebKit (`tests/e2e`), failing on any console error, CSP violation or request that leaves the dashboard's origin.
+- ruff in CI (pyflakes, bugbear, import order, pyupgrade, bandit security rules). The linter and Playwright are hash-pinned development tools; Hlidskjalv itself still needs only the standard library.
+
 ## 0.3.0 (2026-10-14)
 
 First public release. Earlier versions were private and named Workflow Arcade.
