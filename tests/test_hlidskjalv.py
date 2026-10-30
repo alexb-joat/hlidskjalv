@@ -2,24 +2,28 @@ import base64
 import http.client
 import json
 import os
+import re
 import socket
+import sys
 import tempfile
 import threading
 import time
-import re
-import sys
 import unittest
-from unittest import mock
 from pathlib import Path, PurePosixPath
+from unittest import mock
 
-from hlidskjalv.__main__ import HOOKS, check_folder
-from hlidskjalv.redact import redact
 from hlidskjalv import terminal as term
+from hlidskjalv.__main__ import HOOKS, check_folder
 from hlidskjalv.auth import Owner, issue_pair_code, rotate_key, totp_code
-from hlidskjalv.settings import Settings, SettingsError, defaults, merge
+from hlidskjalv.redact import redact
 from hlidskjalv.server import XP_RULES, Hub, Progress, load_history, read_session, serve, xp_of
+from hlidskjalv.settings import Settings, SettingsError, defaults, merge
 from hlidskjalv.sources import (
-    ClaudeCodeWatcher, CommandWatcher, FileWatcher, TrioditisWatcher, claude_code_project_dir,
+    ClaudeCodeWatcher,
+    CommandWatcher,
+    FileWatcher,
+    TrioditisWatcher,
+    claude_code_project_dir,
 )
 
 
@@ -870,7 +874,7 @@ class WriteApiTest(unittest.TestCase):
             self.assertFalse(self.owner.totp_enabled())
 
     def test_root_toggle_guard_rails(self):
-        from hlidskjalv import server as srv, terminal as term_mod
+        from hlidskjalv import terminal as term_mod
         tok = self.post("/api/pair", {"code": self.owner.launch_code()})[1]["token"]
         change = {"change": {"features": {"terminal_root": True}}}
         status, body = self.post("/api/settings", change, key=tok)
@@ -1167,6 +1171,7 @@ class AlertsTest(unittest.TestCase):
 class UsageTest(unittest.TestCase):
     def test_budget_reads_trioditis_metrics_read_only(self):
         import sqlite3
+
         from hlidskjalv.usage import budget
         home = Path(tempfile.mkdtemp())
         self.assertFalse(budget(home)["available"])
@@ -1186,6 +1191,7 @@ class UsageTest(unittest.TestCase):
 
     def test_budget_per_calling_tool(self):
         import sqlite3
+
         from hlidskjalv.usage import budget
         home = Path(tempfile.mkdtemp())
         con = sqlite3.connect(home / "metrics.db")
@@ -1269,12 +1275,14 @@ class PlanWindowsTest(unittest.TestCase):
 class ProviderDataTest(unittest.TestCase):
     def test_budget_reports_per_provider_spend_caps_and_limits(self):
         import sqlite3
-        from hlidskjalv.usage import budget, accounts
+
+        from hlidskjalv.usage import accounts, budget
         home = Path(tempfile.mkdtemp())
         con = sqlite3.connect(home / "metrics.db")
         con.execute("CREATE TABLE calls (id INTEGER PRIMARY KEY, ts REAL, route TEXT, model TEXT, local INTEGER, status INTEGER,"
                     " latency_ms INTEGER, tokens_in INTEGER, tokens_out INTEGER, cost REAL, fallbacks INTEGER, sensitive TEXT, provider TEXT)")
-        con.execute("CREATE TABLE provider_limits (provider TEXT, name TEXT, lim INTEGER, remaining INTEGER, reset_at REAL, seen REAL, PRIMARY KEY (provider, name))")
+        con.execute("CREATE TABLE provider_limits (provider TEXT, name TEXT, lim INTEGER, remaining INTEGER, reset_at REAL, seen REAL,"
+                    " PRIMARY KEY (provider, name))")
         now = time.time()
         con.executemany("INSERT INTO calls (ts, route, model, local, status, cost, provider) VALUES (?, 'code', 'm', 0, 200, ?, ?)",
                         [(now, 0.5, "anthropic"), (now - 3 * 86400, 1.0, "anthropic"), (now, 0.2, "openrouter")])
@@ -1329,13 +1337,15 @@ class ProgramsTest(unittest.TestCase):
 class CostAlertsTest(unittest.TestCase):
     def test_caps_and_exhausted_limits_raise_once_per_period(self):
         import sqlite3
+
         from hlidskjalv.alerts import Alerter
         from hlidskjalv.cost_alerts import CostWatcher
         home = Path(tempfile.mkdtemp())
         con = sqlite3.connect(home / "metrics.db")
         con.execute("CREATE TABLE calls (id INTEGER PRIMARY KEY, ts REAL, route TEXT, model TEXT, local INTEGER, status INTEGER,"
                     " latency_ms INTEGER, tokens_in INTEGER, tokens_out INTEGER, cost REAL, fallbacks INTEGER, sensitive TEXT, provider TEXT)")
-        con.execute("CREATE TABLE provider_limits (provider TEXT, name TEXT, lim INTEGER, remaining INTEGER, reset_at REAL, seen REAL, PRIMARY KEY (provider, name))")
+        con.execute("CREATE TABLE provider_limits (provider TEXT, name TEXT, lim INTEGER, remaining INTEGER, reset_at REAL, seen REAL,"
+                    " PRIMARY KEY (provider, name))")
         now = time.time()
         con.execute("INSERT INTO calls (ts, route, model, local, status, cost, provider) VALUES (?, 'code', 'm', 0, 200, 0.8, 'anthropic')", (now,))
         con.execute("INSERT INTO provider_limits VALUES ('anthropic', 'requests', 50, 0, ?, ?)", (now + 30, now))
@@ -1353,6 +1363,7 @@ class CostAlertsTest(unittest.TestCase):
 
     def test_calls_without_a_price_raise_one_alert_a_day(self):
         import sqlite3
+
         from hlidskjalv.alerts import Alerter
         from hlidskjalv.cost_alerts import CostWatcher
         home = Path(tempfile.mkdtemp())
@@ -1414,7 +1425,6 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.get("/static/other.js")[0], 404)
 
     def test_default_page_asks_nothing_of_other_sites(self):
-        import re
         status, page, _ = self.get("/")
         self.assertNotRegex(page.decode(), r"""(?i)(href|src)=["']https?://""")  # nothing loads from elsewhere on a default boot
         self.hub.publish({"type": "command", "cmd": "ls", "cwd": "."})
@@ -1495,7 +1505,7 @@ class HubTest(unittest.TestCase):
 
 class PollerTest(unittest.TestCase):
     def test_a_slow_source_does_not_hold_the_others_back(self):
-        from hlidskjalv.poller import start_all, health_of
+        from hlidskjalv.poller import health_of, start_all
         gate = threading.Event()
 
         class Slow:
@@ -1574,11 +1584,40 @@ class InputHardeningTest(unittest.TestCase):
             with self.assertRaises(S.SyncError, msg=bad):
                 S.GistBackend("tok", bad)
 
+    def test_a_truncated_gist_is_fetched_only_from_githubs_file_host(self):
+        from hlidskjalv import sync as S
+
+        class Resp:
+            def __init__(self, body): self.body = body
+            def read(self): return self.body.encode()
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def github_replying_with(raw_url):
+            opened = []
+
+            def fake_urlopen(req, timeout=0):
+                opened.append(req.full_url)
+                if req.full_url.startswith(S.GistBackend.API):
+                    return Resp(json.dumps({"files": {S.BLOB_NAME: {"truncated": True, "raw_url": raw_url}}}))
+                return Resp("blob")
+            return opened, fake_urlopen
+
+        opened, fake = github_replying_with("http://169.254.169.254/latest/meta-data")
+        with mock.patch.object(S.request, "urlopen", fake), self.assertRaises(S.SyncError):
+            S.GistBackend("tok", "aa5a315d61ae9438b18d").read()
+        self.assertEqual(len(opened), 1)  # the address in the reply was never opened
+
+        opened, fake = github_replying_with("https://gist.githubusercontent.com/u/abc/raw/x")
+        with mock.patch.object(S.request, "urlopen", fake):
+            self.assertEqual(S.GistBackend("tok", "aa5a315d61ae9438b18d").read(), "blob")
+        self.assertEqual(opened[1], "https://gist.githubusercontent.com/u/abc/raw/x")
 
 class VendorTest(unittest.TestCase):
     def test_vendored_files_match_the_committed_checksums(self):
         """The browser files in static/vendor are copied unmodified from npm; a changed byte fails here."""
         import hashlib
+
         from hlidskjalv.server import VENDOR
         vendor = Path(__file__).resolve().parent.parent / "hlidskjalv" / "static" / "vendor"
         sums = {}
@@ -1771,7 +1810,8 @@ class SyncTest(unittest.TestCase):
             self.assertTrue(all(a == "Bearer ghp_x" for _, _, a in calls))
             B = self.home(); sb, pb = Settings(B / "settings.json"), Progress(B, B / "sessions")
             yb = S.Syncer(B, sb, pb, device="desktop")
-            self.assertEqual(sorted(yb.setup("gist", "correct horse battery", token="ghp_x", gist_id="abc123def4567890abc123def4567890")["devices"]), ["laptop"])
+            joined = yb.setup("gist", "correct horse battery", token="ghp_x", gist_id="abc123def4567890abc123def4567890")
+            self.assertEqual(sorted(joined["devices"]), ["laptop"])
         self.assertNotIn("ghp_x", (A / "settings.json").read_text() if (A / "settings.json").exists() else "")
 
     def test_sync_endpoints_and_learn_progress(self):
@@ -1900,9 +1940,16 @@ class SsoTest(unittest.TestCase):
         sso.unlink("github")
         self.assertIsNone(sso.linked("github")); self.assertTrue(sso.configured("github"))
 
+    def test_only_https_providers_are_called(self):
+        from hlidskjalv import sso as sso_mod
+        with mock.patch.dict(os.environ, {"HLIDSKJALV_SSO_FAKE": ""}), mock.patch.object(sso_mod.request, "urlopen") as op:
+            for url in ("http://github.com/login/device/code", "file:///etc/passwd", "ftp://x.test/y"):
+                with self.assertRaises(sso_mod.SsoError):
+                    sso_mod._call(url, {"a": "b"})
+            op.assert_not_called()
+
     def test_sign_in_endpoints(self):
         M = self.M
-        from hlidskjalv.server import Progress
         port = free_port()
         owner, settings = Owner(self.home), Settings(self.home / "settings.json")
         sso = M.Sso(self.home)
@@ -1917,7 +1964,8 @@ class SsoTest(unittest.TestCase):
                 c.request("POST", path, body=data, headers=hdr); r = c.getresponse(); out = (r.status, json.loads(r.read() or b"{}")); c.close(); return out
             def get(path):
                 c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
-                c.request("GET", path, headers={"Host": f"127.0.0.1:{port}"}); r = c.getresponse(); out = (r.status, json.loads(r.read())); c.close(); return out
+                c.request("GET", path, headers={"Host": f"127.0.0.1:{port}"})
+                r = c.getresponse(); out = (r.status, json.loads(r.read())); c.close(); return out
             self.assertEqual(get("/api/sso")[1]["providers"]["github"]["available"], False)
             self.assertEqual(post("/api/sso/start", {"provider": "github", "purpose": "pair"})[0], 400)  # not set up: refused, no session needed
             self.assertEqual(post("/api/sso/configure", {"provider": "github", "client_id": "cid-1"})[0], 401)  # configuring needs a session

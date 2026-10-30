@@ -95,7 +95,8 @@ def supported() -> bool:
 
 
 def accept_key(key: str) -> str:
-    return base64.b64encode(hashlib.sha1((key + WS_GUID).encode()).digest()).decode()
+    # RFC 6455 section 4.2.2 fixes SHA-1 for the handshake; it proves nothing about security here.
+    return base64.b64encode(hashlib.sha1((key + WS_GUID).encode(), usedforsecurity=False).digest()).decode()
 
 
 class WebSocket:
@@ -376,5 +377,5 @@ def _stop(proc) -> None:
             return
         try:
             proc.wait(timeout=1.5)
-        except Exception:
-            pass
+        except subprocess.TimeoutExpired:
+            pass  # it had its chance to exit; the caller moves on

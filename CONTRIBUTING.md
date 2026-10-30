@@ -12,6 +12,7 @@ Thanks for helping. Hlidskjalv watches a person's computer and can open a shell,
 4. **Check** before pushing:
    ```bash
    python3 -m unittest discover -s tests -t .
+   pip install --require-hashes --no-deps -r requirements-dev.txt && ruff check .   # lint (rules in pyproject.toml)
    ```
    If the page changed, run it too: start a throwaway instance with `HLIDSKJALV_HOME=$(mktemp -d)
    python3 -m hlidskjalv watch <some folder> --no-open --port 8799` and try it in Firefox and one other engine.

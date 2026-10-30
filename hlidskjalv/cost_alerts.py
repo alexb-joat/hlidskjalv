@@ -64,7 +64,8 @@ class CostWatcher:
                                 fingerprint=f"cap-{label}-{stamp}-full", data={"spent": spent, "cap": cap, "provider": provider})
         elif share >= WARN_AT:
             self.alerter.raise_("medium", "cost", f"{label}: {int(share * 100)}% used ({u_money(spent)} of {u_money(cap)})",
-                                f"At 100% cloud calls{' through ' + provider if provider else ''} stop for the rest of the {period} and local models take over.",
+                                f"At 100% cloud calls{' through ' + provider if provider else ''} stop for the rest of the {period} "
+                                "and local models take over.",
                                 fingerprint=f"cap-{label}-{stamp}-warn", data={"spent": spent, "cap": cap, "provider": provider})
 
 

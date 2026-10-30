@@ -12,24 +12,24 @@ from __future__ import annotations
 
 import base64
 import json
-from collections import deque
-from itertools import islice
 import os
 import platform
 import re
 import threading
 import time
+from collections import deque
+from collections.abc import Callable
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
+from itertools import islice
 from pathlib import Path
-from typing import Callable
 from urllib.parse import parse_qs, urlparse
 
 from .auth import Owner, write_private
+from .settings import Settings, SettingsError
 from .sso import SsoError
 from .sync import SyncError
-from .settings import Settings, SettingsError
 from .terminal import Terminal, WebSocket, accept_key
 
 SESSION_NAME = re.compile(r"^\d{8}-\d{6}-[A-Za-z0-9._-]{1,60}\.jsonl$")
@@ -49,8 +49,8 @@ ICON_SVG = ("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x
             "<path d='M9 21l4-10 3 7 2-4 5 7' fill='none' stroke='#fff' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/></svg>")
 MASK_SVG = ("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='2' y='2' width='28' height='28' rx='8'/>"
             "<path d='M9 21l4-10 3 7 2-4 5 7' fill='none' stroke='#fff' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/></svg>")
-ICON_PNG_32 = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABRElEQVR42mNgGAU4gHX0bQMgng/E94H4P5n4PtQMA1IsFgDifgosxYVBZgoQY/l5GlgOw+fxOoJGPscICXxx/p9O2ACbA+bT0QHzsTngPh0dcB+bA4jSnFD1CIwpdQRZDgBZDAOUOoIsB2w79AnuABCbrg5wT737//PXv/+RAUiM3Ggh2QEtM178Rwdz1779n9PyBM4HsWnmgFsPfoAtAYXCs1e/wGwQfe7aN7gDQHxYqFDVAciJDxT3IJ/jAofOfKG+A5ATH8gxIF+iA1iogAAouqjmAOTEB4oGbI4CRUNIwQO4OhAN4lPFAciJD9lnyNECS3zIapEdS5EDkBMfegLDlv1AaQA5l1DkAPTER0ziAjkSOT3gKh9IdgApBQ1y2UCRAyipfAjpG5TV8YA3SAa2STbgjdJB0Swf8I7JoOiajTgAAGsakyxUKeJdAAAAAElFTkSuQmCC")
-ICON_PNG_180 = base64.b64decode("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")
+ICON_PNG_32 = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABRElEQVR42mNgGAU4gHX0bQMgng/E94H4P5n4PtQMA1IsFgDifgosxYVBZgoQY/l5GlgOw+fxOoJGPscICXxx/p9O2ACbA+bT0QHzsTngPh0dcB+bA4jSnFD1CIwpdQRZDgBZDAOUOoIsB2w79AnuABCbrg5wT737//PXv/+RAUiM3Ggh2QEtM178Rwdz1779n9PyBM4HsWnmgFsPfoAtAYXCs1e/wGwQfe7aN7gDQHxYqFDVAciJDxT3IJ/jAofOfKG+A5ATH8gxIF+iA1iogAAouqjmAOTEB4oGbI4CRUNIwQO4OhAN4lPFAciJD9lnyNECS3zIapEdS5EDkBMfegLDlv1AaQA5l1DkAPTER0ziAjkSOT3gKh9IdgApBQ1y2UCRAyipfAjpG5TV8YA3SAa2STbgjdJB0Swf8I7JoOiajTgAAGsakyxUKeJdAAAAAElFTkSuQmCC")  # noqa: E501 -- embedded icon
+ICON_PNG_180 = base64.b64decode("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")  # noqa: E501 -- embedded icon
 ICONS = {"/icon.svg": ("image/svg+xml", ICON_SVG.encode()), "/mask.svg": ("image/svg+xml", MASK_SVG.encode()),
          "/icon-32.png": ("image/png", ICON_PNG_32), "/icon-180.png": ("image/png", ICON_PNG_180)}
 
@@ -492,7 +492,8 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                 else:
                     token = owner.redeem(body.get("code"))
                     if not token:
-                        refused("medium", "A pairing code was refused", "It was wrong, already used or expired. Opening an old pairing link twice does this too.", "pair")
+                        refused("medium", "A pairing code was refused",
+                                "It was wrong, already used or expired. Opening an old pairing link twice does this too.", "pair")
                         return self._json({"error": "pairing code is wrong, used or expired"}, HTTPStatus.FORBIDDEN)
                 return self._json({"token": token, "expires_in": int(owner.ttl_s), "password_set": owner.has_password()})
             if path == "/api/sso/start" and body.get("purpose") != "link":  # pairing: no session yet, by design
@@ -507,7 +508,8 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
             if not owner.check(given):
                 if given:
                     refused("medium", "A request with an ended or wrong session was refused",
-                            f"{path}. A browser whose session ran out, or paired before `pair --rotate`, does this once; anything else is someone guessing.", "key")
+                            f"{path}. A browser whose session ran out, or paired before `pair --rotate`, does this once; "
+                            "anything else is someone guessing.", "key")
                 return self._json({"error": "this browser isn't paired, or its session ended"}, HTTPStatus.UNAUTHORIZED)
             if path == "/api/ping":
                 info = owner.session_info(given) or {}
@@ -615,12 +617,14 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                     if (r := step_up_needed()) is not None:
                         return r
                     if root_change is True and not owner.has_password():
-                        return self._json({"error": "set a pairing password first (Settings > Pairing): a root-capable shell deserves more than a one-time link"},
+                        return self._json({"error": "set a pairing password first (Settings > Pairing): "
+                                                    "a root-capable shell deserves more than a one-time link"},
                                           HTTPStatus.BAD_REQUEST)
                     if root_change is True:
                         from .terminal import sudo_passwordless
                         if sudo_passwordless():
-                            return self._json({"error": "sudo works without a password on this computer, so root in the browser would need no password at all; refused until sudo asks for one"},
+                            return self._json({"error": "sudo works without a password on this computer, so root in the browser "
+                                                        "would need no password at all; refused until sudo asks for one"},
                                               HTTPStatus.BAD_REQUEST)
                 try:
                     if body.get("reset") is True:

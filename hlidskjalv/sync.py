@@ -17,8 +17,8 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import re
 import os
+import re
 import socket
 import struct
 import threading
@@ -38,18 +38,20 @@ def _rotl(v: int, n: int) -> int:
 
 
 def _quarter(s: list[int], a: int, b: int, c: int, d: int) -> None:
-    s[a] = (s[a] + s[b]) & _M32; s[d] = _rotl(s[d] ^ s[a], 16)
-    s[c] = (s[c] + s[d]) & _M32; s[b] = _rotl(s[b] ^ s[c], 12)
-    s[a] = (s[a] + s[b]) & _M32; s[d] = _rotl(s[d] ^ s[a], 8)
-    s[c] = (s[c] + s[d]) & _M32; s[b] = _rotl(s[b] ^ s[c], 7)
+    # Two operations per line, as RFC 8439 section 2.1 writes the quarter round.
+    s[a] = (s[a] + s[b]) & _M32; s[d] = _rotl(s[d] ^ s[a], 16)  # noqa: E702
+    s[c] = (s[c] + s[d]) & _M32; s[b] = _rotl(s[b] ^ s[c], 12)  # noqa: E702
+    s[a] = (s[a] + s[b]) & _M32; s[d] = _rotl(s[d] ^ s[a], 8)  # noqa: E702
+    s[c] = (s[c] + s[d]) & _M32; s[b] = _rotl(s[b] ^ s[c], 7)  # noqa: E702
 
 
 def chacha20_block(key: bytes, counter: int, nonce: bytes) -> bytes:
     state = [0x61707865, 0x3320646E, 0x79622D32, 0x6B206574, *struct.unpack("<8L", key), counter & _M32, *struct.unpack("<3L", nonce)]
     w = list(state)
     for _ in range(10):
-        _quarter(w, 0, 4, 8, 12); _quarter(w, 1, 5, 9, 13); _quarter(w, 2, 6, 10, 14); _quarter(w, 3, 7, 11, 15)
-        _quarter(w, 0, 5, 10, 15); _quarter(w, 1, 6, 11, 12); _quarter(w, 2, 7, 8, 13); _quarter(w, 3, 4, 9, 14)
+        # a column round, then a diagonal round (RFC 8439 section 2.3)
+        _quarter(w, 0, 4, 8, 12); _quarter(w, 1, 5, 9, 13); _quarter(w, 2, 6, 10, 14); _quarter(w, 3, 7, 11, 15)  # noqa: E702
+        _quarter(w, 0, 5, 10, 15); _quarter(w, 1, 6, 11, 12); _quarter(w, 2, 7, 8, 13); _quarter(w, 3, 4, 9, 14)  # noqa: E702
     return struct.pack("<16L", *((w[i] + state[i]) & _M32 for i in range(16)))
 
 
@@ -58,7 +60,7 @@ def chacha20_xor(key: bytes, counter: int, nonce: bytes, data: bytes) -> bytes:
     for i in range(0, len(data), 64):
         block = chacha20_block(key, counter + i // 64, nonce)
         chunk = data[i:i + 64]
-        out[i:i + len(chunk)] = bytes(a ^ b for a, b in zip(chunk, block))
+        out[i:i + len(chunk)] = bytes(a ^ b for a, b in zip(chunk, block, strict=False))  # the last chunk is shorter
     return bytes(out)
 
 
@@ -225,12 +227,12 @@ class GistBackend:
 
     def _call(self, method: str, path: str, body: dict | None = None) -> dict:
         data = json.dumps(body).encode() if body is not None else None
-        req = request.Request(self.API + path, data=data, method=method, headers={
+        req = request.Request(self.API + path, data=data, method=method, headers={  # noqa: S310 -- fixed https:// API
             "Authorization": f"Bearer {self.token}", "Accept": "application/vnd.github+json",
             "User-Agent": "Hlidskjalv", "X-GitHub-Api-Version": "2022-11-28",
             **({"Content-Type": "application/json"} if data else {})})
         try:
-            with request.urlopen(req, timeout=20) as r:
+            with request.urlopen(req, timeout=20) as r:  # noqa: S310 -- self.API is a fixed https:// constant
                 return json.loads(r.read().decode("utf-8") or "{}")
         except error.HTTPError as e:
             why = {401: "GitHub refused the token", 403: "GitHub refused (rate limit or missing gist scope)",
@@ -247,8 +249,11 @@ class GistBackend:
         if not f:
             return None
         if f.get("truncated") and f.get("raw_url"):
+            raw = str(f["raw_url"])
+            if not raw.startswith("https://gist.githubusercontent.com/"):  # only GitHub's own file host, never a URL the reply invents
+                raise SyncError("GitHub sent an unexpected address for the sync file")
             try:
-                with request.urlopen(request.Request(f["raw_url"], headers={"User-Agent": "Hlidskjalv"}), timeout=20) as r:
+                with request.urlopen(request.Request(raw, headers={"User-Agent": "Hlidskjalv"}), timeout=20) as r:  # noqa: S310 -- checked above
                     return r.read().decode("utf-8")
             except (error.URLError, OSError) as e:
                 raise SyncError(f"couldn't fetch the gist content: {e}") from e
@@ -351,7 +356,8 @@ class Syncer:
             self.push()
             self.cfg["gist_id"] = backend.gist_id if kind == "gist" else None
             self._save()
-        self._alert("info", f"Sync set up: {backend.where()}", f"This computer is called '{device}'. Settings, XP and Learn progress travel encrypted; pairing and secrets never do.", "sync-setup")
+        self._alert("info", f"Sync set up: {backend.where()}",
+                    f"This computer is called '{device}'. Settings, XP and Learn progress travel encrypted; pairing and secrets never do.", "sync-setup")
         return self.status()
 
     def disconnect(self) -> None:
@@ -407,10 +413,12 @@ class Syncer:
             text = self.backend.read()
             header = peek(text) if text else None
             if header is None:
-                self.cfg["last_pull"] = time.time(); self._save()
+                self.cfg["last_pull"] = time.time()
+                self._save()
                 return False
             if not force and header["updated"] <= float(self.cfg.get("seen_updated") or 0):
-                self.cfg["last_pull"] = time.time(); self._save()
+                self.cfg["last_pull"] = time.time()
+                self._save()
                 return False
             payload = open_blob(base64.b64decode(self.cfg["key"]), text)
             if payload is None:
@@ -453,10 +461,12 @@ class Syncer:
                 if self.fingerprint() != self._pushed_fp:
                     self.push()
             if self.cfg.get("last_error"):
-                self.cfg["last_error"] = None; self._save()
+                self.cfg["last_error"] = None
+                self._save()
         except SyncError as e:
             if self.cfg.get("last_error") != str(e):
-                self.cfg["last_error"] = str(e); self._save()
+                self.cfg["last_error"] = str(e)
+                self._save()
                 self._alert("medium", "Sync isn't working", str(e), "sync-error", expected=False)
         except Exception as e:  # never let the worker die
             self.cfg["last_error"] = f"{type(e).__name__}: {e}"

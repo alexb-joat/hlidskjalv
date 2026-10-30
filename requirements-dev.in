@@ -1,0 +1,2 @@
+# Development tools only: Hlidskjalv itself needs nothing beyond the standard library.
+ruff

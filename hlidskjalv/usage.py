@@ -107,7 +107,7 @@ def budget(home: Path, now: float | None = None) -> dict:
                         "FROM calls WHERE ts>=? AND client IS NOT NULL GROUP BY client "
                         "ORDER BY 3 DESC, 5 DESC, client LIMIT 12", (day, day, month))]
             try:
-                out["limits"] = [dict(zip(("provider", "name", "limit", "remaining", "reset_at", "seen"), r))
+                out["limits"] = [dict(zip(("provider", "name", "limit", "remaining", "reset_at", "seen"), r, strict=True))
                                  for r in con.execute("SELECT provider, name, lim, remaining, reset_at, seen FROM provider_limits")]
             except sqlite3.Error:
                 out["limits"] = []
@@ -234,7 +234,7 @@ class ClaudeUsage:
             active = start is not None and now < start + length
             inside = [t for t in turns if start is not None and start <= t[0] < start + length] if active else []
             fam: Counter = Counter()
-            for _, model, tin, cached, tout in inside:
+            for _, model, tin, _cached, tout in inside:
                 fam[_family(model)] += tin + tout
             out[key] = {"active": active, "started_at": start if active else None,
                         "resets_at": start + length if active else None, "length_s": length,

@@ -49,6 +49,9 @@ def _url(provider: str, which: str) -> str:
 
 
 def _call(url: str, form: dict | None = None, token: str | None = None) -> dict:
+    fake = os.environ.get("HLIDSKJALV_SSO_FAKE")  # the tests' stand-in provider, the only exception
+    if not (url.startswith("https://") or (fake and url.startswith(fake + "/"))):
+        raise SsoError(f"refusing a non-https address: {url[:60]}")
     data = parse.urlencode(form).encode() if form is not None else None
     headers = {"Accept": "application/json", "User-Agent": "Hlidskjalv"}
     if data is not None:
@@ -56,7 +59,8 @@ def _call(url: str, form: dict | None = None, token: str | None = None) -> dict:
     if token:
         headers["Authorization"] = f"Bearer {token}"
     try:
-        with request.urlopen(request.Request(url, data=data, headers=headers, method="POST" if data is not None else "GET"), timeout=20) as r:
+        req = request.Request(url, data=data, headers=headers, method="POST" if data is not None else "GET")  # noqa: S310 -- https only
+        with request.urlopen(req, timeout=20) as r:  # noqa: S310 -- https only, checked above
             return json.loads(r.read().decode("utf-8") or "{}")
     except error.HTTPError as e:
         try:
@@ -119,10 +123,12 @@ class Sso:
     def unlink(self, provider: str) -> None:
         with self.lock:
             c = self.cfg.get(provider, {})
-            was = c.pop("name", None); c.pop("id", None)
+            was = c.pop("name", None)
+            c.pop("id", None)
             self._save()
         if was:
-            self._alert("medium", "security", f"{PROVIDERS[provider]['name']} account unlinked", f"'{was}' can no longer pair a browser by signing in.", f"sso-unlink-{provider}")
+            self._alert("medium", "security", f"{PROVIDERS[provider]['name']} account unlinked",
+                        f"'{was}' can no longer pair a browser by signing in.", f"sso-unlink-{provider}")
 
     # ------------------------------------------------------------ the device flow
     def start(self, provider: str, purpose: str) -> dict:

@@ -13,17 +13,17 @@ import webbrowser
 from pathlib import Path
 
 from . import __version__
-from .alerts import Acks, Alerter, PersistenceWatcher, TrioditisSecurityWatcher, SystemLogWatcher
+from . import terminal as term
+from .alerts import Acks, Alerter, PersistenceWatcher, SystemLogWatcher, TrioditisSecurityWatcher
+from .auth import Owner, issue_pair_code, rotate_key, write_private
 from .cost_alerts import CostWatcher
 from .poller import health_of, start_all
 from .server import NICE_HOST, AlertsContext, Hub, Progress, UsageContext, list_sessions, load_history, serve
+from .settings import Settings
+from .sources import ClaudeCodeWatcher, CommandWatcher, FileWatcher, GitWatcher, TrioditisWatcher, load_prices
 from .sso import PROVIDERS, Sso, SsoError
 from .sync import Syncer, start_worker
 from .usage import ClaudeUsage
-from . import terminal as term
-from .auth import Owner, issue_pair_code, rotate_key, write_private
-from .settings import Settings
-from .sources import ClaudeCodeWatcher, CommandWatcher, FileWatcher, GitWatcher, TrioditisWatcher, load_prices
 
 HOOKS = {
     "bash": r'''
@@ -314,7 +314,7 @@ def sso_cmd(args) -> None:
     """Sign in with GitHub or Google: status | configure | link | unlink."""
     sso = Sso(data_home())
     if args.action == "status":
-        for p, st in sso.status().items():
+        for st in sso.status().values():
             print(f"{st['name']}: " + ("not set up" if not st["configured"] else f"linked as {st['linked']}" if st["linked"] else "set up, nothing linked"))
         return
     provider = (args.provider or "").lower()
@@ -356,7 +356,8 @@ def sync_cmd(args) -> None:
         except Exception as e:
             sys.exit(f"sync failed: {e}")
     st = syncer.status()
-    when = lambda t: time.strftime("%Y-%m-%d %H:%M", time.localtime(t)) if t else "never"
+    def when(t):
+        return time.strftime("%Y-%m-%d %H:%M", time.localtime(t)) if t else "never"
     print(f"sync: {st['where']} as '{st['device']}'")
     print(f"  last push {when(st['last_push'])}, last pull {when(st['last_pull'])}" + (f", error: {st['last_error']}" if st["last_error"] else ""))
     for name, d in st["devices"].items():

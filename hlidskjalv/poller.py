@@ -11,7 +11,7 @@ from __future__ import annotations
 import sys
 import threading
 import time
-from typing import Callable
+from collections.abc import Callable
 
 STALL_S = 30.0   # silent this long: shown as stalled
 WARN_EVERY_S = 60.0  # one stderr line per source per minute, at most
