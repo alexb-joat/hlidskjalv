@@ -2127,9 +2127,10 @@ const ALERT_SOURCES = {
 const AL = { list: new Map(), acks: new Set(), syslog: null, filter: { q: "", source: "", min: "info" } };
 ICONS.alert = ICONS["v-alerts"];
 const RISK_SEV = { danger: "high", caution: "medium" };
-/* A risky command run by an AI agent becomes an alert; the command itself stays in the activity log. */
+/* A risky command run by an AI agent becomes an alert; the command itself stays in the activity log.
+   With a server the alert comes from it (hlidskjalv/risks.py, same table); the page makes its own only in demo mode. */
 function alertFromCommand(ev) {
-  if (ev.type !== "command" || ev.actor !== "ai") return null;
+  if (mode !== "demo" || ev.type !== "command" || ev.actor !== "ai") return null;
   const risks = explainCommand(ev.cmd).risks;
   if (!risks.length) return null;
   const worst = risks.some(r => r.level === "danger") ? "danger" : "caution";

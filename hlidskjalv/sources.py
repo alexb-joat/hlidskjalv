@@ -15,6 +15,7 @@ import time
 from collections import Counter, OrderedDict
 from pathlib import Path
 
+from . import risks
 from .programs import which
 from .redact import redact
 
@@ -415,6 +416,7 @@ class ClaudeCodeWatcher:
         self.dir = claude_code_project_dir(root, claude_home)
         self.tails: dict[Path, Tail] = {}
         self.seen: dict[str, None] = {}  # insertion-ordered, so trimming drops the oldest
+        self.alerter = None  # set by watch(): risky commands the AI runs become alerts (risks.py)
         for p in self._transcripts():
             self.tails[p] = Tail(p)  # skip transcript history predating this watch
 
@@ -456,9 +458,23 @@ class ClaudeCodeWatcher:
             except (ValueError, OSError):
                 home = str(Path.home())
                 where = "~" + cwd[len(home):] if cwd.startswith(home) else cwd
-        return {"type": "command", "cmd": redact(cmd, 1000), "cwd": where[:300], "actor": "ai",
-                "agent": "Claude Code" + (" (subagent)" if subagent else ""),
-                "why": redact(str(inp.get("description") or ""), 200) or None}
+        ev = {"type": "command", "cmd": redact(cmd, 1000), "cwd": where[:300], "actor": "ai",
+              "agent": "Claude Code" + (" (subagent)" if subagent else ""),
+              "why": redact(str(inp.get("description") or ""), 200) or None}
+        self._risk_alert(bid, cmd, ev)
+        return ev
+
+    def _risk_alert(self, tool_id: str, raw_cmd: str, ev: dict) -> None:
+        """Classified on the raw command (a masked secret still counts); the alert shows the masked one.
+        One alert per tool call: the fingerprint is Claude Code's own id for it."""
+        if self.alerter is None:
+            return
+        found = risks.classify(raw_cmd)
+        if not found:
+            return
+        self.alerter.raise_(risks.severity(found), "ai_commands", f"{ev['agent']} ran a risky command",
+                            ev["cmd"] + "\n" + "\n".join("• " + text for _, text in found),
+                            fingerprint="ai-cmd-" + str(tool_id)[:80], data={"cwd": ev["cwd"], "why": ev["why"]})
 
     def _event(self, r: dict, subagent: bool) -> dict | None:
         msg = r.get("message") or {}

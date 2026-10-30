@@ -154,6 +154,8 @@ def watch(args, argv: list[str]) -> None:
 
     # Alerts: things you didn't do yourself (see alerts.py). Each source can be switched off in Settings.
     alerter = Alerter(hub.publish, settings, home / "alerts.jsonl")
+    if claude_code is not None:
+        claude_code.alerter = alerter  # a risky command Claude Code runs is an alert, counted by `status`
     persistence = PersistenceWatcher(root, alerter, expected=home / "expected.json")
     syslog = SystemLogWatcher(alerter)
     sb_security = TrioditisSecurityWatcher(sb_path.parent / "security.jsonl" if sb_path else None, alerter)
