@@ -352,17 +352,21 @@ function eventView(ev) {
     case "commit": title = `Save point: “${ev.message}”`; sub = `${ev.files_changed || 0} files · +${ev.insertions || 0} −${ev.deletions || 0}`; where = "commit " + ev.sha; break;
     case "branch": title = `Switched to branch ${ev.branch}`; sub = `from ${ev.previous}`; break;
     case "ai_call": {
-      title = `AI step: ${ev.route}`; sub = `${ev.model}`; where = `route ${ev.route} → ${ev.model}`;
-      chips.push(ev.local ? h("span", { class: "chip ok", tip: { title: "Local model", body: "Ran on your computer: free and private." } }, "local · free")
+      title = `AI step: ${ev.route}`; sub = ev.model === "none" ? "no model answered" : `${ev.model}`; where = `route ${ev.route} → ${ev.model}`;
+      const answered = ev.model !== "none";
+      if (answered) chips.push(ev.local ? h("span", { class: "chip ok", tip: { title: "Local model", body: "Ran on your computer: free and private." } }, "local · free")
         : ev.subscription ? h("span", { class: "chip", tip: { title: "Subscription", body: "Ran through Claude Code on your subscription: a flat plan, not billed per token, so there's no per-call cost to show." } }, "subscription")
         : h("span", { class: "chip ai", tip: { title: "Cloud model", body: "Ran at a provider and is billed per token.", why: ev.cost == null ? "Add prices in ~/.hlidskjalv/prices.json to see the cost." : null } }, "cloud · " + money(ev.cost)));
       if (ev.tokens_in != null) chips.push(h("span", { class: "chip", tip: { title: "Tokens", body: `${ev.tokens_in} in (your request and context), ${ev.tokens_out} out (the answer). A token is about ¾ of a word.`, why: ev.tokens_cached ? `${fmt(ev.tokens_cached)} of the input was cached context: re-read from earlier turns, cheaper and faster than new input.` : null } }, `${fmt(ev.tokens_in)} → ${fmt(ev.tokens_out)} tokens`));
+      if (ev.client) chips.push(h("span", { class: "chip", tip: { title: "Sent by", body: `The program that made this request: ${ev.client}. Trioditis reads the name from the request's X-Trioditis-Client or User-Agent header; programs built on a shared library show that library's name.` } }, ev.client));
       const blocked = (ev.attempts || []).filter(a => a.error === "budget_blocked");
-      if (blocked.length) chips.push(h("span", { class: "chip warn", tip: { title: "Budget guard", body: `Your spending cap was reached (${blocked[0].reason || "budget"}), so Trioditis skipped ${blocked.map(a => a.model).join(", ")} and used a free local model instead.`, where: "Caps: ~/.hlidskjalv/budget.json" } }, "budget → local"));
+      const failure = aiFailure(ev, blocked);
+      if (blocked.length && answered) chips.push(h("span", { class: "chip warn", tip: { title: "Budget guard", body: `Your spending cap was reached (${blocked[0].reason || "budget"}), so Trioditis skipped ${blocked.map(a => a.model).join(", ")} and used a free local model instead.`, where: "Caps: ~/.hlidskjalv/budget.json" } }, "budget → local"));
       if (ev.sensitive && ev.sensitive.length) chips.push(h("span", { class: "chip ok", tip: { title: "Kept private", body: `Trioditis spotted: ${ev.sensitive.join(", ")}. It kept this request on a local model so it never left your computer.` } }, icon("shield"), "kept local"));
       const otherFails = (ev.fallbacks || 0) - blocked.length;
-      if (otherFails > 0) chips.push(h("span", { class: "chip warn", tip: { title: "Fallback", body: `${otherFails} model(s) were busy or down, so Trioditis tried the next one.` } }, `${otherFails} fallback`));
-      if (ev.status === 429 && blocked.length) { chips.push(h("span", { class: "chip bad", tip: { title: "Over budget", body: "The spending cap was reached and this route has no local model to fall back to, so the request was refused instead of billed.", where: "Caps: ~/.hlidskjalv/budget.json" } }, "over budget")); tone = "danger"; }
+      if (otherFails > 0 && answered) chips.push(h("span", { class: "chip warn", tip: { title: "Fallback", body: `${otherFails} model(s) were busy or down, so Trioditis tried the next one.` } }, `${otherFails} fallback`));
+      if (failure === "rate_limited") { const w = retryWait(ev); chips.push(h("span", { class: "chip warn", tip: { title: "Rate-limited", body: "Every model Trioditis tried said \"too many requests\". The program that asked was told when to try again, instead of getting an error it would retry at once.", why: w != null ? `The provider asked for a pause of ${w} s.` : null } }, w != null ? `rate-limited · retry in ${w} s` : "rate-limited")); tone = "danger"; }
+      else if (failure === "budget_exceeded") { chips.push(h("span", { class: "chip bad", tip: { title: "Over budget", body: "The spending cap was reached and this route has no local model to fall back to, so the request was refused instead of billed.", where: "Caps: ~/.hlidskjalv/budget.json" } }, "over budget")); tone = "danger"; }
       else if (ev.status && ev.status >= 400) { chips.push(h("span", { class: "chip bad" }, "failed " + ev.status)); tone = "danger"; }
       break;
     }
@@ -463,13 +467,21 @@ function makeWorldView(slot, src) {
     if (w.shape !== shape) { shape = w.shape; renderMap(w); }  // not a signature over every file per event
     renderStats(w);
   }
+  function showAi(ev) {
+    lastAi = ev;
+    const txt = $(".txt", ribbon); txt.classList.remove("muted");
+    if (ev.model === "none") {
+      const why = { rate_limited: "rate-limited", budget_exceeded: "over budget" }[ev.error] || (ev.status ? "failed " + ev.status : "failed");
+      txt.textContent = `${ev.route} → no model answered · ${why}`;
+      return;
+    }
+    const billing = ev.local ? "local, free" : ev.subscription ? "subscription" : "cloud" + (ev.cost != null ? ", " + money(ev.cost) : "");
+    txt.textContent = `${ev.route} → ${ev.model} · ${billing}${ev.sensitive && ev.sensitive.length ? " · kept private" : ""}`;
+  }
   function flash(ev) {
     if (ev.type === "ai_call") {
-      lastAi = ev;
+      showAi(ev);
       ribbon.classList.remove("cast"); void ribbon.offsetWidth; ribbon.classList.add("cast");
-      const txt = $(".txt", ribbon); txt.classList.remove("muted");
-      const billing = ev.local ? "local, free" : ev.subscription ? "subscription" : "cloud" + (ev.cost != null ? ", " + money(ev.cost) : "");
-      txt.textContent = `${ev.route} → ${ev.model} · ${billing}${ev.sensitive && ev.sensitive.length ? " · kept private" : ""}`;
       return;
     }
     const tile = ev.path && tiles.get(ev.path);
@@ -491,6 +503,7 @@ function makeWorldView(slot, src) {
     return pickable(el, () => ({ kind: "event", ev, src }));
   }
   function add(ev, mark) {
+    if (ev.type === "ai_call") showAi(ev);  // steps already in the log when the page opens show too
     const el = entry(ev);
     entries.prepend(el);
     while (entries.children.length > 300) entries.lastChild.remove();
@@ -528,6 +541,17 @@ function toast(text) { const t = h("div", { class: "toast", text }); $("#toasts"
 TIPS.set($(".level"), () => ({ title: "Level and XP", body: ["Earn XP for real work: new files +10, edits +5, commands +3, save points +50, AI steps on local models +5, Learn levels +100."], why: "Save points are worth the most: they're what make experiments safe." }));
 TIPS.set($(".logo"), { title: "Hlidskjalv", body: "A live, game-like view of what you and your AI helper do in a project. It only watches; it never changes your files or runs anything.", where: "Runs on your computer at http://127.0.0.1:8788" });
 
+/* Why no model answered: Trioditis 0.4+ says so in the log; older logs only show a 429 with a budget skip. */
+function aiFailure(ev, blocked) {
+  if (ev.error) return ev.error;
+  if (ev.status === 429 && blocked.length) return "budget_exceeded";
+  return null;
+}
+function retryWait(ev) {
+  const waits = (ev.attempts || []).map(a => a.retry_after).filter(w => typeof w === "number");
+  return waits.length ? Math.min(...waits) : null;
+}
+
 /* =========================================================== demo data */
 function demoSession() {
   const t0 = Date.now() / 1000 - 30 * 60;
@@ -536,7 +560,7 @@ function demoSession() {
     [0, { type: "ai_call", route: "quick", model: "llama3.2:3b", local: true, status: 200, latency_ms: 900, tokens_in: 412, tokens_out: 96, cost: 0, sensitive: [], fallbacks: 0, reasons: ["no strong signal -> default route quick"] }],
     [40, { type: "command", cmd: "python3 -m venv .venv", cwd: "." }],
     [55, { type: "command", cmd: "source .venv/bin/activate", cwd: "." }],
-    [70, { type: "ai_call", route: "code", model: "claude-sonnet", local: false, status: 200, latency_ms: 6200, tokens_in: 3120, tokens_out: 840, cost: 0.0219, sensitive: [], fallbacks: 0, reasons: ["keywords matched route code (score 3)", "tools present -> needs tool calling"] }],
+    [70, { type: "ai_call", client: "ai-sdk", route: "code", model: "claude-sonnet", local: false, status: 200, latency_ms: 6200, tokens_in: 3120, tokens_out: 840, cost: 0.0219, sensitive: [], fallbacks: 0, reasons: ["keywords matched route code (score 3)", "tools present -> needs tool calling"] }],
     [90, { type: "file_created", path: "bot/weather.py", lines: 42, added: 42, removed: 0 }],
     [95, { type: "file_created", path: "bot/__init__.py", lines: 1, added: 1, removed: 0 }],
     [100, { type: "file_created", path: "requirements.txt", lines: 2, added: 2, removed: 0 }],
@@ -545,7 +569,8 @@ function demoSession() {
     [190, { type: "ai_call", route: "code", model: "qwen2.5-coder:7b", local: true, status: 200, latency_ms: 3100, tokens_in: 1980, tokens_out: 410, cost: 0, sensitive: ["api_key"], fallbacks: 0, reasons: ["sensitive content (api_key) -> local models only", "keywords matched route code (score 2)", "skip claude-sonnet: cloud model blocked (local-only)"] }],
     [215, { type: "file_changed", path: "bot/weather.py", lines: 56, added: 18, removed: 4 }],
     [240, { type: "command", cmd: "python bot/weather.py Belgrade", cwd: "." }],
-    [270, { type: "ai_call", route: "code", model: "claude-sonnet", local: false, status: 200, latency_ms: 5400, tokens_in: 2650, tokens_out: 620, cost: 0.0173, sensitive: [], fallbacks: 1, reasons: ["session pinned to code"], attempts: [{ model: "gpt", status: 503 }] }],
+    [270, { type: "ai_call", client: "ai-sdk", route: "code", model: "claude-sonnet", local: false, status: 200, latency_ms: 5400, tokens_in: 2650, tokens_out: 620, cost: 0.0173, sensitive: [], fallbacks: 1, reasons: ["session pinned to code"], attempts: [{ model: "gpt", status: 503 }] }],
+    [280, { type: "ai_call", client: "evals", route: "explicit", model: "none", local: null, status: 429, error: "rate_limited", latency_ms: 310, tokens_in: null, tokens_out: null, cost: null, sensitive: [], fallbacks: 1, reasons: ["client asked for claude-haiku-5-5 (model claude-haiku)"], attempts: [{ model: "claude-haiku", status: 429, retry_after: 20 }] }],
     [290, { type: "file_created", path: "tests/test_weather.py", lines: 25, added: 25, removed: 0 }],
     [310, { type: "command", cmd: "python -m pytest -q", cwd: "." }],
     [330, { type: "file_changed", path: "bot/weather.py", lines: 58, added: 3, removed: 1 }],
@@ -869,9 +894,14 @@ function detailsChanged() { clearTimeout(detailsTimer); detailsTimer = setTimeou
 
 function aiSummary(evs) {
   const by = new Map(), routes = new Map();
-  const t = { calls: 0, cloud: 0, sub: 0, local: 0, cost: 0, unpriced: 0, blocked: 0, tin: 0, cached: 0, subIn: 0, subCached: 0 };
+  const t = { calls: 0, cloud: 0, sub: 0, local: 0, cost: 0, unpriced: 0, blocked: 0, tin: 0, cached: 0, subIn: 0, subCached: 0, unanswered: 0, rateLimited: 0 };
   for (const e of evs) {
     if (e.type !== "ai_call") continue;
+    t.blocked += (e.attempts || []).filter(a => a.error === "budget_blocked").length;
+    if (e.model === "none") {  // no model answered (rate-limited, over budget, all down): not a model, and nothing billed
+      t.unanswered++; if (e.error === "rate_limited") t.rateLimited++;
+      continue;
+    }
     const m = by.get(e.model) || { model: e.model, local: e.local, sub: !!e.subscription, calls: 0, tin: 0, tout: 0, cached: 0, cost: 0, priced: 0, lat: 0, latN: 0, failed: 0, routes: new Set() };
     m.calls++; m.tin += e.tokens_in || 0; m.tout += e.tokens_out || 0; m.cached += e.tokens_cached || 0;
     if (e.cost != null) { m.cost += e.cost; m.priced++; }
@@ -884,19 +914,20 @@ function aiSummary(evs) {
     t.calls++; t.tin += e.tokens_in || 0; t.cached += e.tokens_cached || 0;
     if (e.local) t.local++; else if (e.subscription) { t.sub++; t.subIn += e.tokens_in || 0; t.subCached += e.tokens_cached || 0; }
     else { t.cloud++; if (e.cost != null) t.cost += e.cost; else if (e.tokens_in != null) t.unpriced++; }
-    t.blocked += (e.attempts || []).filter(a => a.error === "budget_blocked").length;
   }
   return { models: [...by.values()].sort((a, b) => b.cost - a.cost || b.tin - a.tin), routes: [...routes.values()], t };
 }
 function billingOf(m) { return m.local ? "local · free" : m.sub ? "subscription" : "cloud · per token"; }
 function efficiencyTips(sum) {
   const { t, routes } = sum, tips = [];
-  if (!t.calls) return [["", "No AI steps yet in this session. Tips about cost appear here once there are some."]];
+  if (!t.calls && !t.unanswered) return [["", "No AI steps yet in this session. Tips about cost appear here once there are some."]];
   if (t.cloud + t.local) tips.push(["ok", `${Math.round((t.local / Math.max(1, t.local + t.cloud)) * 100)}% of Trioditis's AI steps ran on free local models.`, "Every step a local model can handle well is a step you don't pay for, and it never leaves your computer."]);
   for (const r of routes.filter(r => r.cloud).sort((a, b) => b.cost - a.cost).slice(0, 3))
     tips.push(["warn", `Route ${r.route}: ${r.cloud} cloud call${r.cloud === 1 ? "" : "s"}${r.cost ? ` (${money(r.cost)})` : ""}, ${r.local} local.`,
       "If routine prompts land here, list a local model first for this route; Trioditis falls back to the cloud model if it fails. See which local models fit your computer:", "python -m trioditis hardware"]);
   if (t.unpriced) tips.push(["warn", `${t.unpriced} cloud call${t.unpriced === 1 ? " has" : "s have"} no price, so spend and the budget guard can't count ${t.unpriced === 1 ? "it" : "them"}.`, "Add each cloud model's price per million tokens:", "~/.hlidskjalv/prices.json"]);
+  if (t.rateLimited) tips.push(["warn", `${t.rateLimited} request${t.rateLimited === 1 ? " was" : "s were"} rate-limited by every model tried.`,
+    "The program that asked was told how long to wait (Retry-After). If it happens often, add a second provider or a local model to that route, or send fewer requests at once."]);
   if (t.blocked) tips.push(["ok", `The budget guard kept ${t.blocked} call${t.blocked === 1 ? "" : "s"} off paid models.`, "Caps live in a small file; edits apply immediately:", "~/.hlidskjalv/budget.json"]);
   if (t.sub && t.subIn) tips.push(["ai", `Claude Code: ${Math.round((t.subCached / t.subIn) * 100)}% of its input was cached context (${fmt(t.subCached)} of ${fmt(t.subIn)} tokens).`,
     "Each turn re-reads the whole conversation. Starting a fresh session (or /clear) for a new task keeps that context, and your plan's usage, small."]);
@@ -974,24 +1005,27 @@ function eventPanel(ev, src) {
       break;
     }
     case "ai_call": {
-      const sub = ev.subscription, blocked = (ev.attempts || []).filter(a => a.error === "budget_blocked");
+      const sub = ev.subscription, blocked = (ev.attempts || []).filter(a => a.error === "budget_blocked"), failure = aiFailure(ev, blocked);
+      const answered = ev.model !== "none";
       rows.push(["Route", ev.route, sub ? "Claude Code talks to Anthropic directly; Trioditis didn't route this step." : "The kind of task Trioditis decided this was."],
-        ["Model", ev.model],
-        ["Runs on", ev.local ? "your computer" : sub ? "Anthropic, on your subscription" : "a cloud provider", ev.local ? "Free and private: nothing left your computer." : sub ? "A flat plan: no per-call bill, but usage counts toward your plan's limits." : "Billed per token."],
-        ["Status", ev.status == null ? "–" : String(ev.status), ev.status >= 400 ? "Failed." : "Answered."],
+        ["Model", ev.model === "none" ? "none answered" : ev.model],
+        ev.client && ["Sent by", ev.client, "The program that made the request, from its X-Trioditis-Client or User-Agent header."],
+        answered && ["Runs on", ev.local ? "your computer" : sub ? "Anthropic, on your subscription" : "a cloud provider", ev.local ? "Free and private: nothing left your computer." : sub ? "A flat plan: no per-call bill, but usage counts toward your plan's limits." : "Billed per token."],
+        ["Status", ev.status == null ? "–" : String(ev.status), failure === "rate_limited" ? "Rate-limited: try again later." : failure === "budget_exceeded" ? "Refused: over budget." : ev.status >= 400 ? "Failed." : "Answered."],
         ev.latency_ms != null && ["Time", (ev.latency_ms / 1000).toFixed(2) + " s"],
-        ["Tokens in", ev.tokens_in != null ? ev.tokens_in.toLocaleString() : "not reported", "Your request plus all the context sent with it."],
+        answered && ["Tokens in", ev.tokens_in != null ? ev.tokens_in.toLocaleString() : "not reported", "Your request plus all the context sent with it."],
         ev.tokens_cached != null && ["of which cached", ev.tokens_cached.toLocaleString(), "Context re-read from earlier turns: cheaper and faster than new input."],
-        ["Tokens out", ev.tokens_out != null ? ev.tokens_out.toLocaleString() : "not reported", "The answer. Output tokens usually cost several times more than input."],
-        ["Cost", ev.local ? "$0" : sub ? "included in plan" : ev.cost != null ? money(ev.cost) : "unknown", !ev.local && !sub && ev.cost == null ? "Add this model's prices to ~/.hlidskjalv/prices.json." : null],
+        answered && ["Tokens out", ev.tokens_out != null ? ev.tokens_out.toLocaleString() : "not reported", "The answer. Output tokens usually cost several times more than input."],
+        !answered ? ["Cost", "$0", "No model answered, so nothing was billed."] : ["Cost", ev.local ? "$0" : sub ? "included in plan" : ev.cost != null ? money(ev.cost) : "unknown", !ev.local && !sub && ev.cost == null ? "Add this model's prices to ~/.hlidskjalv/prices.json." : null],
         ev.sensitive && ev.sensitive.length && ["Kept private", ev.sensitive.join(", "), "Trioditis spotted private data and kept this request on a local model."]);
       if (ev.reasons && ev.reasons.length) extra.push(h("div", { class: "eyebrow", text: "Why this model" }), h("ul", { class: "dlist" }, ...ev.reasons.map(r => h("li", { class: "ai", text: r }))));
       else if (!sub) extra.push(h("p", { class: "muted", text: "Trioditis's reasons for this choice show here for steps logged by a current Trioditis." }));
       if (ev.attempts && ev.attempts.length) extra.push(h("div", { class: "eyebrow", text: "Tried first" }), h("ul", { class: "dlist" }, ...ev.attempts.map(a =>
         a.error === "budget_blocked" ? h("li", { class: "warn" }, `${a.model}: skipped, over budget`, h("small", { text: (a.reason || "") + ". Caps: ~/.hlidskjalv/budget.json" }))
-        : a.status ? h("li", { class: "bad" }, `${a.model}: answered ${a.status}`, h("small", { text: a.status === 429 ? "Rate-limited: too many requests." : a.status >= 500 ? "The provider had a problem." : "Not usable for this request." }))
+        : a.status ? h("li", { class: "bad" }, `${a.model}: answered ${a.status}`, h("small", { text: a.status === 429 ? "Rate-limited: too many requests." + (a.retry_after != null ? ` Asked to wait ${a.retry_after} s.` : "") : a.status >= 500 ? "The provider had a problem." : "Not usable for this request." }))
         : h("li", { class: "bad" }, `${a.model}: couldn't connect`, h("small", { text: a.error || "" })))));
-      if (blocked.length && ev.status === 429) extra.push(h("p", { class: "warn", text: "Refused rather than billed: the route has no local model to fall back to. Add one, or raise the cap." }));
+      if (failure === "budget_exceeded") extra.push(h("p", { class: "warn", text: "Refused rather than billed: the route has no local model to fall back to. Add one, or raise the cap." }));
+      else if (failure === "rate_limited") { const w = retryWait(ev); extra.push(h("p", { class: "warn", text: "Every model tried said \"too many requests\", so Trioditis answered 429 with " + (w != null ? `Retry-After: ${w}. ` : "no wait time. ") + "A program that honours it waits and tries again; nothing was billed." })); }
       break;
     }
   }
@@ -1059,6 +1093,8 @@ function demoUsage() {
   return {
     budget: { available: true, caps: { daily_usd: 1, monthly_usd: 15 }, today: 0.81, month: 6.4, unpriced_today: 0, unpriced_models: [], calls_today: { total: 42, local: 31 },
       providers: { anthropic: { today: 0.61, month: 4.9, calls_month: 58, caps: { monthly_usd: 10 } }, openrouter: { today: 0.2, month: 1.5, calls_month: 12, caps: {} } },
+      by_client: [{ client: "ai-sdk", today: 0.52, month: 4.1, calls_today: 9, calls_month: 61 }, { client: "evals", today: 0.29, month: 2.3, calls_today: 14, calls_month: 140 },
+                  { client: "curl", today: 0, month: 0, calls_today: 19, calls_month: 88 }],
       limits: [{ provider: "anthropic", name: "requests", limit: 1000, remaining: 998, reset_at: now / 1000 + 40, seen: now / 1000 - 30 },
                { provider: "anthropic", name: "input_tokens", limit: 2000000, remaining: 1940000, reset_at: now / 1000 + 12, seen: now / 1000 - 30 }] },
     accounts: { available: true, providers: { openrouter: { kind: "credits", label: "OpenRouter balance", used: 25.75, limit: 100.5, remaining: 74.75, period: "prepaid", source: "https://openrouter.ai/api/v1/credits", checked_at: now / 1000 - 120 },
@@ -1110,6 +1146,19 @@ function budgetPanel(b) {
       h("small", { text: `Add ${b.unpriced_models.join(", ") || "those models"} to ~/.hlidskjalv/prices.json.` }))) : null,
     h("div", { class: "cmd", text: "~/.hlidskjalv/budget.json  {\"daily_usd\": 1.0, \"monthly_usd\": 15.0}" }));
 }
+function toolsPanel(b) {
+  if (!b || !b.available || !b.by_client) return null;  // a Trioditis older than 0.4 doesn't record the tool
+  if (!b.by_client.length) return panel("By tool", "No named tool yet",
+    h("p", { class: "muted", style: "margin:0", text: "Trioditis records which program sent each call (its User-Agent, or an X-Trioditis-Client header). Calls this month show here per program." }));
+  return panel("By tool", "What each program spent through Trioditis",
+    h("div", { class: "tablewrap" }, h("table", { class: "dt" },
+      h("thead", {}, h("tr", {}, h("th", { text: "Program" }), h("th", { class: "n", text: "Calls today" }), h("th", { class: "n", text: "Today" }),
+        h("th", { class: "n", text: "Calls this month" }), h("th", { class: "n", text: "This month" }))),
+      h("tbody", {}, ...b.by_client.map(r => h("tr", {}, h("td", { text: r.client }), h("td", { class: "n", text: fmt(r.calls_today) }),
+        h("td", { class: "n", text: money(r.today) }), h("td", { class: "n", text: fmt(r.calls_month) }),
+        h("td", { class: "n", text: money(r.month) })))))),
+    h("small", { class: "muted", text: "Cloud spend only; local models are free. Full report: python -m trioditis usage --since month --by client" }));
+}
 function hardwarePanel(hw) {
   if (!hw || !hw.available) return panel("Local models for this computer", "No report yet",
     h("p", { class: "muted", style: "margin:0", text: "Trioditis writes a hardware report to ~/.hlidskjalv/hardware.json when it starts. Or run: python -m trioditis hardware" }));
@@ -1155,7 +1204,7 @@ function claudePanel(c) {
 }
 function usagePanels() {
   const slot = h("div", { class: "dcol" }, panel("Cost and usage", "Loading…"));
-  loadUsage().then(d => fill(slot, budgetPanel(d.budget), providersPanel(d.budget, d.accounts), planPanel(d.claude), claudePanel(d.claude), hardwarePanel(d.hardware)))
+  loadUsage().then(d => fill(slot, budgetPanel(d.budget), toolsPanel(d.budget), providersPanel(d.budget, d.accounts), planPanel(d.claude), claudePanel(d.claude), hardwarePanel(d.hardware)))
     .catch(() => fill(slot, panel("Cost and usage", "Couldn't load")));
   return slot;
 }
