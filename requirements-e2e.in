@@ -1,0 +1,2 @@
+# Browser tests only (tests/e2e): Hlidskjalv itself needs nothing beyond the standard library.
+playwright

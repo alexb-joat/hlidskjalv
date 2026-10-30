@@ -44,3 +44,24 @@ jobs:
         run: pip install --require-hashes --no-deps -r requirements-dev.txt
       - name: Ruff (rules in pyproject.toml)
         run: ruff check --output-format=github .
+
+  e2e:
+    # The page in real browsers: a live Hlidskjalv on a throwaway project, driven in Firefox and
+    # WebKit (Safari's engine). Fails on any console error, CSP violation or off-origin request.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+      - name: Install Playwright (hash-verified) and its browsers
+        run: |
+          pip install --require-hashes --no-deps -r requirements-e2e.txt
+          python -m playwright install --with-deps firefox webkit
+      - name: Browser tests
+        env:
+          HLIDSKJALV_E2E: "1"
+        run: python -m unittest discover -s tests/e2e -t . -v

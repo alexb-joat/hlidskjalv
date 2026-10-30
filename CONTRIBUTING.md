@@ -14,8 +14,12 @@ Thanks for helping. Hlidskjalv watches a person's computer and can open a shell,
    python3 -m unittest discover -s tests -t .
    pip install --require-hashes --no-deps -r requirements-dev.txt && ruff check .   # lint (rules in pyproject.toml)
    ```
-   If the page changed, run it too: start a throwaway instance with `HLIDSKJALV_HOME=$(mktemp -d)
-   python3 -m hlidskjalv watch <some folder> --no-open --port 8799` and try it in Firefox and one other engine.
+   If the page changed, run the browser tests too (Firefox and WebKit, as CI does):
+   ```bash
+   pip install --require-hashes --no-deps -r requirements-e2e.txt && python -m playwright install firefox webkit
+   HLIDSKJALV_E2E=1 python -m unittest discover -s tests/e2e -t . -v
+   ```
+   and look at it yourself: `HLIDSKJALV_HOME=$(mktemp -d) python3 -m hlidskjalv watch <some folder> --no-open --port 8799`.
 5. **Open a pull request** and fill in the template. CI, CodeQL and dependency review run automatically; for
    first-time contributors a maintainer approves the run first.
 
