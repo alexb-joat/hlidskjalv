@@ -79,7 +79,7 @@ HISTORY_DAYS = 7  # ... and no older than this
 
 
 def xp_of(ev: dict) -> int:
-    if ev.get("actor") == "ai":
+    if ev.get("actor") == "ai" or ev.get("mine") is False:  # the AI's work, or a commit someone else made
         return 0
     return XP_RULES.get(ev.get("type"), 0) + (3 if ev.get("type") == "ai_call" and ev.get("local") else 0)
 

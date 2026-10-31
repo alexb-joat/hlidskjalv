@@ -155,6 +155,18 @@ class Dashboard:
         (d / f"session-{self.engine}.jsonl").write_text(json.dumps(rec) + "\n")
         self.shows("Claude Code ran a risky command")
 
+    def test_a_reset_shows_as_a_move_not_a_save_point(self):
+        def git(*args):
+            subprocess.run(["git", "-C", str(self.project), "-c", "user.email=e2e@example.com", "-c", "user.name=E2E",
+                            "-c", "commit.gpgsign=false", *args], check=True, capture_output=True)
+        for name in ("one", "two"):
+            (self.project / f"{name}_{self.engine}.txt").write_text(name + "\n")
+            git("add", "-A")
+            git("commit", "-q", "-m", f"{name} {self.engine}")
+        self.shows(f"Save point: “two {self.engine}”")
+        git("reset", "-q", "--hard", "HEAD~1")
+        self.shows("Moved to commit")
+
     def test_details_shows_spend_by_tool(self):
         self.page.evaluate("[...document.querySelectorAll('#nav button')].find(b => "
                            "/details/i.test(b.textContent + (b.title || '') + (b.getAttribute('aria-label') || '')))?.click()")

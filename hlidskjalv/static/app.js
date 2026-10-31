@@ -23,6 +23,7 @@ const ICONS = {
   command: '<path d="M4 7l5 5-5 5M12 18h8"/>',
   commit: '<circle cx="12" cy="12" r="3.5"/><path d="M2 12h6.5M15.5 12H22"/>',
   branch: '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="7" r="2"/><path d="M6 7v10M18 9c0 5-12 3-12 8"/>',
+  checkout: '<path d="M9 14l-5-5 5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-4"/>',
   ai_call: '<path d="M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z"/>',
   shield: '<path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z"/>',
 };
@@ -326,6 +327,7 @@ const EV = {
   command: { c: "var(--info)", why: "Commands act on your computer. Hover each piece to see what it does before approving the next one." },
   commit: { c: "var(--accent)", why: "A save point. You can always come back to this exact state." },
   branch: { c: "var(--ai)", why: "A branch is a parallel version of the project, handy for trying ideas safely." },
+  checkout: { c: "var(--warn)", why: "The project moved to a commit that isn't newer than the last one (reset, rebase, amend or checkout). Nothing new was saved, so no XP." },
   alert: { c: "var(--sev-high)", why: "Something happened that you didn't do yourself. Check it; mark it seen in Alerts." },
   ai_call: { c: "var(--ai)", why: "Trioditis picked this model for this step. Local models are free and private; cloud models cost money per token." },
 };
@@ -349,8 +351,10 @@ function eventView(ev) {
       for (const r of ex.risks) chips.push(h("span", { class: "chip " + (r.level === "danger" ? "bad" : "warn"), tip: { title: r.level === "danger" ? "Careful" : "Heads-up", body: r.text, tone: r.level === "danger" ? "danger" : "warn" } }, r.level === "danger" ? "Careful" : "Heads-up"));
       break;
     }
-    case "commit": title = `Save point: “${ev.message}”`; sub = `${ev.files_changed || 0} files · +${ev.insertions || 0} −${ev.deletions || 0}`; where = "commit " + ev.sha; break;
+    case "commit": title = `Save point: “${ev.message}”`; sub = `${ev.files_changed || 0} files · +${ev.insertions || 0} −${ev.deletions || 0}`
+      + (ev.mine === false ? " · someone else's" : "") + (ev.skipped ? ` · and ${ev.skipped} earlier` : ""); where = "commit " + ev.sha; break;
     case "branch": title = `Switched to branch ${ev.branch}`; sub = `from ${ev.previous}`; break;
+    case "checkout": title = `Moved to commit ${ev.sha}`; sub = `from ${ev.previous}${ev.message ? ` · “${ev.message}”` : ""}`; where = "commit " + ev.sha; break;
     case "ai_call": {
       title = `AI step: ${ev.route}`; sub = ev.model === "none" ? "no model answered" : `${ev.model}`; where = `route ${ev.route} → ${ev.model}`;
       const answered = ev.model !== "none";
@@ -403,7 +407,7 @@ function applyEvent(w, ev) {
   }
 }
 const XP_RULES = { file_created: 10, file_changed: 5, file_deleted: 2, command: 3, commit: 50, branch: 10, ai_call: 2 };
-const xpOf = ev => ev.actor === "ai" ? 0 : (XP_RULES[ev.type] || 0) + (ev.type === "ai_call" && ev.local ? 3 : 0);
+const xpOf = ev => ev.actor === "ai" || ev.mine === false ? 0 : (XP_RULES[ev.type] || 0) + (ev.type === "ai_call" && ev.local ? 3 : 0);
 
 /* =========================================================== world view */
 function makeWorldView(slot, src) {
@@ -993,6 +997,8 @@ function eventPanel(ev, src) {
     }
     case "commit": rows.push(["Save point", ev.sha], ["Message", ev.message], ["Size", `${ev.files_changed || 0} files · +${ev.insertions || 0} −${ev.deletions || 0}`]); break;
     case "branch": rows.push(["Now on", ev.branch], ["Came from", ev.previous]); break;
+    case "checkout": rows.push(["Now at", ev.sha], ["Was at", ev.previous], ["Message", ev.message || "–"],
+      ["Why no XP", "Reset, rebase, amend or a checkout of another commit moves the project back or sideways; nothing new was saved."]); break;
     case "alert": {
       const what = { persistence: "If you didn't add this yourself, or you don't know the program, look at the file before your next login and remove what you don't recognise.",
         refused_access: "Nothing got through. If it repeats and isn't one of your own old browser tabs or links, something on this computer is probing Hlidskjalv or Trioditis.",

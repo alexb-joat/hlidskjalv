@@ -186,7 +186,8 @@ class FileWatcher:
 
 
 class GitWatcher:
-    """Reports new commits and branch switches. Runs only read-only git commands."""
+    """Reports new commits, branch switches and other moves of HEAD (reset, rebase, checkout).
+    Runs only read-only git commands."""
 
     # Repo-local config can name programs for git to run (fsmonitor, hooks).
     # Switch those off so a cloned repo can't execute anything through us.
@@ -197,6 +198,7 @@ class GitWatcher:
         self.git = which("git")
         self.head: str | None = None
         self.branch: str | None = None
+        self.me: str | None = None  # git config user.email, read once
         self.next_check = 0.0
 
     def _run(self, *args: str) -> str | None:
@@ -218,25 +220,58 @@ class GitWatcher:
             self.head = self._run("rev-parse", "HEAD")
             self.branch = self._run("rev-parse", "--abbrev-ref", "HEAD")
 
+    MAX_NEW = 20  # commits reported at once (a big pull says how many more there were)
+
     def poll(self) -> list[dict]:
         if time.monotonic() < self.next_check or not self.available():
             return []
         self.next_check = time.monotonic() + 2.0
         events = []
         branch = self._run("rev-parse", "--abbrev-ref", "HEAD")
-        if branch and self.branch and branch != self.branch:
-            events.append({"type": "branch", "branch": redact(branch, 80), "previous": redact(self.branch, 80)})
-        self.branch = branch or self.branch
         head = self._run("rev-parse", "HEAD")
+        switched = bool(branch and self.branch and branch != self.branch)
+        if switched:
+            events.append({"type": "branch", "branch": self._label(branch, head), "previous": self._label(self.branch, self.head)})
         if head and head != self.head:
-            info = self._run("show", "-s", "--format=%s", head) or ""
-            stat = self._run("show", "--no-ext-diff", "--no-textconv", "--shortstat", "--format=", head) or ""
-            nums = {k: int(v) for v, k in re.findall(r"(\d+) (file|insertion|deletion)", stat)}
-            events.append({"type": "commit", "sha": head[:7], "message": redact(info, 140),
-                           "files_changed": nums.get("file", 0), "insertions": nums.get("insertion", 0),
-                           "deletions": nums.get("deletion", 0), "first": self.head is None})
+            old = self.head
+            if old is None:  # the very first commit of a new repository
+                events.append(self._commit(head, first=True))
+            elif switched:
+                pass  # the branch event says it: those commits weren't made just now
+            elif self._run("merge-base", "--is-ancestor", old, head) is not None:
+                # HEAD moved forward: every new commit since the last look, oldest first
+                total = int(self._run("rev-list", "--count", f"{old}..{head}") or 0)
+                shas = (self._run("rev-list", "--reverse", f"--max-count={self.MAX_NEW}", f"{old}..{head}") or "").split()
+                for i, sha in enumerate(shas):
+                    ev = self._commit(sha)
+                    if i == 0 and total > len(shas):
+                        ev["skipped"] = total - len(shas)
+                    events.append(ev)
+            else:
+                # Back or sideways (reset, rebase, amend, checkout of another commit): a move, not a save point
+                events.append({"type": "checkout", "sha": head[:7], "previous": old[:7],
+                               "message": redact(self._run("show", "-s", "--format=%s", head) or "", 140)})
             self.head = head
+        self.branch = branch or self.branch
         return events
+
+    def _label(self, branch: str | None, head: str | None) -> str:
+        if branch == "HEAD":  # detached: no branch name, only a commit
+            return f"detached at {head[:7]}" if head else "detached"
+        return redact(branch or "?", 80)
+
+    def _commit(self, sha: str, first: bool = False) -> dict:
+        info = (self._run("show", "-s", "--format=%s%x00%ae", sha) or "").split("\0")
+        stat = self._run("show", "--no-ext-diff", "--no-textconv", "--shortstat", "--format=", sha) or ""
+        nums = {k: int(v) for v, k in re.findall(r"(\d+) (file|insertion|deletion)", stat)}
+        ev = {"type": "commit", "sha": sha[:7], "message": redact(info[0], 140),
+              "files_changed": nums.get("file", 0), "insertions": nums.get("insertion", 0),
+              "deletions": nums.get("deletion", 0), "first": first}
+        if self.me is None:
+            self.me = (self._run("config", "user.email") or "").lower()
+        if self.me and len(info) > 1:
+            ev["mine"] = info[1].strip().lower() == self.me  # a pulled commit earns no save-point XP
+        return ev
 
 
 class Tail:

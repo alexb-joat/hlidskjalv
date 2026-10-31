@@ -3,7 +3,9 @@ import http.client
 import json
 import os
 import re
+import shutil
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -2167,3 +2169,91 @@ class RisksTest(unittest.TestCase):
         self.assertEqual(risks.classify("cat .env.example"), [])
         self.assertEqual([lv for lv, _ in risks.classify("rm -rf build && git push --force")], ["danger", "danger"])
 
+
+
+@unittest.skipUnless(shutil.which("git"), "needs git")
+class GitWatcherTest(unittest.TestCase):
+    """Real repositories: what HEAD did between two looks becomes the right events."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp()).resolve()
+        self.git("init", "-q", "-b", "main")
+        self.git("config", "user.email", "me@example.com")
+        self.git("config", "user.name", "Me")
+        self.git("config", "commit.gpgsign", "false")
+        self.n = 0
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.root), *args], check=True, capture_output=True, text=True,
+                              env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}).stdout.strip()
+
+    def commit(self, msg, *extra):
+        self.n += 1
+        (self.root / f"f{self.n}.txt").write_text(f"{self.n}\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", msg, *extra)
+
+    def watcher(self):
+        from hlidskjalv.sources import GitWatcher
+        w = GitWatcher(self.root)
+        w.prime()
+        return w
+
+    def poll(self, w):
+        w.next_check = 0
+        with mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}):
+            return w.poll()
+
+    def test_the_first_commit_of_a_new_repository(self):
+        w = self.watcher()
+        self.commit("start")
+        [ev] = self.poll(w)
+        self.assertEqual((ev["type"], ev["message"], ev["first"], ev["mine"]), ("commit", "start", True, True))
+
+    def test_every_new_commit_oldest_first_and_whose_it_is(self):
+        self.commit("one")
+        w = self.watcher()
+        self.commit("two")
+        self.commit("three", "--author", "Someone Else <else@example.com>")
+        evs = self.poll(w)
+        self.assertEqual([(e["type"], e["message"], e["mine"]) for e in evs],
+                         [("commit", "two", True), ("commit", "three", False)])
+        self.assertEqual([xp_of(e) for e in evs], [50, 0])  # a pulled commit is not your save point
+        self.assertEqual(self.poll(w), [])
+
+    def test_a_big_jump_reports_the_newest_twenty_and_how_many_more(self):
+        self.commit("base")
+        w = self.watcher()
+        for i in range(23):
+            self.commit(f"c{i}")
+        evs = self.poll(w)
+        self.assertEqual(len(evs), 20)
+        self.assertEqual((evs[0]["message"], evs[0]["skipped"], evs[-1]["message"]), ("c3", 3, "c22"))
+
+    def test_a_reset_is_a_move_not_a_save_point(self):
+        self.commit("one")
+        self.commit("two")
+        w = self.watcher()
+        self.git("reset", "-q", "--hard", "HEAD~1")
+        [ev] = self.poll(w)
+        self.assertEqual((ev["type"], ev["message"]), ("checkout", "one"))
+        self.assertEqual(xp_of(ev), 0)
+
+    def test_switching_branches_is_one_branch_event(self):
+        self.commit("one")
+        self.git("checkout", "-q", "-b", "feature")
+        self.commit("on feature")
+        w = self.watcher()
+        self.git("checkout", "-q", "main")
+        [ev] = self.poll(w)
+        self.assertEqual((ev["type"], ev["branch"], ev["previous"]), ("branch", "main", "feature"))
+
+    def test_a_detached_head_names_the_commit(self):
+        self.commit("one")
+        self.commit("two")
+        first = self.git("rev-parse", "HEAD~1")
+        w = self.watcher()
+        self.git("checkout", "-q", first)
+        evs = self.poll(w)
+        self.assertEqual([e["type"] for e in evs], ["branch"])
+        self.assertEqual(evs[0]["branch"], f"detached at {first[:7]}")
