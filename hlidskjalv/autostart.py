@@ -172,7 +172,13 @@ def enable(folder: Path, port: int, home: Path) -> str:
         return out if code else f"on: starts at login. Agent: {p}\nlogs: {log}"
     if sysname == "windows":
         code, out = _run("powershell", "-NoProfile", "-NonInteractive", "-Command", render_task_script(folder, port))
-        return out if code else f"on: starts at logon (Scheduled Task '{TASK}')"
+        if code:
+            return out
+        from .alerts import remember_expected, windows_tasks
+        mine = windows_tasks().get("schtasks:\\" + TASK)  # read back what Windows recorded for our own task
+        if mine is not None:
+            remember_expected(home, "schtasks:\\" + TASK, mine)
+        return f"on: starts at logon (Scheduled Task '{TASK}')"
     return f"autostart isn't supported on {sysname}"
 
 

