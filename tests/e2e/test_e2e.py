@@ -109,7 +109,10 @@ class Dashboard:
         self.page.on("request", lambda r: r.url.startswith((origin, "data:", "blob:")) or self.offsite.append(r.url))
         self.page.goto(self.url)
         self.page.wait_for_function("() => /live map/i.test(document.body.innerText)", timeout=15000)
-        self.page.evaluate("document.querySelectorAll('dialog[open]').forEach(d => d.close())")  # first-run setup
+        # The first-run setup wizard is a modal: close it the way a person would, with Escape.
+        if self.page.evaluate("!!document.querySelector('.modal-back')"):
+            self.page.keyboard.press("Escape")
+            self.page.wait_for_function("() => !document.querySelector('.modal-back')", timeout=5000)
 
     def tearDown(self):
         self.page.close()
@@ -166,6 +169,30 @@ class Dashboard:
         self.shows(f"Save point: “two {self.engine}”")
         git("reset", "-q", "--hard", "HEAD~1")
         self.shows("Moved to commit")
+
+    def test_keyboard_moves_between_views_and_opens_things(self):
+        pg = self.page
+        selected = "() => document.querySelector('#nav [aria-selected=\"true\"]').id"
+        first = pg.evaluate(selected)
+        self.assertEqual(pg.evaluate("[...document.querySelectorAll('#nav [role=tab]')].filter(b => b.tabIndex === 0).length"), 1)
+        pg.focus("#" + first)
+        pg.keyboard.press("ArrowRight")
+        second = pg.evaluate(selected)
+        self.assertNotEqual(second, first)
+        self.assertEqual(pg.evaluate("document.activeElement.id"), second)  # focus follows
+        pg.keyboard.press("Home")
+        self.assertEqual(pg.evaluate(selected), first)
+        pg.evaluate("document.activeElement.blur()")
+        pg.keyboard.press("2")
+        self.assertEqual(pg.evaluate(selected), second)
+        pg.keyboard.press("?")
+        self.shows("Keyboard shortcuts")
+        pg.keyboard.press("Escape")
+        pg.keyboard.press("1")
+        pg.wait_for_function("() => !!document.querySelector('.tile')", timeout=10000)
+        pg.focus(".tile")
+        pg.keyboard.press(" ")  # Space opens a tile's details, as Enter does
+        pg.wait_for_function("() => /details/i.test(document.querySelector('#nav [aria-selected=\"true\"]').id)", timeout=10000)
 
     def test_details_shows_spend_by_tool(self):
         self.page.evaluate("[...document.querySelectorAll('#nav button')].find(b => "

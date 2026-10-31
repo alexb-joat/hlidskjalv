@@ -310,7 +310,7 @@ function pickable(el, item) {
     if (e.pointerType === "touch" && tipFor !== el) return;  // the tooltip handler shows the tip first
     e.stopPropagation(); openDetails(item());
   });
-  el.addEventListener("keydown", e => { if (e.key === "Enter" && e.target === el) { e.preventDefault(); openDetails(item()); } });
+  el.addEventListener("keydown", e => { if ((e.key === "Enter" || e.key === " ") && e.target === el) { e.preventDefault(); openDetails(item()); } });
   return el;
 }
 document.addEventListener("mouseover", e => { const el = e.target.closest("[data-tip]"); if (el && el !== tipFor) showTip(el); else if (!el && tipFor) hideTip(); });
@@ -1565,18 +1565,32 @@ function applyLayout(layout) {
   root.classList.toggle("nav-labels", layout.nav_labels);
   (layout.nav_position === "top" ? $("#nav-top-slot") : document.body).append(nav);
   nav.replaceChildren(...visibleViews().map(v => h("button", { role: "tab", type: "button", id: "tab-" + v, "aria-controls": "view-" + v,
-      "aria-label": VIEWS[v].label, "aria-selected": String(v === currentTab), tip: { title: VIEWS[v].label, body: VIEWS[v].tip }, onclick: () => showTab(v) },
+      "aria-label": VIEWS[v].label, "aria-selected": String(v === currentTab), tabindex: v === currentTab ? "0" : "-1",
+      tip: { title: VIEWS[v].label, body: VIEWS[v].tip }, onclick: () => showTab(v) },
       icon("v-" + v), h("span", { class: "lbl", text: VIEWS[v].label }), v === "alerts" ? h("span", { class: "badge-n", id: "alerts-n", hidden: true }) : null)),
     h("span", { class: "sep" }),
     h("button", { type: "button", id: "open-settings", "aria-label": "Settings", tip: { title: "Settings", body: "Colours, background, layout, features, sources, autostart and pairing." }, onclick: () => openSettings() },
       icon("v-settings"), h("span", { class: "lbl", text: "Settings" })));
+  nav.onkeydown = navKeys;
   if (!visibleViews().includes(currentTab)) showTab(visibleViews()[0]);
   if (typeof paintAlertBadge === "function") paintAlertBadge();
+}
+/* The view tabs are one stop in the Tab order (the selected one); arrows, Home and End move between them. */
+function navKeys(e) {
+  const tabs = [...$("#nav").querySelectorAll('[role="tab"]')], i = tabs.indexOf(document.activeElement);
+  if (i < 0) return;
+  const vertical = document.documentElement.classList.contains("nav-left") || document.documentElement.classList.contains("nav-right");
+  const next = { ArrowRight: !vertical && 1, ArrowDown: vertical && 1, ArrowLeft: !vertical && -1, ArrowUp: vertical && -1 }[e.key];
+  const j = next ? (i + next + tabs.length) % tabs.length : e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1 : -1;
+  if (j < 0) return;
+  e.preventDefault();
+  showTab(tabs[j].id.slice(4));
+  tabs[j].focus();
 }
 function showTab(name) {
   if (!VIEWS[name] || !visibleViews().includes(name)) name = visibleViews()[0];
   for (const v of Object.keys(VIEWS)) {
-    const b = $("#tab-" + v); if (b) b.setAttribute("aria-selected", String(v === name));
+    const b = $("#tab-" + v); if (b) { b.setAttribute("aria-selected", String(v === name)); b.tabIndex = v === name ? 0 : -1; }
     const sec = $("#view-" + v); if (sec) sec.hidden = v !== name;
   }
   currentTab = name; store.set("tab", name); hideTip();
@@ -1605,6 +1619,31 @@ async function savePrefs(change) {
   PREFS = deepMerge(DEFAULT_PREFS, r.settings); applyPrefs();
   return r;
 }
+
+/* =========================================================== keyboard shortcuts */
+/* 1-9: the views in nav order; ?: this list; /: search alerts. Never while typing, in the terminal, with a
+   modifier key or with a dialog open. */
+const SHORTCUTS = [["1 – 9", "Open the views, in the order of the navigation bar"], ["← → Home End", "Move between views while the view bar has focus"],
+  ["Enter or Space", "Open the details of a tile, entry or chip"], ["/", "Search the alerts"], ["?", "Show these shortcuts"], ["Esc", "Close a dialog"]];
+function showShortcuts() {
+  openModal("Keyboard shortcuts", h("div", { class: "tablewrap" }, h("table", { class: "dt" },
+    h("tbody", {}, ...SHORTCUTS.map(([k, what]) => h("tr", {}, h("td", {}, h("kbd", { text: k })), h("td", { text: what })))))));
+}
+document.addEventListener("keydown", e => {
+  if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+  const el = document.activeElement;
+  if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable || el.closest(".xterm"))) return;
+  if (document.querySelector(".modal-back")) return;
+  if (/^[1-9]$/.test(e.key)) {
+    const v = visibleViews()[Number(e.key) - 1];
+    if (v) { e.preventDefault(); showTab(v); }
+  } else if (e.key === "?") {
+    e.preventDefault(); showShortcuts();
+  } else if (e.key === "/" && visibleViews().includes("alerts")) {
+    e.preventDefault(); showTab("alerts");
+    requestAnimationFrame(() => { const q = $('input[aria-label="Search alerts"]'); if (q) q.focus(); });
+  }
+});
 
 /* =========================================================== dialogs */
 function openModal(title, body, { onClose, wide } = {}) {
