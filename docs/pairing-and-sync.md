@@ -1,10 +1,12 @@
-# Pairing a browser
+# Pairing and sync
 
-Watching needs nothing. Anything that changes something (settings, the terminal) needs a paired browser.
+Watching needs nothing. Changing something (settings, the terminal) needs a paired browser; sync keeps your settings the same on every computer.
 
 [← Back to the README](../README.md)
 
 ---
+
+## Pairing a browser
 
 Watching needs nothing. Anything that **changes** something (settings, the terminal) needs a paired browser. Pairing gives the browser a **session** that ends after a period without activity (Settings → Pairing, 4 hours by default; using the page extends it). A browser pairs in one of two ways:
 
@@ -20,3 +22,12 @@ Watching needs nothing. Anything that **changes** something (settings, the termi
 Sessions are stored hashed in `~/.hlidskjalv/web-sessions.json` and survive restarts. The same page is also at `http://hlidskjalv.localhost:8788/` in Chrome, Edge and Firefox, which resolve `*.localhost` by themselves; Safari asks the system instead, so on a Mac add `127.0.0.1 hlidskjalv.localhost` to `/etc/hosts` first (or stay with `127.0.0.1`). Each address pairs separately. The owner key in `~/.hlidskjalv/owner.key` never leaves your files; `python3 -m hlidskjalv pair --rotate` replaces it and ends every session at once. "Log out" in Settings → Pairing ends the session of that browser only.
 
 Changes must also come from Hlidskjalv's own page (Origin check) and be JSON, so other websites can't send them. Settings are saved in `~/.hlidskjalv/settings.json`.
+
+## Sync between your computers
+
+Settings → Sync keeps your settings, lifetime XP and finished Learn levels the same on every computer you use, without an account server. The copy lives in a place you own:
+
+- **a folder** that Dropbox, Google Drive, OneDrive, Nextcloud or Syncthing already keep in sync, or
+- **a private GitHub Gist**, with a fine-grained personal access token that has *Gists: read and write* (kept in `~/.hlidskjalv/sync.json`, readable only by you, never synced).
+
+Before anything leaves the computer it is encrypted with a passphrase you choose (ChaCha20-Poly1305 as in RFC 8439, key from scrypt), so the carrier only ever sees ciphertext; the same passphrase joins the other computers. XP adds up across computers, finished Learn levels unite, and settings follow the newest copy, with an alert telling you so. Machine-specific settings (the Trioditis log path, root in the terminal, the first-start flag) stay local. Pairing, passwords, second-factor secrets, sessions, alerts and activity never travel. Sync pushes shortly after a change and pulls every five minutes; `python3 -m hlidskjalv sync status | now` does the same from the terminal. Nobody can recover a forgotten passphrase: the copy is then unreadable and you start afresh.

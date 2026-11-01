@@ -1790,13 +1790,22 @@ class ReadmeTest(unittest.TestCase):
         import re
         root = Path(__file__).resolve().parents[1]
         readme = (root / "README.md").read_text(encoding="utf-8")
-        headings = {re.sub(r"[^a-z0-9 -]", "", ln.lstrip("# ").lower()).replace(" ", "-") for ln in readme.splitlines() if ln.startswith("#")}
+
+        def headings(text: str) -> set[str]:
+            return {re.sub(r"[^a-z0-9 -]", "", ln.lstrip("# ").lower()).replace(" ", "-") for ln in text.splitlines() if ln.startswith("#")}
+
         for py in (root / "hlidskjalv").glob("*.py"):
-            for ref in re.findall(r"README > ([^\"\n]+?)(?:\"|\)|$)", py.read_text(encoding="utf-8"), re.M):
+            for doc, ref in re.findall(r"(README|docs/[a-z-]+\.md) > ([^\"\n]+?)(?:\"|\)|$)", py.read_text(encoding="utf-8"), re.M):
                 slug = re.sub(r"[^a-z0-9 -]", "", ref.strip().lower()).replace(" ", "-")
-                self.assertTrue(any(hd == slug or hd.startswith(slug + "-") for hd in headings), ref)  # "(optional)" may follow
-        for anchor in re.findall(r"\]\(#([a-z0-9-]+)\)", readme):  # in-page links
-            self.assertIn(anchor, headings, anchor)
+                hds = headings((root / (doc + ".md" if doc == "README" else doc)).read_text(encoding="utf-8"))
+                self.assertTrue(any(hd == slug or hd.startswith(slug + "-") for hd in hds), ref)  # "(optional)" may follow
+        for md in [root / "README.md", *(root / "docs").glob("*.md")]:  # links between the pages, and their anchors
+            text = md.read_text(encoding="utf-8")
+            for target, anchor in re.findall(r"\]\((?!https?:)([^)#\s]*)(?:#([a-z0-9-]+))?\)", text):
+                dest = (md.parent / target).resolve() if target else md
+                self.assertTrue(dest.exists(), f"{md.name}: {target}")
+                if anchor:
+                    self.assertIn(anchor, headings(dest.read_text(encoding="utf-8")), f"{md.name}: {target}#{anchor}")
         self.assertNotIn("\\n\\n", readme)
         self.assertNotIn("never sends anything anywhere", readme)
         self.assertIn("| **Alerts** |", readme)

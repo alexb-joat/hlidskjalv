@@ -1206,7 +1206,7 @@ function claudePanel(c) {
         h("td", { class: "barcell" }, bar(s), h("span", { class: "barval", text: fmt(s.in) })),
         h("td", { class: "n", text: fmt(s.out) }), h("td", { class: "n", text: fmt(s.peak) }), h("td", { class: "n", text: s.commands })))))),
     long.length ? h("ul", { class: "dlist" }, h("li", { class: "warn" }, `${long.length} session${long.length === 1 ? "" : "s"} grew past ${fmt(limit)} tokens of context in one turn.`,
-      h("small", { text: "Start a new session (or /clear) when you switch tasks: the next turn then reads a few thousand tokens instead of the whole history. Threshold: Settings → Features." }))) : null);
+      h("small", { text: "Start a new session (or /clear) when you switch tasks: the next turn then reads a few thousand tokens instead of the whole history. Threshold: Settings → Watching." }))) : null);
 }
 function usagePanels() {
   const slot = h("div", { class: "dcol" }, panel("Cost and usage", "Loading…"));
@@ -1348,7 +1348,7 @@ function renderTerminal() {
     slot.dataset.state = "off";
     return slot.replaceChildren(h("section", { class: "panel termoff" },
       h("h3", { text: mode === "demo" ? "Not available in the example" : "The terminal is switched off" }),
-      h("p", { class: "muted", style: "margin:0", text: "It's off by default because a shell in a web page can do anything you can. Switch it on in Settings → Features, or start Hlidskjalv with --terminal (Linux and macOS; Windows experimental):" }),
+      h("p", { class: "muted", style: "margin:0", text: "It's off by default because a shell in a web page can do anything you can. Switch it on in Settings → Watching, or start Hlidskjalv with --terminal (Linux and macOS; Windows experimental):" }),
       h("div", { class: "cmd", text: "python3 -m hlidskjalv watch ~/projects/my-app --terminal" }),
       h("ul", { class: "dlist" },
         h("li", { class: "ok" }, "Only this page can connect", h("small", { text: "Other websites and other users on this computer are refused: Hlidskjalv checks the page's origin and a secret key made fresh at every start." })),
@@ -1569,7 +1569,7 @@ function applyLayout(layout) {
       tip: { title: VIEWS[v].label, body: VIEWS[v].tip }, onclick: () => showTab(v) },
       icon("v-" + v), h("span", { class: "lbl", text: VIEWS[v].label }), v === "alerts" ? h("span", { class: "badge-n", id: "alerts-n", hidden: true }) : null)),
     h("span", { class: "sep" }),
-    h("button", { type: "button", id: "open-settings", "aria-label": "Settings", tip: { title: "Settings", body: "Colours, background, layout, features, sources, autostart and pairing." }, onclick: () => openSettings() },
+    h("button", { type: "button", id: "open-settings", "aria-label": "Settings", tip: { title: "Settings", body: "Appearance, what Hlidskjalv watches, pairing, sync and this computer." }, onclick: () => openSettings() },
       icon("v-settings"), h("span", { class: "lbl", text: "Settings" })));
   nav.onkeydown = navKeys;
   if (!visibleViews().includes(currentTab)) showTab(visibleViews()[0]);
@@ -1891,13 +1891,17 @@ function openSetup() {
 
 /* =========================================================== Settings window */
 let restartPending = false;
-function openSettings(section = "look") {
+/* Five sections; the older, finer names still open the one that holds them. */
+const SETTINGS_ALIASES = { look: "appearance", background: "appearance", layout: "appearance", features: "watching", sources: "watching", alerts: "watching", autostart: "computer", data: "computer" };
+const setSub = (title, nodes) => [h("div", { class: "eyebrow set-sub", text: title }), ...nodes];
+function openSettings(section = "appearance") {
+  section = SETTINGS_ALIASES[section] || section;
   const sections = [
-    ["look", "Look", lookSection], ["background", "Background", backgroundSection], ["layout", "Layout", layoutSection],
-    ["features", "Features", featuresSection], ["sources", "Sources", sourcesSection],
-    ["autostart", "Autostart", null], ["pairing", "Pairing", null], ["sync", "Sync", null], ["data", "Your settings", null],
+    ["appearance", "Appearance", (d, s) => [...setSub("Look", lookSection(d, s)), ...setSub("Background", backgroundSection(d, s)), ...setSub("Layout", layoutSection(d, s))]],
+    ["watching", "Watching", (d, s) => [...setSub("Features", featuresSection(d, s)), ...setSub("Sources", sourcesSection(d, s)),
+      ...(VIEWS.alerts && typeof alertsSection === "function" ? setSub("Alerts", alertsSection(d, s)) : [])]],
+    ["pairing", "Pairing", null], ["sync", "Sync", null], ["computer", "This computer", null],
   ];
-  if (VIEWS.alerts && typeof alertsSection === "function") sections.splice(4, 0, ["alerts", "Alerts", alertsSection]);
   const list = h("nav", { class: "set-nav", "aria-label": "Settings sections" }), pane = h("div", { class: "set-pane" }), banner = h("div");
   let pending = {};
   const flush = debounce(async () => {
@@ -1919,7 +1923,8 @@ function openSettings(section = "look") {
     list.replaceChildren(...sections.map(([k, label]) => h("button", { type: "button", "aria-current": String(k === section), onclick: () => { section = k; render(); } }, label)));
     const s = sections.find(x => x[0] === section);
     const pairNote = mode !== "demo" && !OWNER.key && s[2] ? h("p", { class: "risk caution", text: "This browser isn't paired, so changes can't be saved. " + PAIR_HINT }) : null;
-    fill(pane, pairNote, h("div", { class: "fields" }, ...(s[2] ? s[2](PREFS, set) : section === "autostart" ? autostartPane() : section === "pairing" ? pairingPane(set, render) : section === "sync" ? syncPane(render) : dataPane())));
+    fill(pane, pairNote, h("div", { class: "fields" }, ...(s[2] ? s[2](PREFS, set) : section === "pairing" ? pairingPane(set, render) : section === "sync" ? syncPane(render)
+      : [...setSub("Start at login", autostartPane()), ...setSub("Your settings", dataPane())])));
   }
   const body = h("div", { class: "settings" }, banner, h("div", { class: "set-grid" }, list, pane));
   openModal("Settings", body, { wide: true });
@@ -2042,7 +2047,7 @@ function ssoManage(render) {
       if (!p.configured) {
         const cid = h("input", { type: "text", placeholder: `${p.name} client id`, spellcheck: "false", "aria-label": `${p.name} client id` });
         const sec = p.needs_secret ? h("input", { type: "password", autocomplete: "off", placeholder: "Client secret", "aria-label": `${p.name} client secret` }) : null;
-        return field(p.name, `Needs an OAuth app registered under your own ${p.name} account (see docs/pairing.md in the repository). Each sign-in tells ${p.name} that you use Hlidskjalv.`,
+        return field(p.name, `Needs an OAuth app registered under your own ${p.name} account (see docs/pairing-and-sync.md in the repository). Each sign-in tells ${p.name} that you use Hlidskjalv.`,
           h("form", { class: "pwrow", onsubmit: async e => { e.preventDefault();
             try { await withStepUp(() => OWNER.post("/api/sso/configure", { provider: k, client_id: cid.value, client_secret: sec ? sec.value : null })); toast(`${p.name} is set up.`); render(); }
             catch (err) { toast("Not saved: " + err.message); } } }, cid, sec, h("button", { type: "submit", class: "btn" }, "Save")));
@@ -2265,7 +2270,7 @@ function renderAlerts() {
     unreadNow.length ? h("button", { type: "button", class: "btn", onclick: () => ackAlerts(unreadNow.map(a => a.uid)) }, `Mark ${unreadNow.length} seen`) : null);
   const sources = h("div", { class: "sources" }, ...Object.entries(ALERT_SOURCES).map(([k, s]) => {
     const on = PREFS.alerts[k] !== false, sys = k === "system_log" && AL.syslog && !AL.syslog.available;
-    return h("span", { class: "chip " + (on && !sys ? "ok" : "no"), tip: { title: s.label, body: s.tip, warn: sys ? "Unavailable here: " + AL.syslog.why : on ? null : "Off: switch it on in Settings → Alerts." } }, (on && !sys ? "● " : "○ ") + s.label);
+    return h("span", { class: "chip " + (on && !sys ? "ok" : "no"), tip: { title: s.label, body: s.tip, warn: sys ? "Unavailable here: " + AL.syslog.why : on ? null : "Off: switch it on in Settings → Watching → Alerts." } }, (on && !sys ? "● " : "○ ") + s.label);
   }));
   let body;
   if (!shown.length) body = h("div", { class: "panel empty" }, all.length ? "Nothing matches these filters." : "No alerts. When something you didn't do happens (a new login item, a refused request, a risky command an AI ran) it shows up here.");

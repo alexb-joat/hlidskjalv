@@ -203,9 +203,9 @@ def watch(args, argv: list[str]) -> None:
     elif args.terminal or prefs["features"]["terminal"]:
         print("  note: the in-browser terminal needs Linux, macOS or Windows 10 (1809+); it stays off on this system")
     if files.truncated:
-        print(f"  note: {files.total:,} files; showing the first {len(snapshot):,}. Leave folders out in Settings > Sources > Skip folders")
+        print(f"  note: {files.total:,} files; showing the first {len(snapshot):,}. Leave folders out in Settings > Watching > Skip folders")
     if not meta["commands_hook"]:
-        print("  tip: terminal commands aren't recorded yet; see README > See your terminal commands")
+        print("  tip: terminal commands aren't recorded yet; see docs/guide.md > Your terminal commands")
     if sb_log and not meta["trioditis"]:
         print(f"  note: Trioditis log not found yet at {sb_path}; it appears after the first AI call")
     if claude_code and not meta["claude_code"]:

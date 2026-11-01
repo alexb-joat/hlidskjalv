@@ -4,7 +4,7 @@ Every alert is an event {"type": "alert", "severity", "source", "title",
 "detail", "fingerprint", "expected"} published like any other event, and
 appended to ~/.hlidskjalv/alerts.jsonl so it survives restarts.
 
-Sources (each can be switched off in Settings → Alerts, no restart needed):
+Sources (each can be switched off in Settings → Watching → Alerts, no restart needed):
 
 - persistence: something set itself up to run later. Login items (systemd
   user units, launchd agents, ~/.config/autostart, Windows Run/Startup),

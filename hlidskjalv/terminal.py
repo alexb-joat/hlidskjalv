@@ -13,7 +13,7 @@ page is remote code execution by design, so every connection must pass all of th
 
 Linux and macOS use a pty; Windows 10 1809+ uses ConPTY (conpty.py, experimental).
 
-Root (sudo) in the shell, Linux only, Settings > Features > terminal_root:
+Root (sudo) in the shell, Linux only, Settings > Watching > terminal_root:
 - off: the shell gets the kernel's no-new-privileges flag before it starts, so sudo
   and other setuid programs can't elevate, whether Hlidskjalv was autostarted or not;
 - on: if Hlidskjalv itself carries that flag (the login service's sandbox sets it),
@@ -194,7 +194,7 @@ class Terminal:
         if not _LINUX or pty is None:
             return Plan(base, None, "", False, None)
         if not self.root_allowed():
-            return Plan(base, False, "root not allowed (Settings > Features)", True, None)
+            return Plan(base, False, "root not allowed (Settings > Watching)", True, None)
         if sudo_passwordless():
             return Plan(base, False, "sudo needs no password on this computer, so root in the browser is refused", True, None)
         if not sandboxed():
@@ -258,7 +258,7 @@ class Terminal:
         ws.send(OP_TEXT, json.dumps({"root": plan.root, "why": plan.why}).encode())
         if plan.root:
             self.on_alert("info", "security", "A root-capable shell was opened in the Terminal tab",
-                          "sudo asks for your password as usual. Switch this off in Settings > Features.", "root-shell", True)
+                          "sudo asks for your password as usual. Switch this off in Settings > Watching.", "root-shell", True)
 
         def pump():  # shell -> browser
             try:

@@ -36,4 +36,4 @@ Google or Gist themselves; using the opt-in terminal to do what any shell can do
 - Keep `~/.hlidskjalv` private (the program sets `0700`). If a pairing link or owner key was ever pasted somewhere,
   run `python3 -m hlidskjalv pair --rotate`.
 
-The design, its controls and its limits are described in [docs/security-model.md](docs/security-model.md).
+The design, its controls and its limits are described in [docs/security.md](docs/security.md).

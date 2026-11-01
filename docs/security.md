@@ -1,4 +1,4 @@
-# Security model
+# Security
 
 How Hlidskjalv is built to resist misuse, what it deliberately does not cover, and how to use it safely. To report a vulnerability, see [SECURITY.md](../SECURITY.md).
 
@@ -27,7 +27,7 @@ server of its own and no accounts. The design assumes:
 - **File contents never leave a module.** Only names and line counts become events. Files that look secret (`.env`,
   keys, `*secret*`, `*credential*`…) are not even read. Commands are masked for tokens, passwords and URLs with
   credentials before they are shown or saved. Git runs with hooks and fsmonitor switched off.
-- **Outbound connections are opt-in** and listed in the README (Outbound connections). A default install makes none.
+- **Outbound connections are opt-in** and listed under [Outbound connections](#outbound-connections). A default install makes none.
 - **Dependencies.** The Python side uses the standard library only. The browser side vendors three files
   (xterm.js, its fit addon, qrcode-generator), copied unmodified from npm and checked against a committed checksum
   manifest by a unit test (`static/vendor/SHA256SUMS`).
@@ -35,6 +35,16 @@ server of its own and no accounts. The design assumes:
   `NoNewPrivileges`, `UMask=0077` and a memory cap.
 - **Compromised CI.** Workflows are read-only, actions are pinned to commit SHAs, nothing persists credentials, and
   CodeQL and dependency review run on every pull request.
+
+## Outbound connections
+
+There is no server of its own and no telemetry. These are the only connections the page or program can make, each to a service you chose, and a default install makes none:
+
+| Connection | When | What leaves your computer |
+|---|---|---|
+| Google Fonts (`fonts.googleapis.com`, `fonts.gstatic.com`) | Only when you pick one of the Google fonts in Settings, or press "Preview every font" | The font's name; Google sees your IP address, as with any web request |
+| GitHub Gist (`api.github.com`) | Only after you set up [Sync](pairing-and-sync.md#sync-between-your-computers) with a Gist | Your settings, XP and Learn progress, encrypted on your computer first |
+| GitHub or Google sign-in | Only after you set up [sign-in](pairing-and-sync.md#pairing-a-browser) | That you use Hlidskjalv, at each sign-in, via an OAuth app registered under your own name |
 
 ## Scope and limits
 
@@ -58,3 +68,15 @@ What Hlidskjalv does not try to do, so you can plan around it:
 - Keep `~/.hlidskjalv` private (the program sets `0700`); do not sync it with a service you do not trust, because
   it holds the owner key and session records.
 - If a pairing link, owner key or recovery code was ever pasted anywhere, rotate it: `python3 -m hlidskjalv pair --rotate`.
+
+## Browsers and systems
+
+Hlidskjalv is one page of plain HTML, CSS and JavaScript with no build step. It needs a browser from 2023 or later:
+
+| Browser | From | Notes |
+|---|---|---|
+| Chrome, Edge, Brave, Opera | 111 | |
+| Firefox | 113 | ESR 115 and later included |
+| Safari | 16.2 (macOS 11.7, 12.6, 13.1; iOS 16.2) | `hlidskjalv.localhost` needs a line in `/etc/hosts` (see [Pairing](pairing-and-sync.md#pairing-a-browser)); SVG icons are replaced by PNG ones automatically |
+
+Older browsers still show the page, only with plainer colours (the derived shades fall back to fixed ones). The server side runs on Linux, macOS and Windows 10 (1809) or later with Python 3.10+, and CI runs the whole suite on all three.

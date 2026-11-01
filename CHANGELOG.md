@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+**Lighter**
+- The README fits on one screen, and the documentation is three pages: [Guide](docs/guide.md), [Pairing and sync](docs/pairing-and-sync.md) and [Security](docs/security.md).
+- Settings has five sections instead of ten: Appearance, Watching, Pairing, Sync and This computer. Same controls, regrouped; the old section names still open the right one.
+
 **Fixed**
 - Two saves of the same file at the same moment (for example two password changes) could make one of them fail. Each save now has its own temporary file, and saves take turns.
 
