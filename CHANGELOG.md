@@ -4,6 +4,8 @@
 
 **Lighter**
 - The README fits on one screen, and the documentation is three pages: [Guide](docs/guide.md), [Pairing and sync](docs/pairing-and-sync.md) and [Security](docs/security.md).
+- A starting tour: a spotlight on each part of the page with a short note, six steps, once per browser, after the first-start setup. Esc or Skip ends it; Help starts it again.
+- **Help** next to Settings: the tour, keyboard shortcuts, what each view does, the command decoder, the guide and where to report a problem.
 - Settings has five sections instead of ten: Appearance, Watching, Pairing, Sync and This computer. Same controls, regrouped; the old section names still open the right one.
 
 **Fixed**

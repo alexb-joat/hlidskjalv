@@ -110,6 +110,8 @@ class Dashboard:
         self.page.on("pageerror", lambda e: self.errors.append(f"page error: {e}"))
         origin = self.url.rstrip("/")
         self.page.on("request", lambda r: r.url.startswith((origin, "data:", "blob:")) or self.offsite.append(r.url))
+        if "tour" not in self._testMethodName:  # the starting tour covers the page; other tests start after it
+            self.page.add_init_script("localStorage.setItem('arcade.tour', JSON.stringify({done: true}))")
         self.page.goto(self.url)
         self.page.wait_for_function("() => /live map/i.test(document.body.innerText)", timeout=15000)
         # The first-run setup wizard is a modal: close it the way a person would, with Escape.
@@ -196,6 +198,54 @@ class Dashboard:
         pg.focus(".tile")
         pg.keyboard.press(" ")  # Space opens a tile's details, as Enter does
         pg.wait_for_function("() => /details/i.test(document.querySelector('#nav [aria-selected=\"true\"]').id)", timeout=10000)
+
+    def test_tour_shows_each_control_once_and_esc_ends_it(self):
+        pg = self.page
+        pg.wait_for_selector(".tour-cloud", timeout=10000)
+        hugs = """sel => { const h = document.querySelector('.tour-hole').style, t = document.querySelector(sel).getBoundingClientRect();
+                         return parseFloat(h.left) <= t.left && parseFloat(h.left) + parseFloat(h.width) >= t.right; }"""
+        titles = []
+        for i, sel in enumerate(("#nav", "#world-slot .map", "#world-slot .log", "#tab-alerts", "#open-settings", "#open-help")):
+            self.assertEqual(pg.text_content(".tour-count"), f"{i + 1} of 6")
+            self.assertTrue(pg.evaluate(hugs, sel), sel)  # the spotlight is on the control the cloud describes
+            titles.append(pg.text_content("#tour-title"))
+            pg.keyboard.press("2")  # the page's own keys wait while the tour runs
+            pg.keyboard.press("Enter")  # focus is on Next
+        self.assertEqual(titles, ["Views", "The live map", "Activity", "Alerts", "Settings", "Help"])
+        self.assertFalse(pg.evaluate("!!document.querySelector('.tour-cloud, .tour-hole, .tour-layer, .tour-dim')"))
+        self.assertTrue(pg.evaluate("/live/.test(document.querySelector('#nav [aria-selected=\"true\"]').id)"))
+        pg.reload()
+        pg.wait_for_function("() => /live map/i.test(document.body.innerText)", timeout=15000)
+        pg.wait_for_timeout(500)
+        self.assertFalse(pg.evaluate("!!document.querySelector('.tour-cloud')"), "once per browser")
+        pg.click("#open-help")
+        pg.click(".help-menu >> text=Take the tour")
+        pg.wait_for_selector(".tour-cloud")
+        pg.keyboard.press("ArrowRight")
+        self.assertEqual(pg.text_content(".tour-count"), "2 of 6")
+        pg.keyboard.press("Escape")
+        self.assertFalse(pg.evaluate("!!document.querySelector('.tour-cloud')"))
+
+    def test_help_menu_opens_shortcuts_and_views_by_keyboard(self):
+        pg = self.page
+        pg.click("#open-help")
+        pg.wait_for_selector(".help-menu")
+        self.assertEqual(pg.get_attribute("#open-help", "aria-expanded"), "true")
+        guide = pg.locator(".help-menu a", has_text="Guide")
+        self.assertEqual((guide.get_attribute("target"), guide.get_attribute("rel")), ("_blank", "noopener noreferrer"))
+        pg.keyboard.press("Escape")
+        self.assertFalse(pg.evaluate("!!document.querySelector('.help-menu')"))
+        self.assertEqual(pg.evaluate("document.activeElement.id"), "open-help")
+        pg.keyboard.press("ArrowDown")  # opens the menu on its first item
+        self.assertEqual(pg.evaluate("document.activeElement.textContent"), "Take the tourA spotlight on each part of the page")
+        pg.keyboard.press("ArrowDown")
+        pg.keyboard.press("Enter")
+        self.shows("Open the views, in the order of the navigation bar")
+        pg.keyboard.press("Escape")
+        pg.click("#open-help")
+        pg.click(".help-menu >> text=What each view does")
+        self.shows("Watch a saved session again")
+        pg.mouse.click(5, 5)
 
     def test_details_shows_spend_by_tool(self):
         self.page.evaluate("[...document.querySelectorAll('#nav button')].find(b => "

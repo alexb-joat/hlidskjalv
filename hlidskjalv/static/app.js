@@ -1570,7 +1570,8 @@ function applyLayout(layout) {
       icon("v-" + v), h("span", { class: "lbl", text: VIEWS[v].label }), v === "alerts" ? h("span", { class: "badge-n", id: "alerts-n", hidden: true }) : null)),
     h("span", { class: "sep" }),
     h("button", { type: "button", id: "open-settings", "aria-label": "Settings", tip: { title: "Settings", body: "Appearance, what Hlidskjalv watches, pairing, sync and this computer." }, onclick: () => openSettings() },
-      icon("v-settings"), h("span", { class: "lbl", text: "Settings" })));
+      icon("v-settings"), h("span", { class: "lbl", text: "Settings" })),
+    ...(typeof helpButton === "function" ? [helpButton()] : []));  // tour.js
   nav.onkeydown = navKeys;
   if (!visibleViews().includes(currentTab)) showTab(visibleViews()[0]);
   if (typeof paintAlertBadge === "function") paintAlertBadge();
@@ -1633,7 +1634,7 @@ document.addEventListener("keydown", e => {
   if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
   const el = document.activeElement;
   if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable || el.closest(".xterm"))) return;
-  if (document.querySelector(".modal-back")) return;
+  if (document.querySelector(".modal-back, .help-menu")) return;
   if (/^[1-9]$/.test(e.key)) {
     const v = visibleViews()[Number(e.key) - 1];
     if (v) { e.preventDefault(); showTab(v); }
@@ -1885,7 +1886,7 @@ function openSetup() {
         i < steps.length - 1 ? h("button", { type: "button", class: "btn primary", onclick: () => { i++; render(); } }, "Next")
           : h("button", { type: "button", class: "btn primary", onclick: () => finish({ setup_done: true, look: draft.look, layout: draft.layout, features: draft.features, sources: draft.sources }) }, "Finish")));
   }
-  const m = openModal("Make it yours", body, { wide: true, onClose: () => { if (!saved) applyLook(PREFS); } });
+  const m = openModal("Make it yours", body, { wide: true, onClose: () => { if (!saved) applyLook(PREFS); if (typeof startTourOnce === "function") startTourOnce(); } });
   render();
 }
 
@@ -2308,4 +2309,5 @@ boot().then(async () => {
   await loadPrefs(); await loadAlerts();
   showTab(startTab || PREFS.layout.default_view);
   if (!PREFS.setup_done) openSetup();
+  else if (typeof startTourOnce === "function") startTourOnce();
 });

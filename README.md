@@ -43,7 +43,7 @@ git clone https://github.com/alexb-joat/hlidskjalv.git && cd hlidskjalv
 python3 -m hlidskjalv watch ~/projects/my-app
 ```
 
-On Windows: `py -3 -m hlidskjalv watch C:\Users\you\projects\my-app`. Your browser opens at `http://127.0.0.1:8788`; leave the terminal running while you work. **Ctrl+C** stops it and saves the session for Replay. Point it at one project folder, not your whole home folder.
+On Windows: `py -3 -m hlidskjalv watch C:\Users\you\projects\my-app`. Your browser opens at `http://127.0.0.1:8788`, and a short tour shows you around; leave the terminal running while you work. **Ctrl+C** stops it and saves the session for Replay. Point it at one project folder, not your whole home folder.
 
 ## Privacy
 

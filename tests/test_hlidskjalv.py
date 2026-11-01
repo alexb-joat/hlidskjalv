@@ -1575,6 +1575,10 @@ class ServerTest(unittest.TestCase):
         self.assertIn(b"function boot()", js.replace(b"async function", b"function"))
         self.assertEqual(self.get("/static/app.js", host="evil.example")[0], 403)
         self.assertEqual(self.get("/static/other.js")[0], 404)
+        from hlidskjalv.server import SCRIPTS
+        for name in SCRIPTS:  # every page script is served, and the page loads each one
+            self.assertIn(f'<script src="/static/{name}"></script>'.encode(), page)
+            self.assertEqual(self.get(f"/static/{name}")[0], 200)
 
     def test_default_page_asks_nothing_of_other_sites(self):
         status, page, _ = self.get("/")

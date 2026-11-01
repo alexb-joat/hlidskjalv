@@ -19,7 +19,7 @@ Everything Hlidskjalv shows and how to tune it. Pairing and sync have [their own
 | **Alerts** | Things you didn't do yourself (see [Alerts](#alerts)) |
 | **Terminal** | Optional: a real shell in the project folder (see [Terminal in the page](#terminal-in-the-page)) |
 
-Hover over anything for an explanation. Open the page without a running Hlidskjalv and it shows a demo session with example data, so you can try every view and the customization (kept in your browser).
+Hover over anything for an explanation. **Help** (the question mark next to Settings) has the tour again, the keyboard shortcuts, what each view does and the command decoder. Open the page without a running Hlidskjalv and it shows a demo session with example data, so you can try every view and the customization (kept in your browser).
 
 ## AI steps and cost
 
