@@ -60,6 +60,9 @@ class Dashboard:
                     "VALUES (?, 'quick', 'claude-haiku', 0, 200, 0.25, 'anthropic', 'batch-job')", (time.time(),))
         con.commit()
         con.close()
+        # setup_done: the first-run wizard is a modal that could open after setUp looked for it, and a dialog keeps
+        # the page's keys (the keyboard test would then press "2" into nothing).
+        (data / "settings.json").write_text(json.dumps({"version": 1, "setup_done": True}))
         cls.port = free_port()
         env = {**os.environ, "HOME": str(cls.home), "USERPROFILE": str(cls.home), "HLIDSKJALV_HOME": str(data),
                "CLAUDE_CONFIG_DIR": str(cls.home / ".claude"),
