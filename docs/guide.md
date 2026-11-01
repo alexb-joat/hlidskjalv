@@ -14,7 +14,7 @@ Everything Hlidskjalv shows and how to tune it. Pairing and sync have [their own
 |---|---|
 | **Live** | A live map of the project and an activity log of everything that happens, with "Careful" badges on risky commands |
 | **Replay** | Every session is saved on your computer (`~/.hlidskjalv/sessions`, the last 50; `--keep` to change); scrub through it step by step |
-| **Learn** | Short games, a command decoder and badges |
+| **Learn** | Hover over or click the Learn icon for its sub-tabs. **Approve or deny**: your AI helper asks to run commands, and you say yes or no before a timer runs out. **Save point rescue**: fix a project's history in a few Git moves. **Treasure hunt**: find a hidden note with `ls`, `cd`, `cat`, `grep`, `find` and `head` in pretend files. **Token budget**: give each task the cheapest model that can do it. Plus the command decoder and badges. A cleared level is worth 25 XP once; nothing in the games touches your files or the network |
 | **Details** | Click anything for every detail: why a model was picked, tokens, cost, what each piece of a command does. Plus where your tokens and money go |
 | **Alerts** | Things you didn't do yourself (see [Alerts](#alerts)) |
 | **Terminal** | Optional: a real shell in the project folder (see [Terminal in the page](#terminal-in-the-page)) |

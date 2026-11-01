@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+**Learn is games now**
+- Four games in place of the five text levels: Approve or deny (6 levels), Save point rescue (8), Treasure hunt (6) and Token budget (5). Each cleared level is worth 25 XP once; levels finished before still count. Four new badges.
+- Hovering over or clicking Learn opens its sub-tabs (keyboard: ↓ on the Learn tab); each has its own address, such as `#learn/hunt`.
+
 **Lighter**
 - The README fits on one screen, and the documentation is three pages: [Guide](docs/guide.md), [Pairing and sync](docs/pairing-and-sync.md) and [Security](docs/security.md).
 - A starting tour: a spotlight on each part of the page with a short note, six steps, once per browser, after the first-start setup. Esc or Skip ends it; Help starts it again.

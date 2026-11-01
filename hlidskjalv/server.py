@@ -38,7 +38,7 @@ MAX_EVENTS = 20_000
 MAX_POST = 64 * 1024
 
 # Static files served: the page's scripts (read once at start) and these vendored terminal files (see static/vendor/README.md).
-SCRIPTS = ("app.js", "tour.js")
+SCRIPTS = ("app.js", "learn.js", "tour.js")
 VENDOR = {"xterm.js": "text/javascript; charset=utf-8", "addon-fit.js": "text/javascript; charset=utf-8",
           "xterm.css": "text/css; charset=utf-8", "qrcode.js": "text/javascript; charset=utf-8"}
 

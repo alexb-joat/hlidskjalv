@@ -521,7 +521,8 @@ setInterval(() => document.querySelectorAll("time[data-ts]").forEach(t => t.text
 
 /* =========================================================== XP & level */
 let workXp = 0;
-function academyXp() { return Object.values(store.get("academy", {})).filter(Boolean).length * 100; }
+/* The five original Learn levels gave 100 XP each; a cleared game level ("game:level", see learn.js) gives 25. */
+function academyXp() { return Object.entries(store.get("academy", {})).reduce((s, [k, v]) => s + (v ? (k.includes(":") ? 25 : 100) : 0), 0); }
 /* Finished Learn levels live in this browser and, when paired, in ~/.hlidskjalv/progress.json too (sync carries them). */
 function mergeAcademy(fromServer) {
   const local = store.get("academy", {}), merged = { ...local };
@@ -542,7 +543,7 @@ function updateLevel() {
   lastLevel = lv; renderBadges();
 }
 function toast(text) { const t = h("div", { class: "toast", text }); $("#toasts").append(t); setTimeout(() => t.remove(), 3800); }
-TIPS.set($(".level"), () => ({ title: "Level and XP", body: ["Earn XP for real work: new files +10, edits +5, commands +3, save points +50, AI steps on local models +5, Learn levels +100."], why: "Save points are worth the most: they're what make experiments safe." }));
+TIPS.set($(".level"), () => ({ title: "Level and XP", body: ["Earn XP for real work: new files +10, edits +5, commands +3, save points +50, AI steps on local models +5, Learn game levels +25."], why: "Save points are worth the most: they're what make experiments safe." }));
 TIPS.set($(".logo"), { title: "Hlidskjalv", body: "A live, game-like view of what you and your AI helper do in a project. It only watches; it never changes your files or runs anything.", where: "Runs on your computer at http://127.0.0.1:8788" });
 
 /* Why no model answered: Trioditis 0.4+ says so in the log; older logs only show a 429 with a budget skip. */
@@ -774,88 +775,7 @@ $("#rp-speed").addEventListener("click", e => {
   if (rp.timer) { stopReplay(); $("#rp-play").click(); }
 });
 
-/* =========================================================== academy */
-const LESSONS = [
-  { id: "terminal", n: 1, c: "var(--info)", title: "Find your way", tag: "The terminal: folders and files",
-    intro: "The terminal is a text window for giving your computer instructions. You're always standing in one folder.",
-    cmds: [
-      ["Where am I?", "pwd", "Get-Location"], ["What's here?", "ls", "dir"], ["Walk into a folder", "cd trioditis", "cd trioditis"],
-      ["Go up one level", "cd ..", "cd .."], ["Make a folder", "mkdir my-project", "mkdir my-project"], ["Open it in VS Code", "code .", "code ."],
-    ],
-    quiz: [["What does cd .. do?", ["Deletes the folder", "Moves you up one folder", "Lists files"], 1, "Two dots always mean the folder above."],
-      ["Which command opens the current folder in VS Code?", ["code .", "open vscode", "cd code"], 0, "The dot means this folder."],
-      ["You don't know which folder you're in. What do you type?", ["ls", "pwd (or Get-Location on Windows)", "mkdir"], 1, "pwd prints the folder you're standing in."]] },
-  { id: "python", n: 2, c: "var(--ok)", title: "Python projects", tag: "Virtual environments and installs",
-    intro: "Each project keeps its libraries in its own private box called a virtual environment (.venv), so projects can't break each other.",
-    cmds: [
-      ["Make the box", "python3 -m venv .venv", "py -3 -m venv .venv"], ["Step into it", "source .venv/bin/activate", ".\\.venv\\Scripts\\Activate.ps1"],
-      ["Install the shopping list", "pip install -r requirements.txt", "pip install -r requirements.txt"], ["Run a program", "python main.py", "python main.py"],
-      ["Run the checks", "python -m pytest -q", "python -m pytest -q"],
-    ],
-    quiz: [["What is .venv for?", ["Hiding passwords", "A private box of libraries for this project", "Speeding up the computer"], 1, "Each project gets its own libraries."],
-      ["Where does pip -r read the list from?", ["The file you name after -r", "The internet", "VS Code"], 0, "Usually requirements.txt."],
-      ["Your prompt shows (.venv). What does that mean?", ["Something broke", "The virtual environment is switched on", "You're on Windows"], 1, "Commands now use the project's libraries."]] },
-  { id: "git", n: 3, c: "var(--accent)", title: "Save points", tag: "Git: never lose work again",
-    intro: "Git takes snapshots of your project called commits. Make one before every big change, and you can always go back.",
-    cmds: [
-      ["What changed?", "git status", "git status"], ["See the exact lines", "git diff", "git diff"], ["Pick changes", "git add README.md", "git add README.md"],
-      ["Save a point", "git commit -m \"Explain setup\"", "git commit -m \"Explain setup\""], ["Upload to GitHub", "git push", "git push"], ["See history", "git log --oneline", "git log --oneline"],
-    ],
-    quiz: [["When should you commit?", ["Only at the end of the project", "Before and after each meaningful change", "Never, GitHub does it"], 1, "Small, frequent save points make undo easy."],
-      ["What does git push do?", ["Uploads your save points to GitHub", "Deletes old commits", "Downloads updates"], 0, "pull downloads, push uploads."],
-      ["You ran git add . and .env is listed. What now?", ["Commit anyway", "Add .env to .gitignore and unstage it with git restore --staged .env", "Delete the project"], 1, "Secrets must never reach GitHub."]] },
-  { id: "ai", n: 4, c: "var(--ai)", title: "Working with AI", tag: "Approve, review, stay safe",
-    intro: "Your AI helper proposes edits and commands; you approve them. Use the decoder on any command you're unsure about, and commit before big changes.",
-    cmds: [
-      ["Save before the AI starts", "git commit -am \"Before AI changes\"", "git commit -am \"Before AI changes\""], ["Review what it changed", "git diff", "git diff"],
-      ["Undo changes to one file", "git restore bot/weather.py", "git restore bot/weather.py"], ["Park changes for later", "git stash", "git stash"],
-    ],
-    quiz: [["The AI wants to run rm -rf build. What do you do first?", ["Approve quickly", "Check what it deletes. rm -rf removes for good", "Restart VS Code"], 1, "Read Careful badges before approving."],
-      ["Where should API keys live?", ["In the chat with the AI", "In .env, which .gitignore keeps out of Git", "In README.md"], 1, "Never paste keys into chats or code."],
-      ["The AI made a mess of a file. Fastest safe undo?", ["git restore <file>", "Delete the project", "Buy a new laptop"], 0, "Restores the file to your last save point."]] },
-  { id: "trioditis", n: 5, c: "var(--danger)", title: "Your Trioditis", tag: "Cheap where possible, smart where needed",
-    intro: "Trioditis sends each AI request to the right model: free local models for easy steps, paid cloud models for hard ones.",
-    cmds: [
-      ["Download a local model", "ollama pull qwen2.5-coder:7b", "ollama pull qwen2.5-coder:7b"], ["Which models are ready?", "python -m trioditis check", "python -m trioditis check"],
-      ["Where would this prompt go?", "python -m trioditis explain \"fix my python bug\"", "python -m trioditis explain \"fix my python bug\""],
-      ["Start the router", "python -m trioditis serve", "python -m trioditis serve"],
-    ],
-    quiz: [["What does explain do?", ["Calls the model", "Shows which model would be picked, without calling it", "Deletes the config"], 1, "A free dry run."],
-      ["Which model answers when a prompt contains an API key?", ["The cheapest cloud model", "A local model, or none at all", "Every model"], 1, "Private data never leaves your computer."],
-      ["Which address do you give Cline?", ["http://127.0.0.1:8787/v1", "https://api.openai.com", "github.com"], 0, "Your local Trioditis."]] },
-];
-function renderLevels() {
-  const done = store.get("academy", {});
-  $("#levels").replaceChildren(...LESSONS.map(l => h("button", { class: "lvl", type: "button", style: `--c:${l.c}`, onclick: () => openLesson(l) },
-    h("span", { class: "num", text: String(l.n) }), h("h3", { text: l.title }), h("span", { class: "muted", text: l.tag }),
-    done[l.id] ? h("span", { class: "chip ok done", text: "✓ +100 XP" }) : h("span", { class: "chip no done", text: "100 XP" }))));
-}
-function openLesson(l) {
-  const box = h("section", { class: "panel lesson", id: "lesson" },
-    h("div", {}, h("div", { class: "eyebrow", text: `Level ${l.n}` }), h("h2", { text: l.title }), h("p", { class: "muted", text: l.intro })));
-  const cmds = h("div", { class: "cmds" });
-  for (const [label, linux, win] of l.cmds) {
-    const a = cmdLine(linux, "$").line, b = cmdLine(win, "PS>").line;
-    cmds.append(h("div", { class: "cmdcard" }, h("b", { text: label }),
-      h("div", { class: "os" }, h("div", { style: "flex:1 1 260px;min-width:0" }, h("small", { text: linux === win ? "Any system" : "Kubuntu / macOS" }), a),
-        linux === win ? null : h("div", { style: "flex:1 1 260px;min-width:0" }, h("small", { text: "Windows" }), b))));
-  }
-  box.append(h("div", { class: "eyebrow", text: "Hover each part of a command" }), cmds);
-  const quiz = h("div", { class: "quiz" }); let right = 0; const answered = new Set();
-  l.quiz.forEach(([q, opts, ok, why], qi) => {
-    const fb = h("div", { class: "fb muted" });
-    const row = h("div", { class: "opts" }, ...opts.map((o, oi) => h("button", { type: "button", onclick: e => {
-      if (answered.has(qi)) return;
-      if (oi === ok) { answered.add(qi); right++; e.target.classList.add("right"); fb.textContent = "Right! " + why; fb.style.color = "var(--ok)";
-        if (right === l.quiz.length) { const d = store.get("academy", {}); if (!d[l.id]) { d[l.id] = true; saveAcademy(d); toast(`Level ${l.n} complete! +100 XP`); renderLevels(); updateLevel(); } }
-      } else { e.target.classList.add("wrong"); fb.textContent = "Not quite, try another."; fb.style.color = "var(--danger)"; }
-    } }, o)));
-    quiz.append(h("div", { class: "q" }, h("p", { text: q }), row, fb));
-  });
-  box.append(h("div", { class: "eyebrow", text: "Quiz" }), quiz);
-  $("#lesson-slot").replaceChildren(box);
-  box.scrollIntoView({ behavior: "smooth", block: "start" });
-}
+/* =========================================================== learn: the decoder and badges (the games are in learn.js) */
 function decode() {
   const v = $("#dec-in").value.trim(), out = $("#dec-out");
   if (!v) return out.replaceChildren(h("p", { class: "muted", text: "Type or paste a command above." }));
@@ -873,7 +793,6 @@ const BADGES = [
   ["Secret keeper", "Trioditis kept a request with private data on your computer.", () => world && world.stats.keptLocal >= 1],
   ["Builder", "Make 5 edits in one session.", () => world && world.stats.edits >= 5],
   ["Tested", "Run the automatic checks (pytest).", () => world && [...worldView.entries.querySelectorAll(".cmd")].some(c => /pytest/.test(c.textContent))],
-  ["Graduate", "Finish all five Learn levels.", () => Object.values(store.get("academy", {})).filter(Boolean).length >= LESSONS.length],
 ];
 const earned = new Set();
 let badgesReady = false;
@@ -1549,7 +1468,7 @@ Object.assign(ICONS, {
 const VIEWS = {
   live: { label: "Live", tip: "Your project right now: files, commands, Git and AI steps as they happen." },
   replay: { label: "Replay", tip: "Watch a saved session again, step by step." },
-  learn: { label: "Learn", tip: "Short levels on the commands you'll see most, and a command decoder." },
+  learn: { label: "Learn", tip: "Four short games, a command decoder and badges." },
   details: { label: "Details", tip: "Everything about whatever you clicked, plus where your tokens and money go." },
   terminal: { label: "Terminal", tip: "A real shell in the project folder (off unless you switch it on)." },
 };
@@ -1566,7 +1485,8 @@ function applyLayout(layout) {
   (layout.nav_position === "top" ? $("#nav-top-slot") : document.body).append(nav);
   nav.replaceChildren(...visibleViews().map(v => h("button", { role: "tab", type: "button", id: "tab-" + v, "aria-controls": "view-" + v,
       "aria-label": VIEWS[v].label, "aria-selected": String(v === currentTab), tabindex: v === currentTab ? "0" : "-1",
-      tip: { title: VIEWS[v].label, body: VIEWS[v].tip }, onclick: () => showTab(v) },
+      "aria-haspopup": VIEWS[v].menu ? "menu" : null, "aria-expanded": VIEWS[v].menu ? "false" : null,  // a menu of its own instead of a tip (learn.js)
+      tip: VIEWS[v].menu ? null : { title: VIEWS[v].label, body: VIEWS[v].tip }, onclick: () => showTab(v) },
       icon("v-" + v), h("span", { class: "lbl", text: VIEWS[v].label }), v === "alerts" ? h("span", { class: "badge-n", id: "alerts-n", hidden: true }) : null)),
     h("span", { class: "sep" }),
     h("button", { type: "button", id: "open-settings", "aria-label": "Settings", tip: { title: "Settings", body: "Appearance, what Hlidskjalv watches, pairing, sync and this computer." }, onclick: () => openSettings() },
@@ -2302,9 +2222,9 @@ function alertsSection(draft, set) {
 /* =========================================================== boot */
 if (store.get("hint-x", false)) $("#hint").hidden = true;
 $("#hint-x").addEventListener("click", () => { $("#hint").hidden = true; store.set("hint-x", true); });
-renderLevels(); decode();
+decode();
 applyPrefs();  // last-known settings first, so the page doesn't flash
-const startTab = /^#(live|replay|learn|details|terminal)$/.test(location.hash) ? location.hash.slice(1) : null;
+const startTab = (/^#(live|replay|learn|details|terminal|alerts)(\/[a-z]+)?$/.exec(location.hash) || [])[1] || null;
 boot().then(async () => {
   await loadPrefs(); await loadAlerts();
   showTab(startTab || PREFS.layout.default_view);

@@ -58,7 +58,7 @@ html.no-anim *, html.no-anim *::before, html.no-anim *::after { animation: none 
 .mode.demo { color: var(--warn); } .mode.off { color: var(--danger); }
 .chip.stalled { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
 .level { display: flex; align-items: center; gap: 10px; min-width: 190px; flex: 1 1 190px; max-width: 320px; }
-html.no-xp .level, html.no-xp #badges, html.no-xp #badges-title { display: none !important; }
+html.no-xp .level, html.no-xp #learn-badges { display: none !important; }
 .lvl-badge { font-weight: 800; font-size: calc(17px * var(--fz)); width: 38px; height: 38px; display: grid; place-items: center; border-radius: var(--r); background: var(--accent); color: var(--accent-text); flex: none; }
 .lvl-text { flex: 1; min-width: 0; }
 .lvl-text b { font-weight: 700; }
@@ -225,24 +225,96 @@ h3 { font-size: calc(17px * var(--fz)); margin: 0; font-weight: 800; text-wrap: 
 .risk { margin-top: 8px; padding: 8px 10px; border-radius: calc(var(--r) * 0.833333); font-size: calc(13.5px * var(--fz)); border: 1px solid; }
 .risk.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 50%, transparent); background: color-mix(in srgb, var(--danger) 10%, transparent); }
 .risk.caution { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 50%, transparent); background: color-mix(in srgb, var(--warn) 8%, transparent); }
-.levels { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
-.lvl { text-align: left; padding: calc(16px * var(--pad)); border-radius: calc(var(--r) * 1.33333); cursor: pointer; background: var(--surface); border: 1px solid var(--line); display: grid; gap: 6px; position: relative; color: var(--text); }
-.lvl:hover { border-color: var(--docs); }
-.lvl .num { font-family: var(--body); font-size: calc(30px * var(--fz)); line-height: 1; color: var(--c); }
-.lvl .done { position: absolute; top: 14px; right: 14px; }
-.lesson { padding: calc(18px * var(--pad)); margin-top: 16px; display: grid; gap: 14px; }
-.lesson .cmds { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); }
-.cmdcard { padding: calc(12px * var(--pad)); border-radius: calc(var(--r) * 1); background: var(--raised); display: grid; gap: 4px; min-width: 0; }
-.cmdcard .os { display: flex; flex-wrap: wrap; gap: 8px; }
-.cmdcard .os .cmd { margin: 0; flex: 1 1 260px; min-width: 0; }
-.cmdcard .os small { color: var(--muted); font-weight: 700; font-size: calc(11px * var(--fz)); letter-spacing: .08em; text-transform: uppercase; display: block; margin-bottom: 2px; }
-.quiz { display: grid; gap: 12px; }
-.q p { margin: 0 0 6px; font-weight: 700; }
-.q .opts { display: flex; flex-wrap: wrap; gap: 6px; }
-.q .opts button { border: 1px solid var(--line); background: var(--raised); border-radius: calc(var(--r) * 0.833333); padding: 7px 12px; cursor: pointer; text-align: left; }
-.q .opts button.right { border-color: var(--ok); color: var(--ok); }
-.q .opts button.wrong { border-color: var(--danger); color: var(--danger); }
-.q .fb { font-size: calc(13px * var(--fz)); margin-top: 4px; }
+/* Learn: sub-tabs, the flyout on the Learn tab, and the games */
+#learn-slot[hidden], #learn-decoder[hidden], #learn-badges[hidden] { display: none; }
+.learn-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 12px; }
+.learn-tabs button { border: 1px solid var(--line); background: var(--surface); color: var(--muted); border-radius: 99px; padding: 5px 12px; cursor: pointer; font-weight: 700; font-size: calc(13px * var(--fz)); }
+.learn-tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.learn-tabs small { margin-left: 6px; opacity: .75; font-weight: 600; }
+.learn-menu { position: fixed; z-index: 58; width: 290px; display: grid; gap: 1px; padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 32px rgb(0 0 0 / .25); }
+.learn-menu [role="menuitem"] { display: grid; gap: 1px; text-align: left; border: 0; background: transparent; color: var(--text); padding: 6px 10px; border-radius: 8px; cursor: pointer; font: inherit; font-weight: 700; }
+.learn-menu [role="menuitem"]:hover, .learn-menu [role="menuitem"]:focus-visible { background: var(--raised); outline: none; }
+.learn-menu small { color: var(--muted); font-weight: 400; font-size: calc(12px * var(--fz)); }
+.learn-menu .count { color: var(--accent); font-weight: 700; }
+.game { padding: calc(14px * var(--pad)); display: grid; gap: 10px; max-width: 860px; }
+.game-head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: flex-start; justify-content: space-between; }
+.game-title { flex: 1 1 320px; min-width: 0; }
+.game-title h3 { margin: 0; font-size: calc(16px * var(--fz)); }
+.game-title p { margin: 2px 0 0; font-size: calc(13.5px * var(--fz)); }
+.lv-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.lv-chip { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line); background: var(--raised); color: var(--muted); cursor: pointer; font-weight: 800; font-size: calc(12px * var(--fz)); }
+.lv-chip.done { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 50%, transparent); }
+.lv-chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.game .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.game .sep { flex: 1; }
+.game-end { padding: 10px 12px; border-radius: calc(var(--r) * .833333); border: 1px solid var(--line); background: var(--raised); display: grid; gap: 6px; }
+.game-end.won { border-color: color-mix(in srgb, var(--ok) 55%, transparent); }
+.game-end.won > b { color: var(--ok); }
+.game-end.lost > b { color: var(--warn); }
+.game-end p { margin: 0; }
+.ad-hud { display: flex; gap: 10px; align-items: center; }
+.hearts { color: var(--danger); letter-spacing: 2px; font-size: calc(16px * var(--fz)); }
+.ad-card { display: grid; gap: 8px; padding: 12px; border-radius: calc(var(--r) * .833333); border: 1px solid var(--line); background: var(--bg); }
+.ad-card.good { border-color: color-mix(in srgb, var(--ok) 55%, transparent); }
+.ad-card.bad { border-color: color-mix(in srgb, var(--danger) 55%, transparent); }
+.ad-card .cmd { margin: 0; }
+.ad-card p { margin: 0; }
+.ad-says { display: flex; gap: 8px; align-items: baseline; }
+.ad-says .who { font-size: calc(11px * var(--fz)); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--ai); }
+.ad-why b { display: block; }
+.ad-timer { height: 4px; border-radius: 4px; background: var(--raised); overflow: hidden; }
+.ad-timer i { display: block; height: 100%; background: var(--accent); }
+.ad-yes { border-color: color-mix(in srgb, var(--ok) 60%, transparent); }
+.ad-no { border-color: color-mix(in srgb, var(--danger) 60%, transparent); }
+.ad-log { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.ad-log li { display: grid; grid-template-columns: 18px minmax(0, auto) minmax(0, 1fr); gap: 4px 8px; align-items: baseline; font-size: calc(13px * var(--fz)); }
+.ad-log li small { grid-column: 2 / -1; color: var(--muted); }
+.ad-log .ok .mark { color: var(--ok); } .ad-log .no .mark { color: var(--danger); }
+.ad-log code { overflow-wrap: anywhere; }
+.rs-goal { font-size: calc(13.5px * var(--fz)); }
+.rs-pic { overflow-x: auto; padding: 4px 0; }
+.rs-pic svg { display: block; max-width: none; }
+.rs-edge { fill: none; stroke: var(--muted); stroke-width: 2; }
+.rs-edge.dashed { stroke-dasharray: 4 4; }
+.rs-node circle { fill: var(--surface); stroke: var(--accent); stroke-width: 2; }
+.rs-node text { fill: var(--text); font: 700 11px var(--mono); }
+.rs-node.fresh circle { fill: color-mix(in srgb, var(--accent) 25%, var(--surface)); animation: rs-pop .4s ease; transform-box: fill-box; transform-origin: center; }
+@keyframes rs-pop { from { transform: scale(.3); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.no-anim .rs-node.fresh circle { animation: none; }
+@media (prefers-reduced-motion: reduce) { .rs-node.fresh circle { animation: none; } }
+.rs-dirty { fill: none; stroke: var(--warn); stroke-width: 2; stroke-dasharray: 3 3; }
+.rs-small { fill: var(--warn); font: 600 10px var(--body); }
+.rs-node .rs-msg { fill: var(--muted); font: 500 10px var(--body); }
+.rs-branch { fill: var(--muted); font: 700 11px var(--body); }
+.rs-branch.head { fill: var(--accent); }
+.rs-table tr.dirty td { color: var(--warn); }
+.rs-cards { display: flex; flex-wrap: wrap; gap: 6px; }
+.rs-card { display: grid; gap: 2px; text-align: left; padding: 7px 10px; border-radius: calc(var(--r) * .833333); border: 1px solid var(--line); background: var(--raised); color: var(--text); cursor: pointer; }
+.rs-card:hover:not(:disabled) { border-color: var(--accent); }
+.rs-card:disabled { opacity: .45; cursor: default; }
+.rs-card code { font-size: calc(11.5px * var(--fz)); color: var(--muted); }
+.game input[type="text"] { flex: 1 1 220px; min-width: 0; background: var(--bg); border: 1px solid var(--line); border-radius: calc(var(--r) * .833333); padding: 6px 10px; font: calc(13px * var(--fz)) var(--mono); }
+.rs-note { margin: 0; font: calc(12.5px * var(--fz)) var(--mono); color: var(--muted); min-height: 1.2em; }
+.rs-note.bad { color: var(--warn); font-family: var(--body); }
+.th-term { background: #111214; color: #d8dade; border-radius: calc(var(--r) * .833333); padding: 10px 12px; font: calc(13px * var(--fz))/1.45 var(--mono); }
+.th-out { max-height: 260px; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.th-echo { color: #8fb4ff; } .th-err { color: #ff9a8b; } .th-hint { color: #e5c07b; }
+.th-line { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+.th-prompt { color: #7ee0a4; white-space: nowrap; }
+.game input.th-in { flex: 1; min-width: 0; background: transparent; border: 0; color: inherit; font: inherit; padding: 0; outline: none; }
+.tb-meter { display: flex; gap: 10px; align-items: center; font-size: calc(13px * var(--fz)); }
+.tb-meter .bad { color: var(--danger); font-weight: 700; }
+.tb-bar { flex: 1; height: 6px; border-radius: 6px; background: var(--raised); overflow: hidden; }
+.tb-bar i { display: block; height: 100%; background: var(--ok); }
+.tb-bar.over i { background: var(--danger); }
+.tb-task { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: calc(15px * var(--fz)); }
+.tb-tiers { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px; }
+.tb-tier { display: grid; gap: 2px; text-align: left; padding: 8px 10px; border-radius: calc(var(--r) * .833333); border: 1px solid var(--line); background: var(--raised); color: var(--text); cursor: pointer; }
+.tb-tier:hover { border-color: var(--accent); }
+.tb-tier .price { font: 700 calc(12px * var(--fz)) var(--mono); color: var(--accent); }
+.tb-tier small { color: var(--muted); }
+.tb-msg { margin: 0; font-size: calc(13.5px * var(--fz)); }
+.tb-msg.good b { color: var(--ok); } .tb-msg.meh b { color: var(--warn); } .tb-msg.bad b { color: var(--danger); }
 .badges { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 16px; }
 .badge { display: flex; gap: 10px; align-items: center; padding: calc(10px * var(--pad)) calc(12px * var(--pad)); border-radius: calc(var(--r) * 1); background: var(--surface); border: 1px dashed var(--line); color: var(--muted); }
 .badge.got { border-style: solid; border-color: var(--accent); color: var(--text); }
@@ -531,20 +603,19 @@ code { font: calc(12.5px * var(--fz))/1.45 var(--mono); overflow-wrap: anywhere;
     <div class="intro">
       <div class="title">
         <div class="eyebrow">Learn</div>
-        <h2>Learn the moves</h2>
-        <p>Short levels on the commands you'll see most often. Each one ends with a three-question quiz worth 100 XP.</p>
+        <h2>Learn by playing</h2>
+        <p>Four short games about the moves you'll make with an AI helper, and a decoder for any command. Each level you clear is worth 25 XP.</p>
       </div>
     </div>
-    <div class="panel decoder">
+    <div class="learn-tabs" id="learn-tabs" role="tablist" aria-label="Learn"></div>
+    <div id="learn-slot"></div>
+    <div class="panel decoder" id="learn-decoder" hidden>
       <label for="dec-in"><h3>Command decoder</h3><span class="muted">Paste any command, for example one your AI helper wants to run, and get it explained piece by piece before you approve it.</span></label>
       <input id="dec-in" spellcheck="false" autocomplete="off" value="git commit -m &quot;Add weather lookup&quot;">
       <div class="examples" id="dec-ex"></div>
       <div class="decoded" id="dec-out"></div>
     </div>
-    <div class="levels" id="levels"></div>
-    <div id="lesson-slot"></div>
-    <div class="eyebrow" id="badges-title" style="margin-top:22px">Badges</div>
-    <div class="badges" id="badges"></div>
+    <div id="learn-badges" hidden><div class="badges" id="badges"></div></div>
   </section>
 
   <section class="view" id="view-details" role="tabpanel" aria-labelledby="tab-details" hidden>
@@ -585,4 +656,5 @@ code { font: calc(12.5px * var(--fz))/1.45 var(--mono); overflow-wrap: anywhere;
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
 <script src="/static/app.js"></script>
+<script src="/static/learn.js"></script>
 <script src="/static/tour.js"></script>

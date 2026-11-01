@@ -247,6 +247,59 @@ class Dashboard:
         self.shows("Watch a saved session again")
         pg.mouse.click(5, 5)
 
+    def test_learn_menu_opens_on_hover_and_from_the_keyboard(self):
+        pg = self.page
+        pg.hover("#tab-learn")
+        pg.wait_for_selector(".learn-menu")
+        self.assertEqual(pg.locator(".learn-menu [role=menuitem]").count(), 6)
+        self.assertEqual(pg.get_attribute("#tab-learn", "aria-expanded"), "true")
+        pg.mouse.move(5, 700)  # leaving it closes it
+        pg.wait_for_selector(".learn-menu", state="detached", timeout=3000)
+        pg.focus("#tab-learn")
+        pg.keyboard.press("ArrowDown")
+        pg.wait_for_selector(".learn-menu")
+        self.assertIn("Approve or deny", pg.evaluate("document.activeElement.textContent"))
+        pg.keyboard.press("ArrowDown")
+        pg.keyboard.press("Enter")
+        pg.wait_for_selector(".rs-card")
+        self.assertEqual(pg.evaluate("location.hash"), "#learn/rescue")
+        self.assertFalse(pg.evaluate("!!document.querySelector('.learn-menu')"))
+        self.assertTrue(pg.evaluate("document.querySelector('#learn-decoder').offsetParent === null"), "the decoder stays on its own sub-tab")
+
+    def test_each_game_can_be_won_and_pays_xp_once(self):
+        pg = self.page
+        xp = lambda: int(pg.text_content("#xp").split()[0])  # noqa: E731
+        start = xp()
+        pg.evaluate("location.hash = '#learn/approve'")
+        pg.wait_for_selector(".ad-card")
+        safe = {"git status": True, "ls -la": True, "rm -rf ~": False, "python -m pytest -q": True, "cat .env": False, "git diff": True}
+        for _round in range(2):  # a second win of the same level pays nothing
+            for _ in range(6):
+                cmd = pg.evaluate("[...document.querySelectorAll('.ad-card .cmd .tok')].map(t => t.textContent).join(' ')")
+                pg.click(".ad-yes" if safe[cmd] else ".ad-no")
+                pg.click(".ad-card .btn.primary")
+            pg.wait_for_selector(".game-end.won")
+            self.assertEqual(xp(), start + 25)
+            if not _round:
+                pg.click(".game-end >> text=Play again")
+                pg.wait_for_selector(".ad-card")
+        self.shows("Cleared again")
+        pg.click("#learn-tabs >> text=Save point rescue")
+        pg.click(".rs-card")
+        pg.wait_for_selector(".game-end.won")
+        pg.click("#learn-tabs >> text=Treasure hunt")
+        for c in ("ls", "cd box", "cat treasure.txt"):
+            pg.fill(".th-in", c)
+            pg.press(".th-in", "Enter")
+        pg.wait_for_selector(".game-end.won")
+        pg.click("#learn-tabs >> text=Token budget")
+        for tier in (1, 1, 2, 2):  # local, local, small, small: the cheapest that does each task
+            pg.click(f".tb-tier:nth-child({tier})")
+        pg.wait_for_selector(".game-end.won")
+        self.assertEqual(xp(), start + 100)
+        self.assertEqual(pg.evaluate("Object.keys(JSON.parse(localStorage.getItem('arcade.academy'))).sort()"),
+                         ["approve:1", "budget:1", "hunt:1", "rescue:1"])
+
     def test_details_shows_spend_by_tool(self):
         self.page.evaluate("[...document.querySelectorAll('#nav button')].find(b => "
                            "/details/i.test(b.textContent + (b.title || '') + (b.getAttribute('aria-label') || '')))?.click()")
