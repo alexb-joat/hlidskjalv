@@ -1,6 +1,6 @@
 """Find system programs without trusting PATH.
 
-Hlidskjalv runs git, crontab, journalctl, systemctl and launchctl to do its
+Lunete runs git, crontab, journalctl, systemctl and launchctl to do its
 job. A malicious package that drops a fake `git` into ~/.local/bin (which
 is usually on PATH) must not be able to run itself through the tool meant
 to notice it, so programs are looked up in system directories only. The

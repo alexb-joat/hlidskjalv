@@ -1,9 +1,9 @@
 """Cost and usage, for the Details view. All read-only, metadata only.
 
 - budget(): today's and this month's cloud spend against the caps, per provider
-  and (Trioditis 0.4+) per calling tool, from Trioditis's ~/.hlidskjalv/metrics.db
+  and (Trioditis 0.4+) per calling tool, from Trioditis's ~/.lunete/metrics.db
   (opened read-only) and budget.json.
-- hardware(): Trioditis's local-model report, ~/.hlidskjalv/hardware.json.
+- hardware(): Trioditis's local-model report, ~/.lunete/hardware.json.
 - claude_usage(): per Claude Code session for this project: turns, tokens
   in / cached / out, the biggest context of any one turn, models, and how
   many shell commands the AI ran. Never prompt or response text.
@@ -12,7 +12,7 @@
   7-day one), estimated from the transcripts. Anthropic doesn't publish how
   the caps are counted, so this is usage, not a percentage of the cap.
 - accounts(): what each provider reports about your account, written by
-  Trioditis to ~/.hlidskjalv/accounts.json (see trioditis/accounts.py).
+  Trioditis to ~/.lunete/accounts.json (see trioditis/accounts.py).
 """
 
 from __future__ import annotations

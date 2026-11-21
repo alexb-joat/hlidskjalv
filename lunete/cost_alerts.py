@@ -41,7 +41,7 @@ class CostWatcher:
         if n and getattr(self, "_unpriced_day", None) != day:
             self._unpriced_day = day
             self.alerter.raise_("info", "cost", f"{n} cloud call{'s' if n != 1 else ''} today without a price",
-                                "Those models aren't in ~/.hlidskjalv/prices.json, so they count as $0 toward the caps (unless "
+                                "Those models aren't in ~/.lunete/prices.json, so they count as $0 toward the caps (unless "
                                 "assume_unpriced_usd is set in budget.json). Add their prices to see real spend.",
                                 fingerprint=f"unpriced-{day}", expected=True)
         for lim in b.get("limits") or []:
@@ -60,7 +60,7 @@ class CostWatcher:
             self.alerter.raise_("high", "cost", f"{label} reached ({u_money(spent)} of {u_money(cap)})",
                                 (f"Cloud calls through {provider} are skipped until the {period} ends; " if provider
                                  else f"Cloud calls are skipped until the {period} ends; ")
-                                + "local models answer instead. Raise the cap in ~/.hlidskjalv/budget.json if that's not what you want.",
+                                + "local models answer instead. Raise the cap in ~/.lunete/budget.json if that's not what you want.",
                                 fingerprint=f"cap-{label}-{stamp}-full", data={"spent": spent, "cap": cap, "provider": provider})
         elif share >= WARN_AT:
             self.alerter.raise_("medium", "cost", f"{label}: {int(share * 100)}% used ({u_money(spent)} of {u_money(cap)})",

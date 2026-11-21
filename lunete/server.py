@@ -1,4 +1,4 @@
-"""Local web server: serves Hlidskjalv page and streams events to it.
+"""Local web server: serves Lunete page and streams events to it.
 
 Security: binds loopback only, rejects foreign Host headers (DNS rebinding)
 and never serves anything from the watched project. Reading is open to the
@@ -43,7 +43,8 @@ VENDOR = {"xterm.js": "text/javascript; charset=utf-8", "addon-fit.js": "text/ja
           "xterm.css": "text/css; charset=utf-8", "qrcode.js": "text/javascript; charset=utf-8"}
 
 
-NICE_HOST = "hlidskjalv.localhost"
+NICE_HOST = "lunete.localhost"
+OLD_NICE_HOST = "hlidskjalv.localhost"  # the 0.4 address, accepted for one release so bookmarks keep working
 # The logo as icons. SVG for Chrome, Edge and Firefox; PNG for Safari (no SVG favicons) and for
 # iOS home screens; a one-colour SVG for Safari's pinned tabs. PNGs were rendered from the SVG.
 ICON_SVG = ("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='2' y='2' width='28' height='28' rx='8' fill='#3b5bdb'/>"
@@ -58,7 +59,7 @@ ICONS = {"/icon.svg": ("image/svg+xml", ICON_SVG.encode()), "/mask.svg": ("image
 
 def csp(port: int) -> str:
     # No [::1]: the server binds 127.0.0.1 only, and WebKit rejects an IPv6 literal in a CSP source list.
-    ws = " ".join(f"ws://{h}:{port}" for h in ("127.0.0.1", "localhost", NICE_HOST))
+    ws = " ".join(f"ws://{h}:{port}" for h in ("127.0.0.1", "localhost", NICE_HOST, OLD_NICE_HOST))
     # script-src 'self': the page's scripts are files under static/, so an injected inline script or handler
     # cannot run. Styles keep 'unsafe-inline' for now (the style="" attributes the page sets).
     return ("default-src 'none'; script-src 'self'; "
@@ -99,7 +100,7 @@ def load_history(folder: Path, limit: int = HISTORY_EVENTS, days: int = HISTORY_
 
 
 class Progress:
-    """Lifetime XP, in ~/.hlidskjalv/progress.json: the sessions the activity log starts with are
+    """Lifetime XP, in ~/.lunete/progress.json: the sessions the activity log starts with are
     pruned after a while, but what you earned stays."""
 
     def __init__(self, home: Path, sessions: Path):
@@ -164,7 +165,7 @@ class Hub:
         self.next_id = len(hist) + 1
         self.history_n = len(hist)
         self.progress = progress
-        self.boot = round(time.time(), 3)  # a restarted Hlidskjalv has a new stamp: the page reloads on it
+        self.boot = round(time.time(), 3)  # a restarted Lunete has a new stamp: the page reloads on it
         self.health: Callable[[], dict] | None = None  # per-source poll health (poller.py), for /api/state and the stream
         self.snapshot = {"type": "snapshot", "ts": time.time(), "project": project,
                          "files": snapshot, "boot": self.boot, **meta}
@@ -240,7 +241,7 @@ def read_session(folder: Path, sid: str) -> list[dict] | None:
 
 
 class UsageContext:
-    """What the cost and usage endpoints read: ~/.hlidskjalv and Claude Code's transcripts for this project."""
+    """What the cost and usage endpoints read: ~/.lunete and Claude Code's transcripts for this project."""
 
     def __init__(self, home: Path, claude):
         self.home, self.claude = home, claude
@@ -273,16 +274,16 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
             b'<link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png">'
             b'<link rel="mask-icon" href="/mask.svg" color="#3b5bdb">'
             b'<meta name="theme-color" content="#3b5bdb"></head><body>'
-            + resources.files("hlidskjalv").joinpath("static/index.html").read_bytes()
+            + resources.files("lunete").joinpath("static/index.html").read_bytes()
             + b"</body></html>")
-    scripts = {f"/static/{name}": resources.files("hlidskjalv").joinpath("static/" + name).read_bytes() for name in SCRIPTS}
+    scripts = {f"/static/{name}": resources.files("lunete").joinpath("static/" + name).read_bytes() for name in SCRIPTS}
     # *.localhost resolves to loopback in Chrome, Edge and Firefox without any setup.
-    allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"{NICE_HOST}:{port}"}
+    allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"{NICE_HOST}:{port}", f"{OLD_NICE_HOST}:{port}"}
     allowed_origins = {"http://" + h for h in allowed_hosts}
     policy = csp(port)
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "hlidskjalv"
+        server_version = "lunete"
         sys_version = ""
         timeout = 60  # a half-open local connection can't hold a thread forever (the terminal lifts this once paired)
 
@@ -320,7 +321,7 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
             origin = self.headers.get("Origin")
             if origin in allowed_origins:
                 return False
-            refused("high", f"A web page tried to {what}", f"Origin: {str(origin)[:100]!r}. Only this Hlidskjalv's own page may do that.",
+            refused("high", f"A web page tried to {what}", f"Origin: {str(origin)[:100]!r}. Only this Lunete's own page may do that.",
                     "origin-" + str(origin)[:60])
             self._json({"error": "forbidden origin"}, HTTPStatus.FORBIDDEN)
             return True
@@ -354,7 +355,7 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                 self._headers(200, "text/javascript; charset=utf-8", len(scripts[url.path]))
                 self.wfile.write(scripts[url.path])
             elif url.path.startswith("/static/vendor/") and url.path[15:] in VENDOR:
-                data = resources.files("hlidskjalv").joinpath("static/vendor/" + url.path[15:]).read_bytes()
+                data = resources.files("lunete").joinpath("static/vendor/" + url.path[15:]).read_bytes()
                 self._headers(200, VENDOR[url.path[15:]], len(data))
                 self.wfile.write(data)
             elif url.path == "/api/term":
@@ -462,7 +463,7 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                             "/api/2fa/verify", "/api/sync/setup", "/api/sync/now", "/api/sync/off", "/api/progress",
                             "/api/sso/start", "/api/sso/configure", "/api/sso/unlink", "/api/sso/info") or owner is None:
                 return self._json({"error": "read-only"}, HTTPStatus.METHOD_NOT_ALLOWED)
-            if self._foreign_origin("change Hlidskjalv"):
+            if self._foreign_origin("change Lunete"):
                 return
             if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
                 return self._json({"error": "send JSON"}, HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
@@ -484,7 +485,7 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                     if not token:
                         wait = owner.password_lock_s()
                         refused("medium", "A wrong password was entered",
-                                "Pairing with a password needs the one set with `python3 -m hlidskjalv password`."
+                                "Pairing with a password needs the one set with `python3 -m lunete password`."
                                 if owner.has_password() else "No password is set: pair with the link once, then set one in Settings > Pairing.",
                                 "password")
                         return self._json({"error": ("no password is set" if not owner.has_password() else
@@ -638,7 +639,7 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                 if root_change is not None and alerts:
                     alerts.alerter.raise_("medium", "security",
                                           "Root allowed in the Terminal tab" if root_change else "Root no longer allowed in the Terminal tab",
-                                          "The shell in the browser may use sudo (with your password); Hlidskjalv itself stays sandboxed."
+                                          "The shell in the browser may use sudo (with your password); Lunete itself stays sandboxed."
                                           if root_change else "The shell in the browser can't elevate any more.",
                                           fingerprint="root-toggle", expected=True)
                 return self._json({"settings": data, "restart": again})

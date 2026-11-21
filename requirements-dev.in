@@ -1,2 +1,2 @@
-# Development tools only: Hlidskjalv itself needs nothing beyond the standard library.
+# Development tools only: Lunete itself needs nothing beyond the standard library.
 ruff

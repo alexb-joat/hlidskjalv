@@ -2,7 +2,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/banner-dark.svg">
-  <img alt="Hlidskjalv: see what you and your AI helper are doing" src="docs/img/banner-light.svg" width="720">
+  <img alt="Lunete: see what you and your AI helper are doing" src="docs/img/banner-light.svg" width="720">
 </picture>
 
 **A live, plain-English map of your project and everything your AI coding helper does in it.**
@@ -13,7 +13,7 @@
 ![dependencies](https://img.shields.io/badge/dependencies-0-5fd6ae)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-<sub><i>Hlidskjalv: Odin's high seat, from which he looks out over every realm. Here it looks out over one project.</i></sub>
+<sub><i>Lunete: in Chrétien de Troyes' <i>Yvain</i>, the damsel who gets the hero out of a trap and back to where he belongs. Called Hlidskjalv until 0.4.</i></sub>
 
 </div>
 
@@ -32,7 +32,7 @@
 | **Details** | Click anything for the whole story: why a model was picked, tokens, cost, what each part of a command does |
 | **Alerts** | Things you didn't do yourself: risky commands an AI ran, startup files that changed, refused requests, spending caps |
 
-Made for people who are new to coding and work with an AI helper in VS Code. Hlidskjalv only **watches**: it never changes your files. A real terminal inside the page is there if you want it (`--terminal`).
+Made for people who are new to coding and work with an AI helper in VS Code. Lunete only **watches**: it never changes your files. A real terminal inside the page is there if you want it (`--terminal`).
 
 ## Start in 2 minutes
 
@@ -40,10 +40,10 @@ You need Python 3.10 or newer, and nothing else.
 
 ```bash
 git clone https://github.com/alexb-joat/hlidskjalv.git && cd hlidskjalv
-python3 -m hlidskjalv watch ~/projects/my-app
+python3 -m lunete watch ~/projects/my-app
 ```
 
-On Windows: `py -3 -m hlidskjalv watch C:\Users\you\projects\my-app`. Your browser opens at `http://127.0.0.1:8788`, and a short tour shows you around; leave the terminal running while you work. **Ctrl+C** stops it and saves the session for Replay. Point it at one project folder, not your whole home folder.
+On Windows: `py -3 -m lunete watch C:\Users\you\projects\my-app`. Your browser opens at `http://127.0.0.1:8788`, and a short tour shows you around; leave the terminal running while you work. **Ctrl+C** stops it and saves the session for Replay. Point it at one project folder, not your whole home folder.
 
 ## Privacy
 

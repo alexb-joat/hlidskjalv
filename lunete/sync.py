@@ -6,7 +6,7 @@ leaves (ChaCha20-Poly1305, RFC 8439, key from scrypt), so the carrier only ever 
 What travels: settings (minus machine-specific ones), lifetime XP per computer, finished Learn
 levels. What never travels: pairing, passwords, second-factor secrets, sessions, alerts, sessions'
 activity, tokens. The sync configuration itself (where, the token, the derived key) stays in
-~/.hlidskjalv/sync.json, readable only by you, and is never part of what is synced.
+~/.lunete/sync.json, readable only by you, and is never part of what is synced.
 
 Merge rule: settings follow the newest copy (last writer wins, and an alert says so); XP adds up
 across computers; finished levels are the union.
@@ -229,7 +229,7 @@ class GistBackend:
         data = json.dumps(body).encode() if body is not None else None
         req = request.Request(self.API + path, data=data, method=method, headers={  # noqa: S310 -- fixed https:// API
             "Authorization": f"Bearer {self.token}", "Accept": "application/vnd.github+json",
-            "User-Agent": "Hlidskjalv", "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "Lunete", "X-GitHub-Api-Version": "2022-11-28",
             **({"Content-Type": "application/json"} if data else {})})
         try:
             with request.urlopen(req, timeout=20) as r:  # noqa: S310 -- self.API is a fixed https:// constant
@@ -253,7 +253,7 @@ class GistBackend:
             if not raw.startswith("https://gist.githubusercontent.com/"):  # only GitHub's own file host, never a URL the reply invents
                 raise SyncError("GitHub sent an unexpected address for the sync file")
             try:
-                with request.urlopen(request.Request(raw, headers={"User-Agent": "Hlidskjalv"}), timeout=20) as r:  # noqa: S310 -- checked above
+                with request.urlopen(request.Request(raw, headers={"User-Agent": "Lunete"}), timeout=20) as r:  # noqa: S310 -- checked above
                     return r.read().decode("utf-8")
             except (error.URLError, OSError) as e:
                 raise SyncError(f"couldn't fetch the gist content: {e}") from e
@@ -264,7 +264,7 @@ class GistBackend:
         if self.gist_id:
             self._call("PATCH", f"/gists/{self.gist_id}", {"files": files})
         else:
-            g = self._call("POST", "/gists", {"description": "Hlidskjalv sync (encrypted)", "public": False, "files": files})
+            g = self._call("POST", "/gists", {"description": "Lunete sync (encrypted)", "public": False, "files": files})
             self.gist_id = g.get("id")
             if not self.gist_id:
                 raise SyncError("GitHub created no gist")
@@ -341,7 +341,7 @@ class Syncer:
             existing = backend.read()
             header = peek(existing) if existing else None
             if existing and header is None:
-                raise SyncError(f"{backend.where()} holds something that isn't a Hlidskjalv sync copy")
+                raise SyncError(f"{backend.where()} holds something that isn't a Lunete sync copy")
             salt = header["salt"] if header else os.urandom(16)
             key = derive_key(passphrase, salt)
             if header and open_blob(key, existing) is None:
@@ -477,6 +477,6 @@ def start_worker(syncer: Syncer) -> threading.Thread:
         while True:
             syncer.tick()
             time.sleep(TICK_S)
-    t = threading.Thread(target=loop, daemon=True, name="hlidskjalv-sync")
+    t = threading.Thread(target=loop, daemon=True, name="lunete-sync")
     t.start()
     return t

@@ -4,7 +4,7 @@ Off unless switched on (`watch --terminal`, or Settings). A shell in a web
 page is remote code execution by design, so every connection must pass all of these:
 
 - the server binds loopback only and checks the Host header (DNS rebinding);
-- the Origin header must be this Hlidskjalv's own origin. Browsers don't apply
+- the Origin header must be this Lunete's own origin. Browsers don't apply
   CORS to WebSockets, so this is what stops other websites from connecting;
 - the first message must carry the owner key (auth.py). Loopback ports are
   reachable by every user and process on the computer, so Origin alone is not
@@ -15,8 +15,8 @@ Linux and macOS use a pty; Windows 10 1809+ uses ConPTY (conpty.py, experimental
 
 Root (sudo) in the shell, Linux only, Settings > Watching > terminal_root:
 - off: the shell gets the kernel's no-new-privileges flag before it starts, so sudo
-  and other setuid programs can't elevate, whether Hlidskjalv was autostarted or not;
-- on: if Hlidskjalv itself carries that flag (the login service's sandbox sets it),
+  and other setuid programs can't elevate, whether Lunete was autostarted or not;
+- on: if Lunete itself carries that flag (the login service's sandbox sets it),
   the shell is started through the user service manager (systemd-run --user --pty),
   which the flag deliberately doesn't reach, so the service keeps its sandbox and only
   the person's shell can sudo, with the usual password prompt. Refused when sudo
@@ -177,7 +177,7 @@ class WebSocket:
 
 
 class Terminal:
-    """Shells for one Hlidskjalv launch: who may open them, the folder they start in, the slot count."""
+    """Shells for one Lunete launch: who may open them, the folder they start in, the slot count."""
 
     def __init__(self, root, owner, on_refused=None, on_alert=None, root_allowed=None):
         self.root = str(root)
@@ -201,12 +201,12 @@ class Terminal:
             return Plan(base, True, "", False, None)
         run = user_manager_ok()
         if not run:
-            return Plan(base, False, "Hlidskjalv runs sandboxed and the user service manager isn't reachable", True, None)
+            return Plan(base, False, "Lunete runs sandboxed and the user service manager isn't reachable", True, None)
         self._n += 1
-        unit = f"hlidskjalv-shell-{self._n}-{os.getpid()}"
+        unit = f"lunete-shell-{self._n}-{os.getpid()}"
         argv = [run, "--user", "--quiet", "--pty", "--wait", "--collect", f"--unit={unit}",
-                "--description=Hlidskjalv terminal shell (root allowed)", f"--working-directory={self.root}",
-                "-E", "TERM=xterm-256color", "-E", "COLORTERM=truecolor", "-E", "HLIDSKJALV_TERMINAL=1",
+                "--description=Lunete terminal shell (root allowed)", f"--working-directory={self.root}",
+                "-E", "TERM=xterm-256color", "-E", "COLORTERM=truecolor", "-E", "LUNETE_TERMINAL=1", "-E", "HLIDSKJALV_TERMINAL=1",
                 "-p", "MemoryMax=2G", "--", *base]
         return Plan(argv, True, "", False, unit)
 
@@ -244,7 +244,7 @@ class Terminal:
             self.slots.release()
 
     def _bridge(self, ws: WebSocket, size, plan: Plan | None = None) -> None:
-        env = {**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor", "HLIDSKJALV_TERMINAL": "1", "PWD": self.root}
+        env = {**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor", "LUNETE_TERMINAL": "1", "HLIDSKJALV_TERMINAL": "1", "PWD": self.root}
         plan = plan or Plan(self.shell(), None, "", False, None)
         try:
             if pty is not None:

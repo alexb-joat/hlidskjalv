@@ -1,10 +1,10 @@
-"""End-to-end: a real Hlidskjalv, a real browser (Firefox and WebKit), a throwaway project.
+"""End-to-end: a real Lunete, a real browser (Firefox and WebKit), a throwaway project.
 
 Off by default; needs Playwright and its browsers (requirements-e2e.txt):
 
     pip install --require-hashes --no-deps -r requirements-e2e.txt
     python -m playwright install firefox webkit
-    HLIDSKJALV_E2E=1 python -m unittest discover -s tests/e2e -t . -v
+    LUNETE_E2E=1 python -m unittest discover -s tests/e2e -t . -v
 
 Each test opens a fresh page and fails on any console error, CSP violation or request that
 leaves the dashboard's own origin.
@@ -25,7 +25,7 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-ENABLED = os.environ.get("HLIDSKJALV_E2E") == "1"
+ENABLED = "1" in (os.environ.get("LUNETE_E2E"), os.environ.get("HLIDSKJALV_E2E"))
 
 
 def free_port() -> int:
@@ -34,17 +34,17 @@ def free_port() -> int:
         return s.getsockname()[1]
 
 
-@unittest.skipUnless(ENABLED, "set HLIDSKJALV_E2E=1 (and install requirements-e2e.txt) to run the browser tests")
+@unittest.skipUnless(ENABLED, "set LUNETE_E2E=1 (and install requirements-e2e.txt) to run the browser tests")
 class Dashboard:
-    """Mixin: one Hlidskjalv and one browser per class; subclasses pick the engine."""
+    """Mixin: one Lunete and one browser per class; subclasses pick the engine."""
     engine = ""
 
     @classmethod
     def setUpClass(cls):
         from playwright.sync_api import sync_playwright
-        cls.tmp = Path(tempfile.mkdtemp(prefix="hlidskjalv-e2e-"))
+        cls.tmp = Path(tempfile.mkdtemp(prefix="lunete-e2e-"))
         cls.home, cls.project, cls.log = cls.tmp / "home", cls.tmp / "project", cls.tmp / "decisions.jsonl"
-        data = cls.home / ".hlidskjalv"
+        data = cls.home / ".lunete"
         data.mkdir(parents=True)
         cls.project.mkdir()
         subprocess.run(["git", "init", "-q"], cwd=cls.project, check=True)
@@ -64,11 +64,11 @@ class Dashboard:
         # the page's keys (the keyboard test would then press "2" into nothing).
         (data / "settings.json").write_text(json.dumps({"version": 1, "setup_done": True}))
         cls.port = free_port()
-        env = {**os.environ, "HOME": str(cls.home), "USERPROFILE": str(cls.home), "HLIDSKJALV_HOME": str(data),
+        env = {**os.environ, "HOME": str(cls.home), "USERPROFILE": str(cls.home), "LUNETE_HOME": str(data),
                "CLAUDE_CONFIG_DIR": str(cls.home / ".claude"),
                "PYTHONPATH": str(ROOT)}
         cls.server = subprocess.Popen(
-            [sys.executable, "-m", "hlidskjalv", "watch", str(cls.project), "--no-open", "--port", str(cls.port),
+            [sys.executable, "-m", "lunete", "watch", str(cls.project), "--no-open", "--port", str(cls.port),
              "--interval", "0.2", "--trioditis-log", str(cls.log)],
             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         cls.url = f"http://127.0.0.1:{cls.port}/"
@@ -80,7 +80,7 @@ class Dashboard:
             except OSError:
                 if time.time() > deadline or cls.server.poll() is not None:
                     cls.tearDownClass()
-                    raise RuntimeError("Hlidskjalv did not start") from None
+                    raise RuntimeError("Lunete did not start") from None
                 time.sleep(0.2)
         cls.pw = sync_playwright().start()
         cls.browser = getattr(cls.pw, cls.engine).launch()
@@ -154,7 +154,7 @@ class Dashboard:
         self.shows("rate-limited · retry in 7 s")
 
     def test_a_risky_ai_command_becomes_an_alert(self):
-        from hlidskjalv.sources import claude_code_project_dir
+        from lunete.sources import claude_code_project_dir
         d = claude_code_project_dir(self.project.resolve(), self.home / ".claude")
         d.mkdir(parents=True, exist_ok=True)
         tool = f"toolu_e2e_{self.engine}"

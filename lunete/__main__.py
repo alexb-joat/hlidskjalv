@@ -1,4 +1,4 @@
-"""python -m hlidskjalv [watch|hook|sessions]"""
+"""python -m lunete [watch|hook|sessions]"""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import time
 import webbrowser
 from pathlib import Path
 
-from . import __version__
+from . import __version__, env
 from . import terminal as term
 from .alerts import Acks, Alerter, PersistenceWatcher, SystemLogWatcher, TrioditisSecurityWatcher
 from .auth import Owner, issue_pair_code, rotate_key, write_private
@@ -27,11 +27,11 @@ from .usage import ClaudeUsage
 
 HOOKS = {
     "bash": r'''
-# --- Hlidskjalv: record terminal commands (local file, owner-only) ---
+# --- Lunete: record terminal commands (local file, owner-only) ---
 # Commands that start with a space are not recorded (Ubuntu's default HISTCONTROL).
 __arcade_last=$(HISTTIMEFORMAT= builtin history 1 | awk '{print $1}')
 __arcade_log() {
-  local h n c f="${HLIDSKJALV_HOME:-${ARCADE_HOME:-$HOME/.hlidskjalv}}/commands.log"
+  local h n c f="${LUNETE_HOME:-${HLIDSKJALV_HOME:-${ARCADE_HOME:-$HOME/.lunete}}}/commands.log"
   h=$(HISTTIMEFORMAT= builtin history 1) || return
   read -r n c <<<"$h"
   { [ -z "$c" ] || [ "$n" = "$__arcade_last" ]; } && return
@@ -40,14 +40,14 @@ __arcade_log() {
   printf '%s\t%s\t%s\n' "$(date +%s)" "$PWD" "$c" >> "$f"
 }
 case ";$PROMPT_COMMAND;" in *";__arcade_log;"*) ;; *) PROMPT_COMMAND="__arcade_log${PROMPT_COMMAND:+;$PROMPT_COMMAND}";; esac
-# --- end Hlidskjalv ---
+# --- end Lunete ---
 ''',
     "zsh": r'''
-# --- Hlidskjalv: record terminal commands (local file, owner-only) ---
+# --- Lunete: record terminal commands (local file, owner-only) ---
 setopt HIST_IGNORE_SPACE   # commands starting with a space are not recorded
 __arcade_last=$(fc -l -1 2>/dev/null | awk '{print $1}')
 __arcade_log() {
-  local h n c f="${HLIDSKJALV_HOME:-${ARCADE_HOME:-$HOME/.hlidskjalv}}/commands.log"
+  local h n c f="${LUNETE_HOME:-${HLIDSKJALV_HOME:-${ARCADE_HOME:-$HOME/.lunete}}}/commands.log"
   h=$(fc -l -1 2>/dev/null) || return
   read -r n c <<<"$h"
   [[ -z "$c" || "$n" == "$__arcade_last" ]] && return
@@ -56,44 +56,66 @@ __arcade_log() {
   printf '%s\t%s\t%s\n' "$(date +%s)" "$PWD" "$c" >> "$f"
 }
 autoload -Uz add-zsh-hook && add-zsh-hook precmd __arcade_log
-# --- end Hlidskjalv ---
+# --- end Lunete ---
 ''',
     "powershell": r'''
-# --- Hlidskjalv: record terminal commands (local file in your profile folder) ---
+# --- Lunete: record terminal commands (local file in your profile folder) ---
 # Commands that start with a space are not recorded.
-$global:__HlidskjalvLastId = -1
-$global:__HlidskjalvOriginalPrompt = $function:prompt
+$global:__LuneteLastId = -1
+$global:__LuneteOriginalPrompt = $function:prompt
 function global:prompt {
   $h = Get-History -Count 1
-  if ($h -and $h.Id -ne $global:__HlidskjalvLastId -and -not $h.CommandLine.StartsWith(' ')) {
-    $global:__HlidskjalvLastId = $h.Id
-    $dir = if ($env:HLIDSKJALV_HOME) { $env:HLIDSKJALV_HOME } elseif ($env:ARCADE_HOME) { $env:ARCADE_HOME } else { Join-Path $HOME '.hlidskjalv' }
+  if ($h -and $h.Id -ne $global:__LuneteLastId -and -not $h.CommandLine.StartsWith(' ')) {
+    $global:__LuneteLastId = $h.Id
+    $dir = $env:LUNETE_HOME; if (-not $dir) { $dir = $env:HLIDSKJALV_HOME }; if (-not $dir) { $dir = $env:ARCADE_HOME }
+    if (-not $dir) { $dir = Join-Path $HOME '.lunete' }
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
     $ts = [DateTimeOffset]::Now.ToUnixTimeSeconds()
     $line = "$ts`t$($PWD.Path)`t$($h.CommandLine -replace "`r?`n", ' ')"
     Add-Content -Path (Join-Path $dir 'commands.log') -Value $line -Encoding utf8
   }
-  & $global:__HlidskjalvOriginalPrompt
+  & $global:__LuneteOriginalPrompt
 }
-# --- end Hlidskjalv ---
+# --- end Lunete ---
 ''',
 }
 
 
+def _move_leaving_link(old: Path, new: Path) -> Path:
+    """Move `old` to `new` and leave a symlink at `old`; returns the folder to use. Without the
+    link, old shell hooks would make a fresh `old` and their commands would go missing, so a
+    move whose link fails is undone."""
+    try:
+        os.rename(old, new)
+    except OSError:
+        return old
+    try:
+        os.symlink(new, old, target_is_directory=True)
+    except OSError:
+        try:
+            os.rename(new, old)
+            return old
+        except OSError:
+            return new  # moved and can't be moved back: the new folder is the one that holds the data
+    return new
+
+
 def data_home() -> Path:
-    """$HLIDSKJALV_HOME (or the pre-rename $ARCADE_HOME), else ~/.hlidskjalv. An old ~/.arcade
-    folder is moved there once, with a symlink left behind so installed shell hooks keep working."""
-    env = os.environ.get("HLIDSKJALV_HOME") or os.environ.get("ARCADE_HOME")
-    if env:
-        home = Path(env)
+    """$LUNETE_HOME (or the older $HLIDSKJALV_HOME or $ARCADE_HOME), else ~/.lunete.
+
+    An existing ~/.hlidskjalv (0.4) or ~/.arcade (0.2) folder is moved to ~/.lunete once, with a
+    symlink left at the old path, so installed shell hooks and the programs that write there
+    (Trioditis's metrics and adopted values, for one) keep working. If the folder can't be moved,
+    or no link can be left behind (Windows without symlink rights), the old folder is used."""
+    given = env("HOME")
+    if given:
+        home = Path(given)
     else:
-        home, old = Path.home() / ".hlidskjalv", Path.home() / ".arcade"
-        if not home.exists() and old.is_dir() and not old.is_symlink():
-            try:
-                os.rename(old, home)
-                os.symlink(home, old, target_is_directory=True)
-            except OSError:
-                home = home if home.exists() else old
+        home = Path.home() / ".lunete"
+        for old in (Path.home() / ".hlidskjalv", Path.home() / ".arcade"):
+            if not home.exists() and old.is_dir() and not old.is_symlink():
+                home = _move_leaving_link(old, home)
+                break
     home.mkdir(parents=True, exist_ok=True)
     (home / "sessions").mkdir(exist_ok=True)
     if os.name == "posix":
@@ -127,7 +149,7 @@ def watch(args, argv: list[str]) -> None:
     prefs = settings.data
 
     # Command-line flags win; otherwise Settings decide.
-    sb_log = (args.trioditis_log or (os.environ.get("HLIDSKJALV_TRIODITIS_LOG") or os.environ.get("ARCADE_SWITCHBOARD_LOG"))
+    sb_log = (args.trioditis_log or (env("TRIODITIS_LOG"))
               or prefs["sources"]["trioditis_log"])
     sb_path = Path(sb_log).expanduser().resolve() if sb_log else None
     files = FileWatcher(root, skip_dirs=set(prefs["sources"]["skip_dirs"]))
@@ -173,7 +195,7 @@ def watch(args, argv: list[str]) -> None:
     def restart():
         """Start over with the same command line (new settings apply); same PID under systemd."""
         again = [a for a in argv if a != "--no-open"] + ["--no-open"]
-        os.execv(sys.executable, [sys.executable, "-m", "hlidskjalv", *again])
+        os.execv(sys.executable, [sys.executable, "-m", "lunete", *again])
 
     shell = term.Terminal(root, owner, lambda sev, title, detail, fp: alerter.raise_(sev, "refused_access", title, detail, fingerprint=fp),
                           lambda sev, source, title, detail, fp, expected: alerter.raise_(sev, source, title, detail, fingerprint=fp, expected=expected),
@@ -189,14 +211,14 @@ def watch(args, argv: list[str]) -> None:
         "port": args.port, "pid": os.getpid(), "folder": str(root), "version": __version__,
         "started": time.time()}))
     url = f"http://127.0.0.1:{args.port}/"
-    print(f"Hlidskjalv is watching {root}")
+    print(f"Lunete is watching {root}")
     print(f"  open {url}   (Ctrl+C to stop)")
     print(f"  same page, friendlier address in Chrome, Edge or Firefox: http://{NICE_HOST}:{args.port}/")
     if not args.no_open:
         url += f"#pair={owner.launch_code()}"  # one use: pairs this browser for settings and the terminal
     else:
         print("  to pair a browser (needed for settings and the terminal): your password in Settings > Pairing,"
-              " or: python3 -m hlidskjalv pair")
+              " or: python3 -m lunete pair")
     if shell:
         print("  terminal: ON (a real shell in this folder, in the Terminal tab)"
               + (" · root allowed" if prefs["features"]["terminal_root"] else " · no root") * (platform.system() == "Linux"))
@@ -277,7 +299,7 @@ def password(args) -> None:
     owner = Owner(data_home())
     if args.clear:
         owner.set_password(None)
-        print("Password removed. Browsers now pair with a one-time link only (python3 -m hlidskjalv pair).")
+        print("Password removed. Browsers now pair with a one-time link only (python3 -m lunete pair).")
         return
     pw = getpass.getpass("New password (at least 8 characters): ")
     if pw != getpass.getpass("Again: "):
@@ -301,7 +323,7 @@ def two_factor(args) -> None:
         import getpass
         import socket
         if owner.totp_enabled():
-            sys.exit("Already set up. Run `python3 -m hlidskjalv 2fa off` first to start over.")
+            sys.exit("Already set up. Run `python3 -m lunete 2fa off` first to start over.")
         d = owner.totp_begin(f"{getpass.getuser()}@{socket.gethostname()}")
         print("In your authenticator app, add an account by entering this key (or scan the QR code in Settings > Pairing):")
         print(f"  {d['secret']}\n  {d['uri']}")
@@ -329,7 +351,7 @@ def sso_cmd(args) -> None:
                 import getpass
                 secret = getpass.getpass(f"{PROVIDERS[provider]['name']} client secret (shown nowhere): ")
             sso.configure(provider, args.client_id or input("Client id: "), secret)
-            print(f"{PROVIDERS[provider]['name']} is set up. Link your account: python3 -m hlidskjalv sso link {provider}")
+            print(f"{PROVIDERS[provider]['name']} is set up. Link your account: python3 -m lunete sso link {provider}")
         elif args.action == "unlink":
             sso.unlink(provider)
             print("Unlinked.")
@@ -374,7 +396,7 @@ def pair(args) -> None:
     try:
         port = int(json.loads((home / "server.json").read_text(encoding="utf-8"))["port"])
     except (OSError, ValueError, KeyError, TypeError):
-        port = int(os.environ.get("HLIDSKJALV_PORT") or os.environ.get("ARCADE_PORT") or "8788")
+        port = int(env("PORT") or "8788")
     url = f"http://127.0.0.1:{port}/#pair={issue_pair_code(home)}"
     print(f"Open this once, within 10 minutes, in the browser to pair:\n  {url}")
     if args.open:
@@ -382,13 +404,13 @@ def pair(args) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    ap = argparse.ArgumentParser(prog="hlidskjalv", description="A game-like live view of your coding workflow.")
+    ap = argparse.ArgumentParser(prog="lunete", description="A game-like live view of your coding workflow.")
     ap.add_argument("--version", action="version", version=__version__)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    w = sub.add_parser("watch", help="watch a project folder and open Hlidskjalv")
+    w = sub.add_parser("watch", help="watch a project folder and open Lunete")
     w.add_argument("folder", nargs="?", default=".")
-    w.add_argument("--port", type=int, default=int(os.environ.get("HLIDSKJALV_PORT") or os.environ.get("ARCADE_PORT") or "8788"))
+    w.add_argument("--port", type=int, default=int(env("PORT") or "8788"))
     w.add_argument("--trioditis-log", "--switchboard-log", dest="trioditis_log",  # old name: one more version
                    help="path to Trioditis' logs/decisions.jsonl")
     w.add_argument("--interval", type=float, default=1.0, help="seconds between checks")
@@ -399,7 +421,7 @@ def main(argv: list[str] | None = None) -> None:
 
     sub.add_parser("status", help="plan windows, spend against caps, unread alerts and services, in the terminal")
 
-    pr = sub.add_parser("pair", help="print a one-time link that pairs a browser with the running Hlidskjalv")
+    pr = sub.add_parser("pair", help="print a one-time link that pairs a browser with the running Lunete")
     pr.add_argument("--open", action="store_true", help="also open it in the browser")
     pr.add_argument("--rotate", action="store_true", help="new owner key first: un-pairs every browser")
 
@@ -417,10 +439,10 @@ def main(argv: list[str] | None = None) -> None:
     so.add_argument("provider", nargs="?", help="github or google")
     so.add_argument("client_id", nargs="?", help="for configure: the OAuth app's client id")
 
-    a = sub.add_parser("autostart", help="start Hlidskjalv at login: enable <folder> | disable | status")
+    a = sub.add_parser("autostart", help="start Lunete at login: enable <folder> | disable | status")
     a.add_argument("action", choices=["enable", "disable", "status"])
     a.add_argument("folder", nargs="?", help="project folder to watch (for enable)")
-    a.add_argument("--port", type=int, default=int(os.environ.get("HLIDSKJALV_PORT") or os.environ.get("ARCADE_PORT") or "8788"))
+    a.add_argument("--port", type=int, default=int(env("PORT") or "8788"))
 
     h = sub.add_parser("hook", help="print the shell snippet that records terminal commands")
     h.add_argument("shell", choices=sorted(HOOKS))
@@ -447,11 +469,11 @@ def main(argv: list[str] | None = None) -> None:
         home = data_home()
         if args.action == "enable":
             if not args.folder:
-                sys.exit("Which folder? python3 -m hlidskjalv autostart enable ~/projects/my-app")
+                sys.exit("Which folder? python3 -m lunete autostart enable ~/projects/my-app")
             folder = Path(args.folder).expanduser().resolve()
             check_folder(folder)
             print(autostart.enable(folder, args.port, home))
-            print("Pair a browser: python3 -m hlidskjalv pair --open")
+            print("Pair a browser: python3 -m lunete pair --open")
         elif args.action == "disable":
             print(autostart.disable())
         else:

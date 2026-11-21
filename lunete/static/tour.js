@@ -11,7 +11,7 @@ const TOUR = [
   { view: "live", at: () => $("#world-slot .map"), title: "The live map", text: "Every folder is a group and every file a tile. A tile glows when you or your AI helper change it; click it for the whole story." },
   { view: "live", at: () => $("#world-slot .log"), title: "Activity", text: "Every edit, command, save point and AI step lands here, newest first. Hover over an entry to see what it means." },
   { at: () => $("#tab-alerts"), title: "Alerts", text: "Things you didn't do yourself: a risky command an AI ran, a startup file that changed, a refused request. The number counts the ones you haven't seen." },
-  { at: () => $("#open-settings"), title: "Settings", text: "Colours and background, what Hlidskjalv watches, pairing this browser, and sync between your computers." },
+  { at: () => $("#open-settings"), title: "Settings", text: "Colours and background, what Lunete watches, pairing this browser, and sync between your computers." },
   { at: () => $("#open-help"), title: "Help", text: "This tour, the keyboard shortcuts and what each view does, whenever you need them." },
 ];
 let tour = null;
@@ -191,7 +191,7 @@ function closeHelp() {
 
 function showViewsHelp() {
   const rows = [...visibleViews().map(v => [icon("v-" + v), VIEWS[v].label, VIEWS[v].tip]),
-    [icon("v-settings"), "Settings", "Appearance, what Hlidskjalv watches, pairing, sync and this computer."],
+    [icon("v-settings"), "Settings", "Appearance, what Lunete watches, pairing, sync and this computer."],
     [icon("v-help"), "Help", "The tour, keyboard shortcuts and the guide."]];
   openModal("What each view does", h("ul", { class: "viewhelp" }, ...rows.map(([ic, label, tip]) => h("li", {}, ic, h("b", { text: label }), h("span", { class: "muted", text: tip })))));
 }

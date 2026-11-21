@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+**Hlidskjalv is now Lunete**
+- The program, the command and the Python package are called `lunete` (`python3 -m lunete watch <folder>`). The `hlidskjalv` command still works for this release.
+- Settings and history move once from `~/.hlidskjalv` to `~/.lunete`, and a link is left at the old path, so shell hooks you installed before keep recording. If no link can be made (Windows without symlink rights), nothing moves and the old folder is used.
+- Environment variables are `LUNETE_HOME`, `LUNETE_PORT` and `LUNETE_TRIODITIS_LOG`; the `HLIDSKJALV_*` and `ARCADE_*` names still work for this release.
+- Unchanged, so nothing has to be set up again: paired browsers, the sync copy (`hlidskjalv-sync.json`), and the login item Autostart installed (`hlidskjalv.service`, `io.github.hlidskjalv.watch`, the `Hlidskjalv` scheduled task).
+
 **Learn is games now**
 - Four games in place of the five text levels: Approve or deny (6 levels), Save point rescue (8), Treasure hunt (6) and Token budget (5). Each cleared level is worth 25 XP once; levels finished before still count. Four new badges.
 - Hovering over or clicking Learn opens its sub-tabs (keyboard: ↓ on the Learn tab); each has its own address, such as `#learn/hunt`.

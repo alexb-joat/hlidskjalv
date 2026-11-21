@@ -1,6 +1,6 @@
-"""Start Hlidskjalv at login, and show exactly what starts and how.
+"""Start Lunete at login, and show exactly what starts and how.
 
-`python -m hlidskjalv autostart enable <folder> | disable | status`.
+`python -m lunete autostart enable <folder> | disable | status`.
 Only this command line installs or removes anything: the web page shows the
 policy (status) but never edits your login items.
 
@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 from xml.sax.saxutils import escape
 
+from . import env
 from .programs import which
 
 UNIT = "hlidskjalv.service"
@@ -50,7 +51,7 @@ def system() -> str:
 
 
 def interpreter() -> str:
-    """The base Python, not a virtualenv's: Hlidskjalv needs only the standard library,
+    """The base Python, not a virtualenv's: Lunete needs only the standard library,
     and a venv that gets deleted or rebuilt must not break the login item."""
     base = getattr(sys, "_base_executable", None) if sys.prefix != sys.base_prefix else None
     exe = base if base and os.path.exists(base) else sys.executable
@@ -65,17 +66,17 @@ def command(folder: Path, port: int) -> list[str]:
     if system() == "windows":
         w = Path(exe).with_name("pythonw.exe")  # no console window
         exe = str(w) if w.exists() else exe
-    return [exe, "-m", "hlidskjalv", "watch", str(folder), "--no-open", "--port", str(port)]
+    return [exe, "-m", "lunete", "watch", str(folder), "--no-open", "--port", str(port)]
 
 
 def _home_env() -> dict:
-    home = os.environ.get("HLIDSKJALV_HOME") or os.environ.get("ARCADE_HOME")
-    return {"HLIDSKJALV_HOME": home} if home else {}
+    home = env("HOME")
+    return {"LUNETE_HOME": home} if home else {}
 
 
 def render_unit(folder: Path, port: int) -> str:
     env = {"PYTHONPATH": PKG_PARENT, "PYTHONUNBUFFERED": "1", **_home_env()}  # unbuffered: messages reach the journal
-    lines = ["[Unit]", "Description=Hlidskjalv: live view of your work in " + str(folder),
+    lines = ["[Unit]", "Description=Lunete: live view of your work in " + str(folder),
              "After=default.target", "", "[Service]",
              f"WorkingDirectory={folder}",
              *(f'Environment="{k}={v}"' for k, v in env.items()),
@@ -157,7 +158,7 @@ def enable(folder: Path, port: int, home: Path) -> str:
         return out if code else f"on: starts at login. Unit: {p}\nlogs: journalctl --user -u {UNIT} -f"
     if sysname == "darwin":
         from .alerts import remember_expected
-        p, log = plist_path(), home / "hlidskjalv.log"
+        p, log = plist_path(), home / "lunete.log"
         text = render_plist(folder, port, log)
         p.parent.mkdir(parents=True, exist_ok=True)
         remember_expected(home, p, text.encode())
@@ -262,16 +263,16 @@ def status(home: Path, logs: int = 50) -> dict:
         this = _systemd_status(UNIT, unit_path(), logs)
         sb = _systemd_status(TRIODITIS["linux"], unit_path().with_name(TRIODITIS["linux"]), logs)
     elif sysname == "darwin":
-        this = _launchd_status(LABEL, plist_path(), home / "hlidskjalv.log", logs)
+        this = _launchd_status(LABEL, plist_path(), home / "lunete.log", logs)
         sb = _launchd_status(TRIODITIS["darwin"], plist_path().with_name(TRIODITIS["darwin"] + ".plist"), None, logs)
     elif sysname == "windows":
         states = _task_states([TASK, TRIODITIS["windows"]])
         this, sb = _task_status(TASK, states[0]), _task_status(TRIODITIS["windows"], states[1])
     else:
         return {"system": sysname, "services": []}
-    this.update(app="Hlidskjalv", what="Watches one project folder and serves this page on 127.0.0.1",
-                  enable="python3 -m hlidskjalv autostart enable <folder>",
-                  remove="python3 -m hlidskjalv autostart disable")
+    this.update(app="Lunete", what="Watches one project folder and serves this page on 127.0.0.1",
+                  enable="python3 -m lunete autostart enable <folder>",
+                  remove="python3 -m lunete autostart disable")
     sb.update(app="Trioditis", what="Routes AI requests to local or cloud models on 127.0.0.1:8787",
               enable="./deploy/<your system>/install-service.sh  (in the Trioditis folder)",
               remove="./deploy/<your system>/install-service.sh --remove")

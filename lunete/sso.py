@@ -5,12 +5,12 @@ from then on any browser on this computer can pair by signing in there, with tha
 protections (its two-factor, its recovery) in front. The password and the one-time link stay.
 
 What it needs: an OAuth application registered under your own name at the provider, whose public
-client id goes in ~/.hlidskjalv/sso.json (Google also issues a "client secret" for installed apps,
+client id goes in ~/.lunete/sso.json (Google also issues a "client secret" for installed apps,
 which it treats as public; it is kept in the same owner-only file, never synced). What it costs:
-each sign-in tells the provider that you use Hlidskjalv, and pairing this way needs the internet.
+each sign-in tells the provider that you use Lunete, and pairing this way needs the internet.
 
-The flow: Hlidskjalv asks the provider for a short code, shows it with a link; you confirm it at
-the provider; Hlidskjalv polls until the provider hands over a token, asks who you are, and
+The flow: Lunete asks the provider for a short code, shows it with a link; you confirm it at
+the provider; Lunete polls until the provider hands over a token, asks who you are, and
 compares that with the linked identity. A match pairs the browser and counts as a second factor;
 anything else is refused and raises an alert. Tokens are used once, for that question, and dropped.
 """
@@ -18,11 +18,11 @@ anything else is refused and raises an alert. Tokens are used once, for that que
 from __future__ import annotations
 
 import json
-import os
 import threading
 import time
 from urllib import error, parse, request
 
+from . import env
 from .auth import new_token, write_private
 
 PROVIDERS = {
@@ -44,16 +44,16 @@ class SsoError(Exception):
 
 
 def _url(provider: str, which: str) -> str:
-    fake = os.environ.get("HLIDSKJALV_SSO_FAKE")  # tests only: a local stand-in for the provider
+    fake = env("SSO_FAKE")  # tests only: a local stand-in for the provider
     return f"{fake}/{provider}/{which}" if fake else PROVIDERS[provider][which]
 
 
 def _call(url: str, form: dict | None = None, token: str | None = None) -> dict:
-    fake = os.environ.get("HLIDSKJALV_SSO_FAKE")  # the tests' stand-in provider, the only exception
+    fake = env("SSO_FAKE")  # the tests' stand-in provider, the only exception
     if not (url.startswith("https://") or (fake and url.startswith(fake + "/"))):
         raise SsoError(f"refusing a non-https address: {url[:60]}")
     data = parse.urlencode(form).encode() if form is not None else None
-    headers = {"Accept": "application/json", "User-Agent": "Hlidskjalv"}
+    headers = {"Accept": "application/json", "User-Agent": "Lunete"}
     if data is not None:
         headers["Content-Type"] = "application/x-www-form-urlencoded"
     if token:
@@ -152,7 +152,7 @@ class Sso:
                 "interval": max(POLL_MIN_S, float(d.get("interval", 5))), "status": "pending", "identity": None, "why": None, "consumed": False}
         with self.lock:
             self.flows[flow["id"]] = flow
-        threading.Thread(target=self._poll, args=(flow,), daemon=True, name="hlidskjalv-sso").start()
+        threading.Thread(target=self._poll, args=(flow,), daemon=True, name="lunete-sso").start()
         return {"id": flow["id"], "user_code": flow["user_code"], "uri": flow["uri"], "expires_in": int(flow["expires_at"] - time.time()),
                 "provider": PROVIDERS[provider]["name"]}
 

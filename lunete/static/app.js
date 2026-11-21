@@ -175,7 +175,7 @@ COMMANDS.python3 = COMMANDS.python; COMMANDS.py = { ...COMMANDS.python, d: "Runs
 COMMANDS.pip3 = COMMANDS.pip;
 const MODULES = {
   venv: "Creates a virtual environment: a private box of libraries for this project only.", pip: "Python's package installer.",
-  pytest: "Runs the automatic tests.", trioditis: "Your LLM router.", hlidskjalv: "This game.", "http.server": "A tiny web server for this folder.",
+  pytest: "Runs the automatic tests.", trioditis: "Your LLM router.", lunete: "This game.", "http.server": "A tiny web server for this folder.",
   json: "Pretty-prints JSON.",
 };
 const TRIODITIS_SUB = { serve: "Starts the router at http://127.0.0.1:8787.", check: "Shows which models are ready.", explain: "Shows which model a prompt would go to, without calling any model." };
@@ -360,17 +360,17 @@ function eventView(ev) {
       const answered = ev.model !== "none";
       if (answered) chips.push(ev.local ? h("span", { class: "chip ok", tip: { title: "Local model", body: "Ran on your computer: free and private." } }, "local · free")
         : ev.subscription ? h("span", { class: "chip", tip: { title: "Subscription", body: "Ran through Claude Code on your subscription: a flat plan, not billed per token, so there's no per-call cost to show." } }, "subscription")
-        : h("span", { class: "chip ai", tip: { title: "Cloud model", body: "Ran at a provider and is billed per token.", why: ev.cost == null ? "Add prices in ~/.hlidskjalv/prices.json to see the cost." : null } }, "cloud · " + money(ev.cost)));
+        : h("span", { class: "chip ai", tip: { title: "Cloud model", body: "Ran at a provider and is billed per token.", why: ev.cost == null ? "Add prices in ~/.lunete/prices.json to see the cost." : null } }, "cloud · " + money(ev.cost)));
       if (ev.tokens_in != null) chips.push(h("span", { class: "chip", tip: { title: "Tokens", body: `${ev.tokens_in} in (your request and context), ${ev.tokens_out} out (the answer). A token is about ¾ of a word.`, why: ev.tokens_cached ? `${fmt(ev.tokens_cached)} of the input was cached context: re-read from earlier turns, cheaper and faster than new input.` : null } }, `${fmt(ev.tokens_in)} → ${fmt(ev.tokens_out)} tokens`));
       if (ev.client) chips.push(h("span", { class: "chip", tip: { title: "Sent by", body: `The program that made this request: ${ev.client}. Trioditis reads the name from the request's X-Trioditis-Client or User-Agent header; programs built on a shared library show that library's name.` } }, ev.client));
       const blocked = (ev.attempts || []).filter(a => a.error === "budget_blocked");
       const failure = aiFailure(ev, blocked);
-      if (blocked.length && answered) chips.push(h("span", { class: "chip warn", tip: { title: "Budget guard", body: `Your spending cap was reached (${blocked[0].reason || "budget"}), so Trioditis skipped ${blocked.map(a => a.model).join(", ")} and used a free local model instead.`, where: "Caps: ~/.hlidskjalv/budget.json" } }, "budget → local"));
+      if (blocked.length && answered) chips.push(h("span", { class: "chip warn", tip: { title: "Budget guard", body: `Your spending cap was reached (${blocked[0].reason || "budget"}), so Trioditis skipped ${blocked.map(a => a.model).join(", ")} and used a free local model instead.`, where: "Caps: ~/.lunete/budget.json" } }, "budget → local"));
       if (ev.sensitive && ev.sensitive.length) chips.push(h("span", { class: "chip ok", tip: { title: "Kept private", body: `Trioditis spotted: ${ev.sensitive.join(", ")}. It kept this request on a local model so it never left your computer.` } }, icon("shield"), "kept local"));
       const otherFails = (ev.fallbacks || 0) - blocked.length;
       if (otherFails > 0 && answered) chips.push(h("span", { class: "chip warn", tip: { title: "Fallback", body: `${otherFails} model(s) were busy or down, so Trioditis tried the next one.` } }, `${otherFails} fallback`));
       if (failure === "rate_limited") { const w = retryWait(ev); chips.push(h("span", { class: "chip warn", tip: { title: "Rate-limited", body: "Every model Trioditis tried said \"too many requests\". The program that asked was told when to try again, instead of getting an error it would retry at once.", why: w != null ? `The provider asked for a pause of ${w} s.` : null } }, w != null ? `rate-limited · retry in ${w} s` : "rate-limited")); tone = "danger"; }
-      else if (failure === "budget_exceeded") { chips.push(h("span", { class: "chip bad", tip: { title: "Over budget", body: "The spending cap was reached and this route has no local model to fall back to, so the request was refused instead of billed.", where: "Caps: ~/.hlidskjalv/budget.json" } }, "over budget")); tone = "danger"; }
+      else if (failure === "budget_exceeded") { chips.push(h("span", { class: "chip bad", tip: { title: "Over budget", body: "The spending cap was reached and this route has no local model to fall back to, so the request was refused instead of billed.", where: "Caps: ~/.lunete/budget.json" } }, "over budget")); tone = "danger"; }
       else if (ev.status && ev.status >= 400) { chips.push(h("span", { class: "chip bad" }, "failed " + ev.status)); tone = "danger"; }
       break;
     }
@@ -435,7 +435,7 @@ function makeWorldView(slot, src) {
       statBox("AI steps", s.ai, { title: "AI steps", body: `${s.local} local (free, private), ${s.ai - s.local - s.sub} cloud (per token)${s.sub ? `, ${s.sub} on a subscription (Claude Code)` : ""}.` },
         h("div", { class: "ratio" }, h("i", { style: `width:${share}%` }))),
       statBox("tokens", fmt(s.tokens), { title: "Tokens", body: "Total words-ish sent to and received from models." }),
-      statBox("spend", s.costKnown ? money(s.cost) : "–", { title: "Spend", body: s.costKnown ? "Estimated from your prices file. Local models count as $0." : "Add model prices in ~/.hlidskjalv/prices.json to see spend." }),
+      statBox("spend", s.costKnown ? money(s.cost) : "–", { title: "Spend", body: s.costKnown ? "Estimated from your prices file. Local models count as $0." : "Add model prices in ~/.lunete/prices.json to see spend." }),
     );
   }
   function renderMap(w) {
@@ -523,7 +523,7 @@ setInterval(() => document.querySelectorAll("time[data-ts]").forEach(t => t.text
 let workXp = 0;
 /* The five original Learn levels gave 100 XP each; a cleared game level ("game:level", see learn.js) gives 25. */
 function academyXp() { return Object.entries(store.get("academy", {})).reduce((s, [k, v]) => s + (v ? (k.includes(":") ? 25 : 100) : 0), 0); }
-/* Finished Learn levels live in this browser and, when paired, in ~/.hlidskjalv/progress.json too (sync carries them). */
+/* Finished Learn levels live in this browser and, when paired, in ~/.lunete/progress.json too (sync carries them). */
 function mergeAcademy(fromServer) {
   const local = store.get("academy", {}), merged = { ...local };
   for (const k of Object.keys(fromServer || {})) if (fromServer[k]) merged[k] = true;
@@ -544,7 +544,7 @@ function updateLevel() {
 }
 function toast(text) { const t = h("div", { class: "toast", text }); $("#toasts").append(t); setTimeout(() => t.remove(), 3800); }
 TIPS.set($(".level"), () => ({ title: "Level and XP", body: ["Earn XP for real work: new files +10, edits +5, commands +3, save points +50, AI steps on local models +5, Learn game levels +25."], why: "Save points are worth the most: they're what make experiments safe." }));
-TIPS.set($(".logo"), { title: "Hlidskjalv", body: "A live, game-like view of what you and your AI helper do in a project. It only watches; it never changes your files or runs anything.", where: "Runs on your computer at http://127.0.0.1:8788" });
+TIPS.set($(".logo"), { title: "Lunete", body: "A live, game-like view of what you and your AI helper do in a project. It only watches; it never changes your files or runs anything.", where: "Runs on your computer at http://127.0.0.1:8788" });
 
 /* Why no model answered: Trioditis 0.4+ says so in the log; older logs only show a 429 with a budget skip. */
 function aiFailure(ev, blocked) {
@@ -605,10 +605,10 @@ function setMode(m) {
   mode = m; const el = $("#mode");
   el.className = "mode " + (m === "live" ? "live" : m === "off" || m === "connecting" ? "off" : "demo");
   el.textContent = m === "live" ? "Live" : m === "off" ? "Reconnecting" : m === "connecting" ? "Connecting" : "Demo";
-  TIPS.set(el, m === "demo" ? { title: "Demo mode", body: "You're watching an example session (made-up project and numbers). Run Hlidskjalv on your computer to see your own work.", where: "python -m hlidskjalv watch <project folder>" }
-    : m === "connecting" ? { title: "Connecting", body: "Waiting for Hlidskjalv on your computer to answer (it may be restarting)." }
-    : m === "live" ? { title: "Live", body: "Connected to Hlidskjalv on your computer. Changes appear within a second." }
-    : { title: "Reconnecting", body: "Lost the connection to Hlidskjalv on your computer. Is it still running?" });
+  TIPS.set(el, m === "demo" ? { title: "Demo mode", body: "You're watching an example session (made-up project and numbers). Run Lunete on your computer to see your own work.", where: "python -m lunete watch <project folder>" }
+    : m === "connecting" ? { title: "Connecting", body: "Waiting for Lunete on your computer to answer (it may be restarting)." }
+    : m === "live" ? { title: "Live", body: "Connected to Lunete on your computer. Changes appear within a second." }
+    : { title: "Reconnecting", body: "Lost the connection to Lunete on your computer. Is it still running?" });
   el.setAttribute("data-tip", "");
 }
 const SOURCE_LABELS = { files: "Files", git: "Git", commands: "Terminal", trioditis: "AI", claude_code: "Claude Code",
@@ -625,10 +625,10 @@ function sourceChips(snap) {
   $("#sources").replaceChildren(
     chip(true, "Files", "Watching every file in the project folder, except build and library folders."),
     chip(snap.git, "Git", "Watching save points and branches.", { body: "This folder isn't a Git project yet. Run git init to start saving points.", where: "git init" }),
-    chip(snap.commands_hook, "Terminal", "Recording commands typed in this project's folder. Start a command with a space to keep it private.", { body: "Add the small shell hook to see commands here.", where: "python -m hlidskjalv hook bash >> ~/.bashrc" }),
-    chip(snap.trioditis, "AI", "Reading Trioditis's log: route, model, tokens. Never your prompts.", { body: "Start Hlidskjalv with --trioditis-log to see AI steps.", where: "--trioditis-log ~/trioditis/logs/decisions.jsonl" }),
+    chip(snap.commands_hook, "Terminal", "Recording commands typed in this project's folder. Start a command with a space to keep it private.", { body: "Add the small shell hook to see commands here.", where: "python -m lunete hook bash >> ~/.bashrc" }),
+    chip(snap.trioditis, "AI", "Reading Trioditis's log: route, model, tokens. Never your prompts.", { body: "Start Lunete with --trioditis-log to see AI steps.", where: "--trioditis-log ~/trioditis/logs/decisions.jsonl" }),
     chip(snap.claude_code, "Claude Code", "Reading Claude Code's own session transcripts for this folder: model and tokens only, never text.", { body: "No Claude Code sessions for this folder yet. Run claude here and its steps appear.", where: "claude" }),
-    chip(snap.terminal, "Shell", "The Terminal tab runs a real shell in this folder.", { body: "The in-browser terminal is off. Start Hlidskjalv with --terminal to switch it on.", where: "python -m hlidskjalv watch <folder> --terminal" }),
+    chip(snap.terminal, "Shell", "The Terminal tab runs a real shell in this folder.", { body: "The in-browser terminal is off. Start Lunete with --terminal to switch it on.", where: "python -m lunete watch <folder> --terminal" }),
     ...stalledChips(),
   );
 }
@@ -657,7 +657,7 @@ function liveEvent(ev) {
   if (ev.type === "commit" && world.stats.commits === 1) toast("First save point! +50 XP");
 }
 const isLoopback = () => /^(127\.0\.0\.1|localhost|\[::1\]|[a-z0-9-]+\.localhost)$/i.test(location.hostname);
-/* A Hlidskjalv that is restarting answers within seconds: wait for it instead of showing the example session. */
+/* A Lunete that is restarting answers within seconds: wait for it instead of showing the example session. */
 async function fetchState() {
   const deadline = Date.now() + 30000; let wait = 500;
   for (;;) {
@@ -848,10 +848,10 @@ function efficiencyTips(sum) {
   for (const r of routes.filter(r => r.cloud).sort((a, b) => b.cost - a.cost).slice(0, 3))
     tips.push(["warn", `Route ${r.route}: ${r.cloud} cloud call${r.cloud === 1 ? "" : "s"}${r.cost ? ` (${money(r.cost)})` : ""}, ${r.local} local.`,
       "If routine prompts land here, list a local model first for this route; Trioditis falls back to the cloud model if it fails. See which local models fit your computer:", "python -m trioditis hardware"]);
-  if (t.unpriced) tips.push(["warn", `${t.unpriced} cloud call${t.unpriced === 1 ? " has" : "s have"} no price, so spend and the budget guard can't count ${t.unpriced === 1 ? "it" : "them"}.`, "Add each cloud model's price per million tokens:", "~/.hlidskjalv/prices.json"]);
+  if (t.unpriced) tips.push(["warn", `${t.unpriced} cloud call${t.unpriced === 1 ? " has" : "s have"} no price, so spend and the budget guard can't count ${t.unpriced === 1 ? "it" : "them"}.`, "Add each cloud model's price per million tokens:", "~/.lunete/prices.json"]);
   if (t.rateLimited) tips.push(["warn", `${t.rateLimited} request${t.rateLimited === 1 ? " was" : "s were"} rate-limited by every model tried.`,
     "The program that asked was told how long to wait (Retry-After). If it happens often, add a second provider or a local model to that route, or send fewer requests at once."]);
-  if (t.blocked) tips.push(["ok", `The budget guard kept ${t.blocked} call${t.blocked === 1 ? "" : "s"} off paid models.`, "Caps live in a small file; edits apply immediately:", "~/.hlidskjalv/budget.json"]);
+  if (t.blocked) tips.push(["ok", `The budget guard kept ${t.blocked} call${t.blocked === 1 ? "" : "s"} off paid models.`, "Caps live in a small file; edits apply immediately:", "~/.lunete/budget.json"]);
   if (t.sub && t.subIn) tips.push(["ai", `Claude Code: ${Math.round((t.subCached / t.subIn) * 100)}% of its input was cached context (${fmt(t.subCached)} of ${fmt(t.subIn)} tokens).`,
     "Each turn re-reads the whole conversation. Starting a fresh session (or /clear) for a new task keeps that context, and your plan's usage, small."]);
   return tips;
@@ -920,11 +920,11 @@ function eventPanel(ev, src) {
       ["Why no XP", "Reset, rebase, amend or a checkout of another commit moves the project back or sideways; nothing new was saved."]); break;
     case "alert": {
       const what = { persistence: "If you didn't add this yourself, or you don't know the program, look at the file before your next login and remove what you don't recognise.",
-        refused_access: "Nothing got through. If it repeats and isn't one of your own old browser tabs or links, something on this computer is probing Hlidskjalv or Trioditis.",
+        refused_access: "Nothing got through. If it repeats and isn't one of your own old browser tabs or links, something on this computer is probing Lunete or Trioditis.",
         system_log: "If you didn't run this or log in, change your password and check who has access.",
         ai_commands: "The AI ran this on its own. Check that it did what you asked; in Claude Code you can require approval for such commands." }[ev.source];
       rows.push(["Severity", SEV[ev.severity]?.label || ev.severity], ["Source", ALERT_SOURCES[ev.source]?.label || ev.source, ALERT_SOURCES[ev.source]?.tip],
-        ev.expected && ["Expected", "yes", "Hlidskjalv made this change itself."], ev.data && ev.data.path && ["Where", ev.data.path], ev.data && ev.data.cwd && ["Folder", ev.data.cwd]);
+        ev.expected && ["Expected", "yes", "Lunete made this change itself."], ev.data && ev.data.path && ["Where", ev.data.path], ev.data && ev.data.cwd && ["Folder", ev.data.cwd]);
       extra.push(h("pre", { class: "raw", text: ev.detail || "" }), what ? h("p", { class: "why", style: "margin:0;color:var(--text)", text: "What to do: " + what }) : null,
         AL.acks.has(ev.uid) ? null : h("button", { type: "button", class: "btn", style: "justify-self:start", onclick: () => ackAlerts([ev.uid]) }, "Mark seen"));
       break;
@@ -941,12 +941,12 @@ function eventPanel(ev, src) {
         answered && ["Tokens in", ev.tokens_in != null ? ev.tokens_in.toLocaleString() : "not reported", "Your request plus all the context sent with it."],
         ev.tokens_cached != null && ["of which cached", ev.tokens_cached.toLocaleString(), "Context re-read from earlier turns: cheaper and faster than new input."],
         answered && ["Tokens out", ev.tokens_out != null ? ev.tokens_out.toLocaleString() : "not reported", "The answer. Output tokens usually cost several times more than input."],
-        !answered ? ["Cost", "$0", "No model answered, so nothing was billed."] : ["Cost", ev.local ? "$0" : sub ? "included in plan" : ev.cost != null ? money(ev.cost) : "unknown", !ev.local && !sub && ev.cost == null ? "Add this model's prices to ~/.hlidskjalv/prices.json." : null],
+        !answered ? ["Cost", "$0", "No model answered, so nothing was billed."] : ["Cost", ev.local ? "$0" : sub ? "included in plan" : ev.cost != null ? money(ev.cost) : "unknown", !ev.local && !sub && ev.cost == null ? "Add this model's prices to ~/.lunete/prices.json." : null],
         ev.sensitive && ev.sensitive.length && ["Kept private", ev.sensitive.join(", "), "Trioditis spotted private data and kept this request on a local model."]);
       if (ev.reasons && ev.reasons.length) extra.push(h("div", { class: "eyebrow", text: "Why this model" }), h("ul", { class: "dlist" }, ...ev.reasons.map(r => h("li", { class: "ai", text: r }))));
       else if (!sub) extra.push(h("p", { class: "muted", text: "Trioditis's reasons for this choice show here for steps logged by a current Trioditis." }));
       if (ev.attempts && ev.attempts.length) extra.push(h("div", { class: "eyebrow", text: "Tried first" }), h("ul", { class: "dlist" }, ...ev.attempts.map(a =>
-        a.error === "budget_blocked" ? h("li", { class: "warn" }, `${a.model}: skipped, over budget`, h("small", { text: (a.reason || "") + ". Caps: ~/.hlidskjalv/budget.json" }))
+        a.error === "budget_blocked" ? h("li", { class: "warn" }, `${a.model}: skipped, over budget`, h("small", { text: (a.reason || "") + ". Caps: ~/.lunete/budget.json" }))
         : a.status ? h("li", { class: "bad" }, `${a.model}: answered ${a.status}`, h("small", { text: a.status === 429 ? "Rate-limited: too many requests." + (a.retry_after != null ? ` Asked to wait ${a.retry_after} s.` : "") : a.status >= 500 ? "The provider had a problem." : "Not usable for this request." }))
         : h("li", { class: "bad" }, `${a.model}: couldn't connect`, h("small", { text: a.error || "" })))));
       if (failure === "budget_exceeded") extra.push(h("p", { class: "warn", text: "Refused rather than billed: the route has no local model to fall back to. Add one, or raise the cap." }));
@@ -960,7 +960,7 @@ function eventPanel(ev, src) {
     v.chips.length ? h("div", { class: "meta", style: "display:flex;flex-wrap:wrap;gap:6px" }, ...v.chips) : null,
     kv(rows), ...extra,
     h("p", { class: "why", style: "margin:0;color:var(--ok)", text: c.why }),
-    h("details", {}, h("summary", { text: "Raw event (exactly what Hlidskjalv recorded)" }), h("pre", { class: "raw", text: JSON.stringify(ev, null, 2) })));
+    h("details", {}, h("summary", { text: "Raw event (exactly what Lunete recorded)" }), h("pre", { class: "raw", text: JSON.stringify(ev, null, 2) })));
 }
 function relatedList(evs, src, empty) {
   return evs.length ? h("ul", { class: "dlist" }, ...evs.slice(-60).reverse().map(ev => { const v = eventView(ev);
@@ -995,7 +995,7 @@ function modelPanel(model, src) {
   return panel("Model", model,
     kv([["Runs on", billingOf(m)], ["Calls", m.calls, m.failed ? `${m.failed} failed` : null], ["Routes", [...m.routes].join(", ")],
       ["Tokens", `${fmt(m.tin)} in · ${fmt(m.tout)} out`, m.cached ? `${fmt(m.cached)} of the input was cached context` : null],
-      ["Cost", m.local ? "$0" : m.sub ? "included in plan" : m.priced ? money(m.cost) : "unknown", !m.local && !m.sub && m.priced < m.calls ? "Some calls have no price in ~/.hlidskjalv/prices.json." : null],
+      ["Cost", m.local ? "$0" : m.sub ? "included in plan" : m.priced ? money(m.cost) : "unknown", !m.local && !m.sub && m.priced < m.calls ? "Some calls have no price in ~/.lunete/prices.json." : null],
       m.latN && ["Average time", (m.lat / m.latN / 1000).toFixed(2) + " s"]]),
     h("div", { class: "eyebrow", text: "Calls" }), relatedList(evs, src));
 }
@@ -1062,14 +1062,14 @@ function meter(label, value, cap, period, balance) {
 }
 function budgetPanel(b) {
   if (!b || !b.available) return panel("Spending caps", "Not connected",
-    h("p", { class: "muted", style: "margin:0", text: "Trioditis keeps a call history and daily and monthly caps in ~/.hlidskjalv. Start Trioditis (v0.2 or newer) to see them here." }));
+    h("p", { class: "muted", style: "margin:0", text: "Trioditis keeps a call history and daily and monthly caps in ~/.lunete. Start Trioditis (v0.2 or newer) to see them here." }));
   const ct = b.calls_today || { total: 0, local: 0 };
   return panel("Spending caps", `${money(b.today)} today · ${money(b.month)} this month`,
     meter("Today", b.today, b.caps.daily_usd, "today"), meter("This month", b.month, b.caps.monthly_usd, "this month"),
     h("p", { class: "muted", style: "margin:0", text: `${ct.total} Trioditis call${ct.total === 1 ? "" : "s"} today, ${ct.local} on free local models.${b.caps_file ? "" : " Caps are the defaults ($1/day, $15/month)."}` }),
     b.unpriced_today ? h("ul", { class: "dlist" }, h("li", { class: "warn" }, `${b.unpriced_today} cloud call${b.unpriced_today === 1 ? "" : "s"} today had no price, so the caps can't count ${b.unpriced_today === 1 ? "it" : "them"}.`,
-      h("small", { text: `Add ${b.unpriced_models.join(", ") || "those models"} to ~/.hlidskjalv/prices.json.` }))) : null,
-    h("div", { class: "cmd", text: "~/.hlidskjalv/budget.json  {\"daily_usd\": 1.0, \"monthly_usd\": 15.0}" }));
+      h("small", { text: `Add ${b.unpriced_models.join(", ") || "those models"} to ~/.lunete/prices.json.` }))) : null,
+    h("div", { class: "cmd", text: "~/.lunete/budget.json  {\"daily_usd\": 1.0, \"monthly_usd\": 15.0}" }));
 }
 function toolsPanel(b) {
   if (!b || !b.available || !b.by_client) return null;  // a Trioditis older than 0.4 doesn't record the tool
@@ -1086,7 +1086,7 @@ function toolsPanel(b) {
 }
 function hardwarePanel(hw) {
   if (!hw || !hw.available) return panel("Local models for this computer", "No report yet",
-    h("p", { class: "muted", style: "margin:0", text: "Trioditis writes a hardware report to ~/.hlidskjalv/hardware.json when it starts. Or run: python -m trioditis hardware" }));
+    h("p", { class: "muted", style: "margin:0", text: "Trioditis writes a hardware report to ~/.lunete/hardware.json when it starts. Or run: python -m trioditis hardware" }));
   const H = hw.hardware || {}, gpu = (H.gpus || [])[0];
   const age = hw.generated_at ? ` · checked ${ago(hw.generated_at)}` : "";
   return panel("Local models for this computer", `~${hw.budget.gb} GB usable for a model${age}`,
@@ -1155,7 +1155,7 @@ function providersPanel(b, acct) {
     if (sp.caps.monthly_usd != null) rows.push(meter("This month", sp.month, sp.caps.monthly_usd, "this month"));
     if (sp.caps.daily_usd != null) rows.push(meter("Today", sp.today, sp.caps.daily_usd, "today"));
     if (sp.caps.monthly_usd == null && sp.caps.daily_usd == null)
-      rows.push(kv([["Spend", `${money(sp.month)} this month · ${money(sp.today)} today`, `${sp.calls_month} call${sp.calls_month === 1 ? "" : "s"} this month, counted by Trioditis. No cap of its own: add one in ~/.hlidskjalv/budget.json under "providers".`]]));
+      rows.push(kv([["Spend", `${money(sp.month)} this month · ${money(sp.today)} today`, `${sp.calls_month} call${sp.calls_month === 1 ? "" : "s"} this month, counted by Trioditis. No cap of its own: add one in ~/.lunete/budget.json under "providers".`]]));
     if (a && !a.error) {
       if (a.limit != null && a.remaining != null) rows.push(meter(a.label || "Account", a.used, a.limit, a.period === "prepaid" ? "of what you bought" : "this " + a.period, a.kind === "credits"));
       else rows.push(kv([[a.label || "Account", `${money(a.used)} used` + (a.period === "month" ? " this month" : ""), a.note || null]]));
@@ -1198,7 +1198,7 @@ function planPanel(c) {
 /* =========================================================== owner key & settings */
 /* Reading needs nothing; every change needs the owner key, which this browser
    gets once from a one-time pairing link (#pair=...). See auth.py. */
-const PAIR_HINT = "Pair it in Settings → Pairing with your password, or run: python3 -m hlidskjalv pair --open";
+const PAIR_HINT = "Pair it in Settings → Pairing with your password, or run: python3 -m lunete pair --open";
 const OWNER = {  // `key` is a session token: it ends after security.session_minutes without a request
   key: store.get("session", null),
   paired: false, expires: 0, passwordSet: false, totp: false, fresh: false, system: "",
@@ -1267,11 +1267,11 @@ function renderTerminal() {
     slot.dataset.state = "off";
     return slot.replaceChildren(h("section", { class: "panel termoff" },
       h("h3", { text: mode === "demo" ? "Not available in the example" : "The terminal is switched off" }),
-      h("p", { class: "muted", style: "margin:0", text: "It's off by default because a shell in a web page can do anything you can. Switch it on in Settings → Watching, or start Hlidskjalv with --terminal (Linux and macOS; Windows experimental):" }),
-      h("div", { class: "cmd", text: "python3 -m hlidskjalv watch ~/projects/my-app --terminal" }),
+      h("p", { class: "muted", style: "margin:0", text: "It's off by default because a shell in a web page can do anything you can. Switch it on in Settings → Watching, or start Lunete with --terminal (Linux and macOS; Windows experimental):" }),
+      h("div", { class: "cmd", text: "python3 -m lunete watch ~/projects/my-app --terminal" }),
       h("ul", { class: "dlist" },
-        h("li", { class: "ok" }, "Only this page can connect", h("small", { text: "Other websites and other users on this computer are refused: Hlidskjalv checks the page's origin and a secret key made fresh at every start." })),
-        h("li", { class: "ok" }, "Only paired browsers", h("small", { text: "A browser is paired once with a one-time link (the one Hlidskjalv opens, or: python3 -m hlidskjalv pair). After the first use the link is worthless, even if someone copies it." })),
+        h("li", { class: "ok" }, "Only this page can connect", h("small", { text: "Other websites and other users on this computer are refused: Lunete checks the page's origin and a secret key made fresh at every start." })),
+        h("li", { class: "ok" }, "Only paired browsers", h("small", { text: "A browser is paired once with a one-time link (the one Lunete opens, or: python3 -m lunete pair). After the first use the link is worthless, even if someone copies it." })),
         h("li", { class: "warn" }, "It's a real shell", h("small", { text: "Commands run as you, in the project folder. Use the command decoder in Learn when you're unsure what a command does." })))));
   }
   if (slot.dataset.state === "on") { requestAnimationFrame(() => TERM.fit && TERM.fit.fit()); return; }
@@ -1292,7 +1292,7 @@ function renderTerminal() {
     term.onResize(({ cols, rows }) => { if (TERM.ws && TERM.ws.readyState === 1) TERM.ws.send(JSON.stringify({ size: [cols, rows] })); });
     addEventListener("resize", () => { if (currentTab === "terminal") fit.fit(); });
     termConnect(false);
-  }).catch(() => termStatus("Couldn't load the terminal files from Hlidskjalv."));
+  }).catch(() => termStatus("Couldn't load the terminal files from Lunete."));
 }
 function termConnect(fresh) {
   const term = TERM.term; if (!term) return;
@@ -1319,8 +1319,8 @@ function termConnect(fresh) {
       askCode("Root is allowed in the terminal, so a fresh code is needed to open a shell.").then(ok => { if (ok) termConnect(true); });
     }
     else if (e.code === 1008) { OWNER.forget(); termStatus("This browser isn't paired, or its session ended. " + PAIR_HINT); }
-    else if (e.code === 1013) termStatus("Too many terminals open. Close another Hlidskjalv tab first.");
-    else if (e.code === 1006) termStatus("Connection lost. If Hlidskjalv just restarted, press New shell.");
+    else if (e.code === 1013) termStatus("Too many terminals open. Close another Lunete tab first.");
+    else if (e.code === 1006) termStatus("Connection lost. If Lunete just restarted, press New shell.");
     else termStatus((e.reason ? `Disconnected: ${e.reason}. ` : "Disconnected. ") + "Press New shell to start another.");
   };
   term.focus();
@@ -1489,7 +1489,7 @@ function applyLayout(layout) {
       tip: VIEWS[v].menu ? null : { title: VIEWS[v].label, body: VIEWS[v].tip }, onclick: () => showTab(v) },
       icon("v-" + v), h("span", { class: "lbl", text: VIEWS[v].label }), v === "alerts" ? h("span", { class: "badge-n", id: "alerts-n", hidden: true }) : null)),
     h("span", { class: "sep" }),
-    h("button", { type: "button", id: "open-settings", "aria-label": "Settings", tip: { title: "Settings", body: "Appearance, what Hlidskjalv watches, pairing, sync and this computer." }, onclick: () => openSettings() },
+    h("button", { type: "button", id: "open-settings", "aria-label": "Settings", tip: { title: "Settings", body: "Appearance, what Lunete watches, pairing, sync and this computer." }, onclick: () => openSettings() },
       icon("v-settings"), h("span", { class: "lbl", text: "Settings" })),
     ...(typeof helpButton === "function" ? [helpButton()] : []));  // tour.js
   nav.onkeydown = navKeys;
@@ -1753,14 +1753,14 @@ function featuresSection(draft, set) {
   return [
     field("In-page terminal", "A real shell in the project folder, for paired browsers only. Applies after a restart. Linux and macOS; Windows is experimental.", toggleCtl(draft.features.terminal, v => set("features.terminal", v), "On")),
     OWNER.system === "Linux" ? field("Root in the terminal", OWNER.passwordSet
-        ? "Lets the shell in the Terminal tab use sudo, with your password as usual. Hlidskjalv itself stays sandboxed. Refused while sudo needs no password on this computer; with two-factor on, a fresh code is asked for."
+        ? "Lets the shell in the Terminal tab use sudo, with your password as usual. Lunete itself stays sandboxed. Refused while sudo needs no password on this computer; with two-factor on, a fresh code is asked for."
         : "Set a pairing password first (Settings → Pairing). Then the shell in the Terminal tab may use sudo.",
       toggleCtl(draft.features.terminal_root, v => set("features.terminal_root", v), "Allow")) : null,
     OWNER.system === "Darwin" ? field("Root in the terminal", "On macOS the shell in the Terminal tab can always use sudo, with your password; there is no way to forbid it there.", h("span", { class: "chip ok", text: "always possible" })) : null,
     field("Levels and XP", "Points for real work, levels and badges.", toggleCtl(draft.features.xp, v => set("features.xp", v), "On")),
     field("Long-context warning", "Flag Claude Code sessions where one turn carries more context than this (Details → Claude Code usage).",
       rangeCtl(10000, 1000000, 10000, draft.usage.fresh_threshold, v => fmt(v) + " tokens", v => set("usage.fresh_threshold", v))),
-    field("Weekly plan reset", "When your Claude plan's weekly window resets, as the official usage panel shows it. Other apps and machines share that window but leave no transcripts here, so Hlidskjalv can't work it out alone. Leave empty to estimate.",
+    field("Weekly plan reset", "When your Claude plan's weekly window resets, as the official usage panel shows it. Other apps and machines share that window but leave no transcripts here, so Lunete can't work it out alone. Leave empty to estimate.",
       h("div", { class: "colorctl" }, h("input", { type: "datetime-local", value: (draft.usage.week_anchor || "").slice(0, 16), onchange: e => set("usage.week_anchor", e.target.value || null) }),
         h("button", { type: "button", class: "btn small", onclick: () => set("usage.week_anchor", null) }, "Estimate"))),
   ];
@@ -1784,7 +1784,7 @@ function openSetup() {
     ["Background", "Plain, a gradient, or slow particles.", backgroundSection],
     ["Layout", "Where the navigation sits and which views you want.", layoutSection],
     ["Features", null, featuresSection],
-    ["Sources", "Where Hlidskjalv looks for AI steps.", sourcesSection],
+    ["Sources", "Where Lunete looks for AI steps.", sourcesSection],
   ];
   let i = 0, saved = false;
   const body = h("div", { class: "setup" }), dots = h("ol", { class: "steps" });
@@ -1907,23 +1907,23 @@ function pairingPane(set, render) {
       h("div", { class: "pwrow" }, h("span", { class: "chip " + (mode === "demo" ? "no" : paired ? "ok" : "warn"), text: mode === "demo" ? "example only" : paired ? "paired" : "not paired" }),
         paired ? h("button", { type: "button", class: "btn small", onclick: async () => { await OWNER.logout(); toast("Logged out here."); render(); } }, "Log out") : null)),
     h("p", { class: "muted", text: "Watching needs nothing. Changing settings and using the terminal need this browser to be paired." }),
-    !paired && mode !== "demo" ? field("Pair with the password", OWNER.passwordSet ? "The one set in this Hlidskjalv. Five wrong tries lock this for a minute." : "No password is set yet: pair once with the link below, then set one here.", OWNER.passwordSet ? loginRow : null) : null,
-    !paired && mode !== "demo" ? field("Sign in with a provider", "The account linked in this Hlidskjalv, with that provider's own protections in front.", ssoPairButtons(render)) : null,
+    !paired && mode !== "demo" ? field("Pair with the password", OWNER.passwordSet ? "The one set in this Lunete. Five wrong tries lock this for a minute." : "No password is set yet: pair once with the link below, then set one here.", OWNER.passwordSet ? loginRow : null) : null,
+    !paired && mode !== "demo" ? field("Sign in with a provider", "The account linked in this Lunete, with that provider's own protections in front.", ssoPairButtons(render)) : null,
     paired ? field("Session length", "How long a paired browser stays paired without activity.", rangeCtl(15, 1440, 15, minutes, v => spanMin(v * 60000), v => set("security.session_minutes", v))) : null,
     paired ? field(OWNER.passwordSet ? "Password" : "Set a password", "Lets any browser on this computer pair by typing it, instead of a one-time link.", pwForm) : null,
     OWNER.passwordSet ? twoFactor : null,
     paired ? field("Sign in with GitHub or Google", "An alternative to the password for browsers on this computer: link your account once, then sign in there to pair. Needs the internet and an OAuth app of your own.", ssoManage(render)) : null,
-    mode !== "demo" ? field("Forgot your password?", "There is no reset email: Hlidskjalv has no account server. The recovery is this computer itself, because anyone who can use your user account here already owns everything in it.",
+    mode !== "demo" ? field("Forgot your password?", "There is no reset email: Lunete has no account server. The recovery is this computer itself, because anyone who can use your user account here already owns everything in it.",
       h("details", { class: "recover" }, h("summary", { text: "What to do" }),
-        h("p", { class: "muted", text: "Open a terminal on this computer, in the Hlidskjalv folder, and run one of these:" }),
-        h("div", { class: "cmd", text: "python3 -m hlidskjalv password" }), h("small", { class: "muted", text: "Sets a new password; the old one isn't needed." }),
-        h("div", { class: "cmd", text: "python3 -m hlidskjalv pair --open" }), h("small", { class: "muted", text: "Pairs this browser once with a link; then set a new password above." }),
-        OWNER.totp ? h("div", { class: "cmd", text: "python3 -m hlidskjalv 2fa off" }) : null,
+        h("p", { class: "muted", text: "Open a terminal on this computer, in the Lunete folder, and run one of these:" }),
+        h("div", { class: "cmd", text: "python3 -m lunete password" }), h("small", { class: "muted", text: "Sets a new password; the old one isn't needed." }),
+        h("div", { class: "cmd", text: "python3 -m lunete pair --open" }), h("small", { class: "muted", text: "Pairs this browser once with a link; then set a new password above." }),
+        OWNER.totp ? h("div", { class: "cmd", text: "python3 -m lunete 2fa off" }) : null,
         OWNER.totp ? h("small", { class: "muted", text: "Switches two-factor off, if the phone and the recovery codes are both gone." }) : null)) : null,
-    field("Pair with a link", "Prints a link that works once, for 10 minutes.", h("div", { class: "cmd", text: "python3 -m hlidskjalv pair --open" })),
-    field("Un-pair every browser", "Ends every session right away.", h("div", { class: "cmd", text: "python3 -m hlidskjalv pair --rotate" })),
+    field("Pair with a link", "Prints a link that works once, for 10 minutes.", h("div", { class: "cmd", text: "python3 -m lunete pair --open" })),
+    field("Un-pair every browser", "Ends every session right away.", h("div", { class: "cmd", text: "python3 -m lunete pair --rotate" })),
     mode !== "demo" ? field("Address", "The same page under a name. Works in Chrome, Edge and Firefox as is; Safari needs 127.0.0.1. Pairing is per address.",
-      h("a", { href: `http://hlidskjalv.localhost:${location.port || 80}/`, text: `http://hlidskjalv.localhost:${location.port || 80}/` })) : null,
+      h("a", { href: `http://lunete.localhost:${location.port || 80}/`, text: `http://lunete.localhost:${location.port || 80}/` })) : null,
   ];
 }
 /* Sign in with GitHub or Google (device flow): show the code and the link, wait for the provider's answer. */
@@ -1943,7 +1943,7 @@ function deviceFlow(provider, purpose) {
     const closeFn = () => (m && m.close ? m.close() : document.querySelector(".modal-back")?.remove());
     const tick = async () => {
       if (done) return;
-      let st; try { st = await (await fetch("/api/sso/poll?id=" + encodeURIComponent(flow.id), { cache: "no-store" })).json(); } catch { st = { status: "error", why: "lost contact with Hlidskjalv" }; }
+      let st; try { st = await (await fetch("/api/sso/poll?id=" + encodeURIComponent(flow.id), { cache: "no-store" })).json(); } catch { st = { status: "error", why: "lost contact with Lunete" }; }
       if (st.status === "pending") return setTimeout(tick, 3000);
       done = true; closeFn();
       if (st.status === "ok") { if (st.token) OWNER.accept(st); if (st.token) OWNER.fresh = true; return res(st); }
@@ -1968,7 +1968,7 @@ function ssoManage(render) {
       if (!p.configured) {
         const cid = h("input", { type: "text", placeholder: `${p.name} client id`, spellcheck: "false", "aria-label": `${p.name} client id` });
         const sec = p.needs_secret ? h("input", { type: "password", autocomplete: "off", placeholder: "Client secret", "aria-label": `${p.name} client secret` }) : null;
-        return field(p.name, `Needs an OAuth app registered under your own ${p.name} account (see docs/pairing-and-sync.md in the repository). Each sign-in tells ${p.name} that you use Hlidskjalv.`,
+        return field(p.name, `Needs an OAuth app registered under your own ${p.name} account (see docs/pairing-and-sync.md in the repository). Each sign-in tells ${p.name} that you use Lunete.`,
           h("form", { class: "pwrow", onsubmit: async e => { e.preventDefault();
             try { await withStepUp(() => OWNER.post("/api/sso/configure", { provider: k, client_id: cid.value, client_secret: sec ? sec.value : null })); toast(`${p.name} is set up.`); render(); }
             catch (err) { toast("Not saved: " + err.message); } } }, cid, sec, h("button", { type: "submit", class: "btn" }, "Save")));
@@ -2004,7 +2004,7 @@ function setupTwoFactor(render) {
           h("div", { class: "codes" }, ...r.recovery.map(c => h("span", { text: c }))),
           h("div", { class: "pwrow" },
             h("button", { type: "button", class: "btn", onclick: () => navigator.clipboard?.writeText(text).then(() => toast("Copied.")) }, "Copy"),
-            h("a", { class: "btn", href: URL.createObjectURL(new Blob([text + "\n"], { type: "text/plain" })), download: "hlidskjalv-recovery-codes.txt" }, "Download"),
+            h("a", { class: "btn", href: URL.createObjectURL(new Blob([text + "\n"], { type: "text/plain" })), download: "lunete-recovery-codes.txt" }, "Download"),
             h("button", { type: "button", class: "btn primary", onclick: () => { closeFn(); render(); } }, "Done")));
       } catch (err) { toast("Not confirmed: " + err.message); code.value = ""; code.focus(); }
     } }, code, h("button", { type: "submit", class: "btn primary" }, "Confirm"));
@@ -2037,7 +2037,7 @@ function syncPane(render) {
       return;
     }
     let kind = "folder";
-    const path = h("input", { type: "text", placeholder: "/home/you/Dropbox/Hlidskjalv", spellcheck: "false", "aria-label": "Folder" });
+    const path = h("input", { type: "text", placeholder: "/home/you/Dropbox/Lunete", spellcheck: "false", "aria-label": "Folder" });
     const token = h("input", { type: "password", autocomplete: "off", placeholder: "GitHub token with the gist scope", "aria-label": "GitHub token" });
     const gist = h("input", { type: "text", placeholder: "Gist id (empty: create a new private gist)", spellcheck: "false", "aria-label": "Gist id" });
     const pass = h("input", { type: "password", autocomplete: "new-password", placeholder: "Passphrase (8+ characters; the same on every computer)", "aria-label": "Passphrase" });
@@ -2045,7 +2045,7 @@ function syncPane(render) {
     const whereRow = h("div", { class: "fields" });
     const paintWhere = () => fill(whereRow, kind === "folder"
       ? field("Folder", "A folder another program keeps in sync for you. The copy is one file, hlidskjalv-sync.json.", path)
-      : [field("GitHub token", "A fine-grained personal access token with Gists: read and write. Kept in ~/.hlidskjalv/sync.json, never synced.", token),
+      : [field("GitHub token", "A fine-grained personal access token with Gists: read and write. Kept in ~/.lunete/sync.json, never synced.", token),
          field("Gist", null, gist)]);
     paintWhere();
     const connect = h("button", { type: "button", class: "btn primary", onclick: async () => {
@@ -2073,7 +2073,7 @@ function dataPane() {
   return [
     field("Setup", "Walk through the first-start questions again.", h("button", { type: "button", class: "btn", onclick: () => { document.querySelector(".modal-back")?.remove(); openSetup(); } }, "Run setup again")),
     field("Export", "Download your settings as a file.", h("button", { type: "button", class: "btn", onclick: () => {
-      const a = h("a", { href: URL.createObjectURL(new Blob([JSON.stringify(PREFS, null, 2)], { type: "application/json" })), download: "hlidskjalv-settings.json" }); a.click(); } }, "Export")),
+      const a = h("a", { href: URL.createObjectURL(new Blob([JSON.stringify(PREFS, null, 2)], { type: "application/json" })), download: "lunete-settings.json" }); a.click(); } }, "Export")),
     field("Import", "Load a settings file; it's checked before anything changes.", h("div", {}, file, h("button", { type: "button", class: "btn", onclick: () => file.click() }, "Import…"))),
     field("Reset", "Back to the defaults (the setup will show again).", h("button", { type: "button", class: "btn", onclick: async () => {
       if (!confirm("Reset every setting to its default?")) return;
@@ -2090,7 +2090,7 @@ function dataPane() {
 const SEV = { critical: { n: 3, label: "Critical" }, high: { n: 2, label: "High" }, medium: { n: 1, label: "Medium" }, info: { n: 0, label: "Info" } };
 const ALERT_SOURCES = {
   ai_commands: { label: "Commands the AI ran", tip: "Risky shell commands an AI agent (Claude Code) ran in this project." },
-  refused_access: { label: "Refused access", tip: "Requests Hlidskjalv or Trioditis turned away: other websites, wrong keys, other host names." },
+  refused_access: { label: "Refused access", tip: "Requests Lunete or Trioditis turned away: other websites, wrong keys, other host names." },
   persistence: { label: "Persistence changes", tip: "Something set itself up to run later: login items, scheduled jobs, shell startup files, SSH keys, Git hooks." },
   system_log: { label: "sudo and logins", tip: "Administrator commands and logins, from the system journal." },
   cost: { label: "Spend and limits", tip: "A spending cap 75% used or reached, or a provider rate limit used up." },
@@ -2099,7 +2099,7 @@ const AL = { list: new Map(), acks: new Set(), syslog: null, filter: { q: "", so
 ICONS.alert = ICONS["v-alerts"];
 const RISK_SEV = { danger: "high", caution: "medium" };
 /* A risky command run by an AI agent becomes an alert; the command itself stays in the activity log.
-   With a server the alert comes from it (hlidskjalv/risks.py, same table); the page makes its own only in demo mode. */
+   With a server the alert comes from it (lunete/risks.py, same table); the page makes its own only in demo mode. */
 function alertFromCommand(ev) {
   if (mode !== "demo" || ev.type !== "command" || ev.actor !== "ai") return null;
   const risks = explainCommand(ev.cmd).risks;
@@ -2145,7 +2145,7 @@ let audioCtx = null;
 function notifyAlert(a) {
   toast(`${SEV[a.severity].label}: ${a.title}`);
   if (PREFS.alerts.notify && "Notification" in window && Notification.permission === "granted") {
-    try { new Notification(`Hlidskjalv · ${SEV[a.severity].label}`, { body: a.title, tag: a.uid }); } catch {}
+    try { new Notification(`Lunete · ${SEV[a.severity].label}`, { body: a.title, tag: a.uid }); } catch {}
   }
   if (PREFS.alerts.sound) {
     try {
@@ -2167,7 +2167,7 @@ function alertCard(a, compact) {
       compact ? null : h("div", { class: "s", text: first }),
       h("div", { class: "meta" },
         h("span", { class: "chip", tip: { title: ALERT_SOURCES[a.source]?.label || a.source, body: ALERT_SOURCES[a.source]?.tip || "" } }, ALERT_SOURCES[a.source]?.label || a.source),
-        a.expected ? h("span", { class: "chip ok", tip: { title: "Expected", body: "Hlidskjalv made this change itself (for example its own login item)." } }, "expected") : null,
+        a.expected ? h("span", { class: "chip ok", tip: { title: "Expected", body: "Lunete made this change itself (for example its own login item)." } }, "expected") : null,
         seen ? h("span", { class: "chip no" }, "seen") : null,
         h("time", { "data-ts": a.ts, text: ago(a.ts) }))),
     seen ? null : h("button", { type: "button", class: "btn small", onclick: e => { e.stopPropagation(); ackAlerts([a.uid]); } }, "Mark seen"));

@@ -1,22 +1,22 @@
 """Who may change things: sessions, pairing codes and the password.
 
-Everything Hlidskjalv shows is readable by any local process (it binds
+Everything Lunete shows is readable by any local process (it binds
 loopback, like any dev server). Anything that *changes* something (settings,
 the terminal, acknowledging alerts) needs a session token, which a browser
 gets by pairing and keeps until the session runs out:
 
 - A session lasts as long as it is used; after `security.session_minutes`
   without a request it ends. Tokens are stored hashed in
-  ~/.hlidskjalv/web-sessions.json (owner-only) so they survive restarts.
-- Pairing, two ways: a password set with `python -m hlidskjalv password`
-  (stored as a salted scrypt hash in ~/.hlidskjalv/password, owner-only;
+  ~/.lunete/web-sessions.json (owner-only) so they survive restarts.
+- Pairing, two ways: a password set with `python -m lunete password`
+  (stored as a salted scrypt hash in ~/.lunete/password, owner-only;
   five wrong tries in ten minutes lock it for a minute), or a one-time code
-  that expires after PAIR_TTL_S. Codes come from the link Hlidskjalv opens at
-  launch, or from `python -m hlidskjalv pair`, which writes one to
-  ~/.hlidskjalv/pair (owner-only), so only your own user can pair a browser.
+  that expires after PAIR_TTL_S. Codes come from the link Lunete opens at
+  launch, or from `python -m lunete pair`, which writes one to
+  ~/.lunete/pair (owner-only), so only your own user can pair a browser.
   Launch links are visible to other users in /proc/<pid>/cmdline, which is
   why they must stop working once used.
-- The owner key in ~/.hlidskjalv/owner.key never leaves the machine's files:
+- The owner key in ~/.lunete/owner.key never leaves the machine's files:
   sessions are bound to it, so `pair --rotate` ends every session at once,
   without a restart.
 """
@@ -111,7 +111,7 @@ def new_totp_secret() -> str:
 
 
 def otpauth_uri(label: str, secret: str) -> str:
-    return (f"otpauth://totp/Hlidskjalv:{quote(label, safe='')}?secret={secret}&issuer=Hlidskjalv"
+    return (f"otpauth://totp/Lunete:{quote(label, safe='')}?secret={secret}&issuer=Lunete"
             f"&algorithm=SHA1&digits={TOTP_DIGITS}&period={TOTP_STEP_S}")
 
 
@@ -255,7 +255,7 @@ class Owner:
 
     # ------------------------------------------------------------- pairing
     def launch_code(self) -> str:
-        """A one-time code for the link Hlidskjalv opens itself."""
+        """A one-time code for the link Lunete opens itself."""
         code = new_token()
         with self._lock:
             self._launch = (code, time.time())
@@ -412,14 +412,14 @@ class Owner:
 
 
 def issue_pair_code(home: Path) -> str:
-    """For the `pair` command: a fresh one-time code the running Hlidskjalv will accept."""
+    """For the `pair` command: a fresh one-time code the running Lunete will accept."""
     code = new_token()
     write_private(home / "pair", code)
     return code
 
 
 def rotate_key(home: Path) -> None:
-    """A new owner key: every session ends (the running Hlidskjalv notices by itself)."""
+    """A new owner key: every session ends (the running Lunete notices by itself)."""
     write_private(home / "owner.key", new_token())
     try:
         (home / "web-sessions.json").unlink()

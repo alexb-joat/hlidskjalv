@@ -14,13 +14,13 @@ import unittest
 from pathlib import Path, PurePosixPath
 from unittest import mock
 
-from hlidskjalv import terminal as term
-from hlidskjalv.__main__ import HOOKS, check_folder
-from hlidskjalv.auth import Owner, issue_pair_code, rotate_key, totp_code, write_private
-from hlidskjalv.redact import redact
-from hlidskjalv.server import XP_RULES, Hub, Progress, load_history, read_session, serve, xp_of
-from hlidskjalv.settings import Settings, SettingsError, defaults, merge
-from hlidskjalv.sources import (
+from lunete import terminal as term
+from lunete.__main__ import HOOKS, check_folder
+from lunete.auth import Owner, issue_pair_code, rotate_key, totp_code, write_private
+from lunete.redact import redact
+from lunete.server import XP_RULES, Hub, Progress, load_history, read_session, serve, xp_of
+from lunete.settings import Settings, SettingsError, defaults, merge
+from lunete.sources import (
     ClaudeCodeWatcher,
     CommandWatcher,
     FileWatcher,
@@ -87,7 +87,7 @@ class FileWatcherTest(unittest.TestCase):
         self.assertFalse(hasattr(self.w, "lines"))  # no file's text is held beyond the small LRU cache
 
     def test_memory_is_bounded_and_big_changes_are_quick(self):
-        from hlidskjalv import sources as src
+        from lunete import sources as src
         big = "x" * 100 + "\n"
         (self.tmp / "big.log").write_text(big * 1500)  # ~150 KB: over the cache size, under the text limit
         t = time.monotonic()
@@ -117,7 +117,7 @@ class FileWatcherTest(unittest.TestCase):
         self.assertEqual([(e["added"], e["removed"]) for e in self.w.poll()], [(1, 0)])
 
     def test_cap_is_stable_and_never_invents_deletions(self):
-        from hlidskjalv import sources as src
+        from lunete import sources as src
         for i in range(6):
             (self.tmp / f"m{i}.txt").write_text("m\n")
         with mock.patch.object(src, "MAX_FILES", 5):
@@ -282,7 +282,7 @@ class TailTest(unittest.TestCase):
     def test_skips_a_line_longer_than_one_read(self):
         log = Path(tempfile.mkdtemp()) / "t.jsonl"
         log.write_text("")
-        from hlidskjalv.sources import READ_MAX, Tail
+        from lunete.sources import READ_MAX, Tail
         t = Tail(log)
         with log.open("a") as f:
             f.write("x" * (READ_MAX + 10) + "\n" + '{"ok": 1}\n')
@@ -475,7 +475,7 @@ class TerminalTest(unittest.TestCase):
                 break
 
     def test_shell_plan_matrix(self):
-        from hlidskjalv import terminal as tm
+        from lunete import terminal as tm
         if not tm._LINUX:
             self.skipTest("Linux only")
         t = term.Terminal(self.root, self.owner)
@@ -491,7 +491,7 @@ class TerminalTest(unittest.TestCase):
         with mock.patch.object(tm, "sudo_passwordless", lambda: False), mock.patch.object(tm, "sandboxed", lambda: True), \
                 mock.patch.object(tm, "user_manager_ok", lambda: "/usr/bin/systemd-run"):
             p = t.plan()
-            self.assertTrue(p.root and p.unit.startswith("hlidskjalv-shell-1-") and p.argv[:3] == ["/usr/bin/systemd-run", "--user", "--quiet"])
+            self.assertTrue(p.root and p.unit.startswith("lunete-shell-1-") and p.argv[:3] == ["/usr/bin/systemd-run", "--user", "--quiet"])
             self.assertIn("--pty", p.argv); self.assertEqual(p.argv[-2:], t.shell())
 
     def test_off_shell_cannot_elevate(self):
@@ -505,7 +505,7 @@ class TerminalTest(unittest.TestCase):
         self.assertIn(b"NoNewPrivs:\t1", ws.read_until(b"NoNewPrivs:\t"))
 
     def test_root_shell_needs_a_fresh_code_when_two_factor_is_on(self):
-        from hlidskjalv import terminal as tm
+        from lunete import terminal as tm
         if not tm._LINUX:
             self.skipTest("Linux only")
         self.shell.root_allowed = lambda: True
@@ -524,7 +524,7 @@ class TerminalTest(unittest.TestCase):
             ws.send(term.OP_BIN, b"grep --color=never NoNewPrivs /proc/self/status\n")
             self.assertIn(b"NoNewPrivs:\t0", ws.read_until(b"NoNewPrivs:\t"))
 
-    @unittest.skipUnless(os.path.exists("/proc/self/status") and __import__("hlidskjalv.terminal", fromlist=["x"]).user_manager_ok(),
+    @unittest.skipUnless(os.path.exists("/proc/self/status") and __import__("lunete.terminal", fromlist=["x"]).user_manager_ok(),
                          "needs a running systemd user manager")
     @unittest.skipIf(os.name == "nt", "the user-manager path is Linux")
     def test_root_shell_through_the_user_manager(self):
@@ -532,7 +532,7 @@ class TerminalTest(unittest.TestCase):
         child of the service, and without no-new-privileges. A stand-in systemd-run records what it was asked for
         and runs the shell directly: the real one needs a live user session, which hosted CI runners do not
         reliably have (a real run is part of the manual check in the launch plan)."""
-        from hlidskjalv import terminal as tm
+        from lunete import terminal as tm
         tmp = Path(tempfile.mkdtemp())
         record = tmp / "asked.txt"
         fake = tmp / "systemd-run"
@@ -557,7 +557,7 @@ class TerminalTest(unittest.TestCase):
         self.assertEqual(asked[:2], ["--user", "--quiet"])
         for expected in ("--pty", "--wait", "--collect", "-p", "MemoryMax=2G", "TERM=xterm-256color"):
             self.assertIn(expected, asked)
-        self.assertTrue(any(a.startswith("--unit=hlidskjalv-shell-") for a in asked))
+        self.assertTrue(any(a.startswith("--unit=lunete-shell-") for a in asked))
         self.assertTrue(any(a.startswith("--working-directory=") for a in asked))
 
     def test_off_by_default(self):
@@ -625,7 +625,7 @@ class OwnerTest(unittest.TestCase):
     def test_sessions_end_after_idle_time(self):
         """Idle time is measured on a controlled clock: a real 50 ms lifetime raced the session file's write
         and failed on slow runners."""
-        from hlidskjalv import auth as A
+        from lunete import auth as A
         clock = [1_000_000.0]
         with mock.patch.object(A.time, "time", lambda: clock[0]):
             self.owner.ttl_provider = lambda: 60
@@ -675,7 +675,7 @@ class OwnerTest(unittest.TestCase):
             self.assertEqual(totp_code(secret, t // 30), expect)
 
     def test_second_factor_setup_login_replay_and_recovery(self):
-        from hlidskjalv import auth as am
+        from lunete import auth as am
         o = self.owner
         o.set_password("open sesame 42")
         base = int(time.time() // 30) * 30 + 5  # five seconds into a step; the test moves the clock itself
@@ -683,7 +683,7 @@ class OwnerTest(unittest.TestCase):
         with mock.patch.object(am.time, "time", lambda: clock["t"]):
             d = o.totp_begin("me@box")
             code = lambda k: totp_code(d["secret"], base // 30 + k)
-            self.assertIn("otpauth://totp/Hlidskjalv:me%40box?secret=" + d["secret"], d["uri"])
+            self.assertIn("otpauth://totp/Lunete:me%40box?secret=" + d["secret"], d["uri"])
             self.assertIsNone(o.totp_confirm(code(5)))  # outside the drift window
             codes = o.totp_confirm(code(0))
             self.assertEqual(len(codes), 8)
@@ -773,7 +773,7 @@ class SettingsTest(unittest.TestCase):
         """The page carries its own copy of the defaults (for the demo and the first paint)."""
         import re
         from importlib import resources
-        page = resources.files("hlidskjalv").joinpath("static/app.js").read_text(encoding="utf-8")
+        page = resources.files("lunete").joinpath("static/app.js").read_text(encoding="utf-8")
         embedded = re.search(r"/\*DEFAULTS\*/(.*?)/\*END\*/", page, re.S).group(1)
         self.assertEqual(json.loads(embedded), defaults())
 
@@ -871,7 +871,7 @@ class WriteApiTest(unittest.TestCase):
         self.assertEqual(self.post("/api/settings", {"change": {"security": {"session_minutes": 1}}}, key=self.owner.start_session())[0], 400)
 
     def test_two_factor_endpoints_and_step_up(self):
-        from hlidskjalv import auth as am
+        from lunete import auth as am
         self.owner.set_password("open sesame 42")
         base = int(time.time() // 30) * 30 + 5
         clock = {"t": base}
@@ -879,7 +879,7 @@ class WriteApiTest(unittest.TestCase):
             tok = self.post("/api/pair", {"password": "open sesame 42"})[1]["token"]
             status, d = self.post("/api/2fa/begin", {}, key=tok)
             self.assertEqual(status, 200)
-            self.assertTrue(d["uri"].startswith("otpauth://totp/Hlidskjalv:"))
+            self.assertTrue(d["uri"].startswith("otpauth://totp/Lunete:"))
             code = lambda k: totp_code(d["secret"], base // 30 + k)
             self.assertEqual(self.post("/api/2fa/confirm", {"code": "x"}, key=tok)[0], 403)
             status, r = self.post("/api/2fa/confirm", {"code": code(0)}, key=tok)
@@ -901,7 +901,7 @@ class WriteApiTest(unittest.TestCase):
             self.assertFalse(self.owner.totp_enabled())
 
     def test_root_toggle_guard_rails(self):
-        from hlidskjalv import terminal as term_mod
+        from lunete import terminal as term_mod
         tok = self.post("/api/pair", {"code": self.owner.launch_code()})[1]["token"]
         change = {"change": {"features": {"terminal_root": True}}}
         status, body = self.post("/api/settings", change, key=tok)
@@ -962,7 +962,7 @@ class WriteApiTest(unittest.TestCase):
 
 class AutostartTest(unittest.TestCase):
     def test_unit_is_hardened_and_quotes_paths(self):
-        from hlidskjalv import autostart as a
+        from lunete import autostart as a
         unit = a.render_unit(PurePosixPath("/home/me/My Project"), 8790)  # a Linux file, on any test OS
         self.assertIn("ExecStart=", unit)
         self.assertIn("'/home/me/My Project' --no-open --port 8790", unit)
@@ -971,12 +971,12 @@ class AutostartTest(unittest.TestCase):
         self.assertNotIn("--terminal", unit)  # the terminal follows Settings, never the login item
 
     def test_plist_escapes(self):
-        from hlidskjalv import autostart as a
+        from lunete import autostart as a
         plist = a.render_plist(PurePosixPath("/Users/me/a&b"), 8788, PurePosixPath("/tmp/log"))
         self.assertIn("<string>/Users/me/a&amp;b</string>", plist)
 
     def test_status_reads_systemd_without_changing_anything(self):
-        from hlidskjalv import autostart as a
+        from lunete import autostart as a
         calls = []
 
         def fake(*args, timeout=15):
@@ -1000,7 +1000,7 @@ class AutostartTest(unittest.TestCase):
         self.assertTrue(all(c[0] in ("systemctl", "journalctl") and c[2] in ("show", "-u") for c in calls))
 
     def test_task_states_one_powershell_call(self):
-        from hlidskjalv import autostart as a
+        from lunete import autostart as a
         calls = []
 
         def fake(*args, timeout=15):
@@ -1008,19 +1008,19 @@ class AutostartTest(unittest.TestCase):
             return 0, "Ready\r\nnot installed\r\n"
 
         with mock.patch.object(a, "_run", fake):
-            states = a._task_states(["Hlidskjalv", "Trioditis"])
+            states = a._task_states(["Lunete", "Trioditis"])
         self.assertEqual(states, ["Ready", "not installed"])
         self.assertEqual(len(calls), 1)  # both tasks in one launch
-        self.assertIn("'Hlidskjalv','Trioditis'", calls[0][-1])
-        self.assertEqual(a._task_status("Hlidskjalv", "Running"),
-                         {"kind": "Scheduled Task", "name": "Hlidskjalv", "installed": True, "enabled": True,
-                          "active": True, "state": "Running", "stop": "Stop-ScheduledTask -TaskName 'Hlidskjalv'"})
+        self.assertIn("'Lunete','Trioditis'", calls[0][-1])
+        self.assertEqual(a._task_status("Lunete", "Running"),
+                         {"kind": "Scheduled Task", "name": "Lunete", "installed": True, "enabled": True,
+                          "active": True, "state": "Running", "stop": "Stop-ScheduledTask -TaskName 'Lunete'"})
         self.assertFalse(a._task_status("Trioditis", "not installed")["installed"])
         with mock.patch.object(a, "_run", lambda *args, timeout=15: (1, "boom")):
             self.assertEqual(a._task_states(["x", "y"]), ["not installed", "not installed"])
 
     def test_endpoint_is_owner_only(self):
-        from hlidskjalv import autostart as a
+        from lunete import autostart as a
         home = Path(tempfile.mkdtemp())
         port = free_port()
         owner = Owner(home)
@@ -1049,13 +1049,13 @@ class AutostartTest(unittest.TestCase):
 
 class AlertsTest(unittest.TestCase):
     def setUp(self):
-        from hlidskjalv.alerts import Alerter
+        from lunete.alerts import Alerter
         self.got = []
         self.dir = Path(tempfile.mkdtemp())
         self.alerter = Alerter(self.got.append, None, self.dir / "alerts.jsonl")
 
     def test_repeats_fold_and_history_is_private(self):
-        from hlidskjalv.alerts import read_history
+        from lunete.alerts import read_history
         for _ in range(3):
             self.alerter.raise_("high", "refused_access", "Blocked", "Host: x", fingerprint="h")
         self.assertEqual(len(self.got), 1)
@@ -1064,7 +1064,7 @@ class AlertsTest(unittest.TestCase):
             self.assertEqual((self.dir / "alerts.jsonl").stat().st_mode & 0o777, 0o600)
 
     def test_switched_off_sources_stay_quiet(self):
-        from hlidskjalv.alerts import Alerter
+        from lunete.alerts import Alerter
         s = Settings(self.dir / "s.json")
         s.update({"alerts": {"persistence": False}})
         a = Alerter(self.got.append, s)
@@ -1072,7 +1072,7 @@ class AlertsTest(unittest.TestCase):
         self.assertIsNotNone(a.raise_("high", "refused_access", "y"))
 
     def test_persistence_changes(self):
-        from hlidskjalv.alerts import PersistenceWatcher, remember_expected
+        from lunete.alerts import PersistenceWatcher, remember_expected
         home, root = self.dir / "home", self.dir / "proj"
         (home / ".ssh").mkdir(parents=True)
         (root / ".git" / "hooks").mkdir(parents=True)
@@ -1101,7 +1101,7 @@ class AlertsTest(unittest.TestCase):
         self.assertIn("SHA256:", ssh["detail"])
         self.assertNotIn(key, ssh["detail"])  # fingerprints only, never the key
 
-        self.got.clear()  # a change Hlidskjalv made itself is marked expected
+        self.got.clear()  # a change Lunete made itself is marked expected
         data = b"ours\n"
         remember_expected(self.dir, home / ".bashrc", data)
         (home / ".bashrc").write_bytes(data)
@@ -1110,7 +1110,7 @@ class AlertsTest(unittest.TestCase):
         self.assertEqual(self.got[0]["severity"], "info")
 
     def test_unreadable_targets_are_unavailable_not_deleted(self):
-        from hlidskjalv import alerts as A
+        from lunete import alerts as A
         home, root = self.dir / "home2", self.dir / "proj2"
         home.mkdir(parents=True)
         root.mkdir(parents=True)
@@ -1142,7 +1142,7 @@ class AlertsTest(unittest.TestCase):
         self.assertEqual(self.got, [])
 
     def test_ssh_client_and_project_git_settings(self):
-        from hlidskjalv.alerts import PersistenceWatcher
+        from lunete.alerts import PersistenceWatcher
         home, root = self.dir / "home3", self.dir / "proj3"
         (home / ".ssh").mkdir(parents=True)
         (root / ".git").mkdir(parents=True)
@@ -1161,7 +1161,7 @@ class AlertsTest(unittest.TestCase):
         self.assertEqual(self.got[0]["severity"], "medium")  # a harmless option
 
     def test_system_wide_targets_per_platform(self):
-        from hlidskjalv import alerts as A
+        from lunete import alerts as A
         for sysname, expected in (("linux", {"System scheduled jobs (/etc/cron.d)", "System services (/etc/systemd/system)",
                                               "Login environment (environment.d)"}),
                                   ("darwin", {"System daemons (launchd)", "Login agents for every user"}),
@@ -1171,20 +1171,20 @@ class AlertsTest(unittest.TestCase):
             self.assertTrue(expected <= labels, (sysname, expected - labels))
 
     def test_scheduled_tasks_keep_name_and_action_only(self):
-        from hlidskjalv.alerts import windows_tasks
-        out = ('"PC","\\Hlidskjalv","31/10/2026 08:00:00","Ready","Interactive","N/A","0","sam","C:\\py.exe -m hlidskjalv watch C:\\p"\r\n'
-               '"PC","\\Hlidskjalv","N/A","Ready","Interactive","N/A","0","sam","C:\\py.exe -m hlidskjalv watch C:\\p"\r\n'
+        from lunete.alerts import windows_tasks
+        out = ('"PC","\\Lunete","31/10/2026 08:00:00","Ready","Interactive","N/A","0","sam","C:\\py.exe -m lunete watch C:\\p"\r\n'
+               '"PC","\\Lunete","N/A","Ready","Interactive","N/A","0","sam","C:\\py.exe -m lunete watch C:\\p"\r\n'
                '"PC","\\Updater","01/11/2026 03:00:00","Ready","Background","N/A","0","x","C:\\tmp\\u.exe"\r\n'
                'garbage line\r\n')
         tasks = windows_tasks(lambda: out)
-        self.assertEqual(tasks, {"schtasks:\\Hlidskjalv": b"C:\\py.exe -m hlidskjalv watch C:\\p",
+        self.assertEqual(tasks, {"schtasks:\\Lunete": b"C:\\py.exe -m lunete watch C:\\p",
                                  "schtasks:\\Updater": b"C:\\tmp\\u.exe"})
         later = out.replace("31/10/2026 08:00:00", "01/11/2026 08:00:00")  # next run time moved: not a change
         self.assertEqual(windows_tasks(lambda: later), tasks)
         self.assertEqual(windows_tasks(lambda: ""), {})
 
     def test_system_journal(self):
-        from hlidskjalv.alerts import SystemLogWatcher
+        from lunete.alerts import SystemLogWatcher
         lines = []
 
         def runner(args):
@@ -1204,7 +1204,7 @@ class AlertsTest(unittest.TestCase):
         self.assertEqual(w.cursor, "c4")
 
     def test_trioditis_refusals(self):
-        from hlidskjalv.alerts import TrioditisSecurityWatcher
+        from lunete.alerts import TrioditisSecurityWatcher
         log = self.dir / "security.jsonl"
         log.write_text("")
         w = TrioditisSecurityWatcher(log, self.alerter)
@@ -1233,7 +1233,7 @@ class AlertsTest(unittest.TestCase):
         self.assertIn("rm -rf build", cmds[0]["cmd"])
 
     def test_risky_ai_commands_raise_one_alert_each(self):
-        from hlidskjalv.alerts import Alerter
+        from lunete.alerts import Alerter
         root = Path(tempfile.mkdtemp()).resolve()
         claude_home = Path(tempfile.mkdtemp())
         d = claude_code_project_dir(root, claude_home)
@@ -1262,13 +1262,13 @@ class AlertsTest(unittest.TestCase):
         self.assertEqual(len((home / "alerts.jsonl").read_text().splitlines()), 2)  # what `status` counts
 
     def test_refused_requests_raise_alerts_and_acks_need_the_key(self):
-        from hlidskjalv.alerts import Acks
-        from hlidskjalv.server import AlertsContext
+        from lunete.alerts import Acks
+        from lunete.server import AlertsContext
         home = Path(tempfile.mkdtemp())
         port = free_port()
         owner = Owner(home)
         hub = Hub("demo", [], None, {})
-        from hlidskjalv.alerts import Alerter
+        from lunete.alerts import Alerter
         alerter = Alerter(hub.publish, None, home / "alerts.jsonl")
         ctx = AlertsContext(alerter, home / "alerts.jsonl", Acks(home / "acks.json"), lambda: {"available": False, "why": "test"})
         httpd = serve(hub, home, port, None, owner, Settings(home / "s.json"), None, ctx)
@@ -1279,7 +1279,7 @@ class AlertsTest(unittest.TestCase):
             c.request("POST", "/api/settings", body=b"{}", headers=hdr); c.getresponse().read()
             c.request("GET", "/", headers={"Host": "rebind.example:8788"}); c.getresponse().read()
             titles = [e["title"] for e in hub.events if e["type"] == "alert"]
-            self.assertIn("A web page tried to change Hlidskjalv", titles)
+            self.assertIn("A web page tried to change Lunete", titles)
             self.assertIn("Blocked a request for another host name", titles)
             c.request("GET", "/api/alerts", headers={"Host": f"127.0.0.1:{port}"})
             got = json.loads(c.getresponse().read())
@@ -1302,7 +1302,7 @@ class UsageTest(unittest.TestCase):
     def test_budget_reads_trioditis_metrics_read_only(self):
         import sqlite3
 
-        from hlidskjalv.usage import budget
+        from lunete.usage import budget
         home = Path(tempfile.mkdtemp())
         self.assertFalse(budget(home)["available"])
         con = sqlite3.connect(home / "metrics.db")
@@ -1322,7 +1322,7 @@ class UsageTest(unittest.TestCase):
     def test_budget_per_calling_tool(self):
         import sqlite3
 
-        from hlidskjalv.usage import budget
+        from lunete.usage import budget
         home = Path(tempfile.mkdtemp())
         con = sqlite3.connect(home / "metrics.db")
         con.execute("CREATE TABLE calls (id INTEGER PRIMARY KEY, ts REAL, route TEXT, model TEXT, local INTEGER, status INTEGER,"
@@ -1342,7 +1342,7 @@ class UsageTest(unittest.TestCase):
         self.assertEqual(rows[1], {"client": "ai-sdk", "today": 0.0, "month": 0.0, "calls_today": 1, "calls_month": 1})
 
     def test_claude_usage_per_session(self):
-        from hlidskjalv.usage import ClaudeUsage
+        from lunete.usage import ClaudeUsage
         d = Path(tempfile.mkdtemp())
         (d / "s1" / "subagents").mkdir(parents=True)
 
@@ -1369,7 +1369,7 @@ class PlanWindowsTest(unittest.TestCase):
                            "usage": {"input_tokens": 10, "cache_read_input_tokens": cached, "cache_creation_input_tokens": 0, "output_tokens": out}}})
 
     def test_windows_follow_the_first_turn_rule_across_projects(self):
-        from hlidskjalv.usage import ClaudeUsage
+        from lunete.usage import ClaudeUsage
         root = Path(tempfile.mkdtemp()) / "projects"
         a, b = root / "-home-me-a", root / "-home-me-b"
         a.mkdir(parents=True); b.mkdir()
@@ -1406,7 +1406,7 @@ class ProviderDataTest(unittest.TestCase):
     def test_budget_reports_per_provider_spend_caps_and_limits(self):
         import sqlite3
 
-        from hlidskjalv.usage import accounts, budget
+        from lunete.usage import accounts, budget
         home = Path(tempfile.mkdtemp())
         con = sqlite3.connect(home / "metrics.db")
         con.execute("CREATE TABLE calls (id INTEGER PRIMARY KEY, ts REAL, route TEXT, model TEXT, local INTEGER, status INTEGER,"
@@ -1433,7 +1433,7 @@ class ProviderDataTest(unittest.TestCase):
 
 class ProgramsTest(unittest.TestCase):
     def test_programs_come_from_system_dirs_not_path(self):
-        from hlidskjalv.programs import which
+        from lunete.programs import which
         fake = Path(tempfile.mkdtemp())
         name = "git.exe" if os.name == "nt" else "git"  # Windows only runs PATHEXT names
         (fake / name).write_text("#!/bin/sh\necho pwned\n")
@@ -1466,7 +1466,7 @@ class ProgramsTest(unittest.TestCase):
 
 class JournalRootToolsTest(unittest.TestCase):
     def test_su_pkexec_and_doas(self):
-        from hlidskjalv.alerts import SystemLogWatcher
+        from lunete.alerts import SystemLogWatcher
         got = []
 
         class FakeAlerter:
@@ -1490,8 +1490,8 @@ class CostAlertsTest(unittest.TestCase):
     def test_caps_and_exhausted_limits_raise_once_per_period(self):
         import sqlite3
 
-        from hlidskjalv.alerts import Alerter
-        from hlidskjalv.cost_alerts import CostWatcher
+        from lunete.alerts import Alerter
+        from lunete.cost_alerts import CostWatcher
         home = Path(tempfile.mkdtemp())
         con = sqlite3.connect(home / "metrics.db")
         con.execute("CREATE TABLE calls (id INTEGER PRIMARY KEY, ts REAL, route TEXT, model TEXT, local INTEGER, status INTEGER,"
@@ -1516,8 +1516,8 @@ class CostAlertsTest(unittest.TestCase):
     def test_calls_without_a_price_raise_one_alert_a_day(self):
         import sqlite3
 
-        from hlidskjalv.alerts import Alerter
-        from hlidskjalv.cost_alerts import CostWatcher
+        from lunete.alerts import Alerter
+        from lunete.cost_alerts import CostWatcher
         home = Path(tempfile.mkdtemp())
         con = sqlite3.connect(home / "metrics.db")
         con.execute("CREATE TABLE calls (id INTEGER PRIMARY KEY, ts REAL, route TEXT, model TEXT, local INTEGER, status INTEGER,"
@@ -1557,7 +1557,7 @@ class ServerTest(unittest.TestCase):
     def test_page_and_state(self):
         status, body, r = self.get("/")
         self.assertEqual(status, 200)
-        self.assertIn(b"Hlidskjalv", body)
+        self.assertIn(b"Lunete", body)
         self.assertIn("frame-ancestors 'none'", r.getheader("Content-Security-Policy"))
 
     def test_scripts_only_from_our_own_files(self):
@@ -1575,7 +1575,7 @@ class ServerTest(unittest.TestCase):
         self.assertIn(b"function boot()", js.replace(b"async function", b"function"))
         self.assertEqual(self.get("/static/app.js", host="evil.example")[0], 403)
         self.assertEqual(self.get("/static/other.js")[0], 404)
-        from hlidskjalv.server import SCRIPTS
+        from lunete.server import SCRIPTS
         for name in SCRIPTS:  # every page script is served, and the page loads each one
             self.assertIn(f'<script src="/static/{name}"></script>'.encode(), page)
             self.assertEqual(self.get(f"/static/{name}")[0], 200)
@@ -1640,7 +1640,7 @@ if __name__ == "__main__":
 
 class HubTest(unittest.TestCase):
     def test_ring_keeps_ids_monotonic_and_signals_gaps(self):
-        from hlidskjalv import server as srv
+        from lunete import server as srv
         with mock.patch.object(srv, "MAX_EVENTS", 50):
             hub = Hub("p", [], None, {})
             self.assertIn("boot", hub.snapshot)
@@ -1661,7 +1661,7 @@ class HubTest(unittest.TestCase):
 
 class PollerTest(unittest.TestCase):
     def test_a_slow_source_does_not_hold_the_others_back(self):
-        from hlidskjalv.poller import health_of, start_all
+        from lunete.poller import health_of, start_all
         gate = threading.Event()
 
         class Slow:
@@ -1693,7 +1693,7 @@ class PollerTest(unittest.TestCase):
                 p.stop.set()
 
     def test_errors_are_recorded_and_said_once_a_minute(self):
-        from hlidskjalv.poller import Poller
+        from lunete.poller import Poller
 
         class Bad:
             def poll(self):
@@ -1712,7 +1712,7 @@ class PollerTest(unittest.TestCase):
 
 class SyncClockTest(unittest.TestCase):
     def test_a_copy_is_always_newer_than_the_one_it_replaces_even_on_a_coarse_clock(self):
-        from hlidskjalv import sync as S
+        from lunete import sync as S
         key, salt = os.urandom(32), os.urandom(16)
         with mock.patch.object(S.time, "time", return_value=1000.0):  # the clock did not tick between two pushes
             first = S.peek(S.seal(key, salt, "laptop", {}))["updated"]
@@ -1733,7 +1733,7 @@ class InputHardeningTest(unittest.TestCase):
             self.assertIsNone(read_session(folder, bad), bad)
 
     def test_gist_ids_are_checked_before_they_reach_an_api_path(self):
-        from hlidskjalv import sync as S
+        from lunete import sync as S
         S.GistBackend("tok", "aa5a315d61ae9438b18d")  # a real-looking id is fine
         S.GistBackend("tok")  # none yet: a new gist is created
         for bad in ("../user", "abc/../../user/keys", "id?x=1", "zz", "a" * 65, " abc12345", "abc12345\n"):
@@ -1741,7 +1741,7 @@ class InputHardeningTest(unittest.TestCase):
                 S.GistBackend("tok", bad)
 
     def test_a_truncated_gist_is_fetched_only_from_githubs_file_host(self):
-        from hlidskjalv import sync as S
+        from lunete import sync as S
 
         class Resp:
             def __init__(self, body): self.body = body
@@ -1774,8 +1774,8 @@ class VendorTest(unittest.TestCase):
         """The browser files in static/vendor are copied unmodified from npm; a changed byte fails here."""
         import hashlib
 
-        from hlidskjalv.server import VENDOR
-        vendor = Path(__file__).resolve().parent.parent / "hlidskjalv" / "static" / "vendor"
+        from lunete.server import VENDOR
+        vendor = Path(__file__).resolve().parent.parent / "lunete" / "static" / "vendor"
         sums = {}
         for line in (vendor / "SHA256SUMS").read_text().splitlines():
             if line.strip():
@@ -1798,7 +1798,7 @@ class ReadmeTest(unittest.TestCase):
         def headings(text: str) -> set[str]:
             return {re.sub(r"[^a-z0-9 -]", "", ln.lstrip("# ").lower()).replace(" ", "-") for ln in text.splitlines() if ln.startswith("#")}
 
-        for py in (root / "hlidskjalv").glob("*.py"):
+        for py in (root / "lunete").glob("*.py"):
             for doc, ref in re.findall(r"(README|docs/[a-z-]+\.md) > ([^\"\n]+?)(?:\"|\)|$)", py.read_text(encoding="utf-8"), re.M):
                 slug = re.sub(r"[^a-z0-9 -]", "", ref.strip().lower()).replace(" ", "-")
                 hds = headings((root / (doc + ".md" if doc == "README" else doc)).read_text(encoding="utf-8"))
@@ -1816,11 +1816,11 @@ class ReadmeTest(unittest.TestCase):
 
     def test_page_names_the_cap_and_stalled_sources(self):
         from importlib import resources
-        page = resources.files("hlidskjalv").joinpath("static/app.js").read_text(encoding="utf-8")
+        page = resources.files("lunete").joinpath("static/app.js").read_text(encoding="utf-8")
         self.assertRegex(page, r"Showing the first \$\{shown\.toLocaleString\(\)\} of \$\{total\.toLocaleString\(\)\} files")
         self.assertIn('addEventListener("health"', page)
         self.assertIn(" stalled", page)
-        index = resources.files("hlidskjalv").joinpath("static/index.html").read_text(encoding="utf-8")
+        index = resources.files("lunete").joinpath("static/index.html").read_text(encoding="utf-8")
         self.assertIn(".hint[hidden] { display: none; }", index)  # the banner is hidden until files are left out
 
 
@@ -1833,7 +1833,7 @@ class HistoryAndProgressTest(unittest.TestCase):
                 f.write(json.dumps(e) + "\n")
 
     def test_xp_rules_match_the_page(self):
-        page = (Path(__file__).resolve().parent.parent / "hlidskjalv" / "static" / "app.js").read_text(encoding="utf-8")
+        page = (Path(__file__).resolve().parent.parent / "lunete" / "static" / "app.js").read_text(encoding="utf-8")
         literal = re.search(r"const XP_RULES = \{([^}]*)\}", page).group(1)
         rules = {k.strip(): int(v) for k, v in (kv.split(":") for kv in literal.split(","))}
         self.assertEqual(rules, XP_RULES)
@@ -1868,7 +1868,7 @@ class HistoryAndProgressTest(unittest.TestCase):
 
 class SyncTest(unittest.TestCase):
     def setUp(self):
-        from hlidskjalv import sync as S
+        from lunete import sync as S
         self.S = S
 
     def home(self):
@@ -1903,7 +1903,7 @@ class SyncTest(unittest.TestCase):
 
     def test_two_computers_through_a_folder(self):
         S = self.S
-        from hlidskjalv.server import Progress
+        from lunete.server import Progress
         share = Path(tempfile.mkdtemp()); A, B = self.home(), self.home()
         sa, pa = Settings(A / "settings.json"), Progress(A, A / "sessions"); pa.xp = 500; pa.academy = {"git": True}; pa.save()
         sa.update({"look": {"mode": "dark"}, "features": {"terminal_root": True}, "sources": {"trioditis_log": "/a/log"}})
@@ -1964,7 +1964,7 @@ class SyncTest(unittest.TestCase):
             raise AssertionError(req.get_method())
 
         with mock.patch.object(S.request, "urlopen", fake_urlopen):
-            from hlidskjalv.server import Progress
+            from lunete.server import Progress
             A = self.home(); sa, pa = Settings(A / "settings.json"), Progress(A, A / "sessions")
             ya = S.Syncer(A, sa, pa, device="laptop")
             with self.assertRaises(S.SyncError):
@@ -1981,7 +1981,7 @@ class SyncTest(unittest.TestCase):
 
     def test_sync_endpoints_and_learn_progress(self):
         S = self.S
-        from hlidskjalv.server import Progress
+        from lunete.server import Progress
         home = self.home(); share = Path(tempfile.mkdtemp()); port = free_port()
         owner, settings, progress = Owner(home), Settings(home / "settings.json"), Progress(home, home / "sessions")
         hub = Hub("demo", [], None, {}, progress=progress)
@@ -2049,7 +2049,7 @@ class FakeProvider:
 
 class SsoTest(unittest.TestCase):
     def setUp(self):
-        from hlidskjalv import sso as M
+        from lunete import sso as M
         self.M = M
         self.home = Path(tempfile.mkdtemp())
         self.patches = [mock.patch.object(M, "POLL_MIN_S", 0.01), mock.patch.dict(os.environ, {"HLIDSKJALV_SSO_FAKE": "http://fake.test"})]
@@ -2106,7 +2106,7 @@ class SsoTest(unittest.TestCase):
         self.assertIsNone(sso.linked("github")); self.assertTrue(sso.configured("github"))
 
     def test_only_https_providers_are_called(self):
-        from hlidskjalv import sso as sso_mod
+        from lunete import sso as sso_mod
         with mock.patch.dict(os.environ, {"HLIDSKJALV_SSO_FAKE": ""}), mock.patch.object(sso_mod.request, "urlopen") as op:
             for url in ("http://github.com/login/device/code", "file:///etc/passwd", "ftp://x.test/y"):
                 with self.assertRaises(sso_mod.SsoError):
@@ -2163,11 +2163,11 @@ class SsoTest(unittest.TestCase):
 
 class RisksTest(unittest.TestCase):
     def test_server_rules_equal_the_pages(self):
-        """hlidskjalv/risks.py mirrors RISKS in static/app.js: same patterns, flags, levels and words."""
+        """lunete/risks.py mirrors RISKS in static/app.js: same patterns, flags, levels and words."""
         import re
 
-        from hlidskjalv import risks
-        js = (Path(__file__).resolve().parent.parent / "hlidskjalv" / "static" / "app.js").read_text(encoding="utf-8")
+        from lunete import risks
+        js = (Path(__file__).resolve().parent.parent / "lunete" / "static" / "app.js").read_text(encoding="utf-8")
         block = js[js.index("const RISKS = ["):js.index("];", js.index("const RISKS = ["))]
         rows = re.findall(r'^\s*\[/(.+)/(i?), "(danger|caution)", "(.+)"\],?$', block, re.M)
         self.assertEqual(len(rows), len(risks.RULES))
@@ -2175,7 +2175,7 @@ class RisksTest(unittest.TestCase):
             self.assertEqual((pattern, flag == "i", level, text), rule)
 
     def test_classify(self):
-        from hlidskjalv import risks
+        from lunete import risks
         self.assertEqual(risks.severity(risks.classify("sudo apt install foo")), "high")
         self.assertEqual(risks.severity(risks.classify("git add -A")), "medium")
         self.assertIsNone(risks.severity(risks.classify("git status")))
@@ -2207,7 +2207,7 @@ class GitWatcherTest(unittest.TestCase):
         self.git("commit", "-q", "-m", msg, *extra)
 
     def watcher(self):
-        from hlidskjalv.sources import GitWatcher
+        from lunete.sources import GitWatcher
         w = GitWatcher(self.root)
         w.prime()
         return w

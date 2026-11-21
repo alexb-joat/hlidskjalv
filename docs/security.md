@@ -1,17 +1,17 @@
 # Security
 
-How Hlidskjalv is built to resist misuse, what it deliberately does not cover, and how to use it safely. To report a vulnerability, see [SECURITY.md](../SECURITY.md).
+How Lunete is built to resist misuse, what it deliberately does not cover, and how to use it safely. To report a vulnerability, see [SECURITY.md](../SECURITY.md).
 
 ## Threat model
 
-Hlidskjalv runs on your computer as you, watches one project folder, and serves a web page on `127.0.0.1`. It reads
+Lunete runs on your computer as you, watches one project folder, and serves a web page on `127.0.0.1`. It reads
 file names and line counts, your Git history, terminal commands you chose to record, Claude Code's and Trioditis's
 logs (metadata only), and some system files to raise alerts. Optionally it opens a shell in the page. It has no
 server of its own and no accounts. The design assumes:
 
 - **Other websites can reach `127.0.0.1`.** Any page open in your browser can send requests to it. Defences: it
   binds `127.0.0.1` only; every request must carry a `Host` of this computer (`127.0.0.1`, `localhost` or
-  `hlidskjalv.localhost` with the port), which stops DNS rebinding; changes need a paired browser's session key
+  `lunete.localhost` with the port), which stops DNS rebinding; changes need a paired browser's session key
   *and* an `Origin` of the page itself; the terminal's WebSocket checks the same. Refusals are logged as Alerts.
 - **Injected script is the main browser risk**, since a paired browser keeps a session key in localStorage. The page's
   script is a served file and the CSP is `script-src 'self'` without `'unsafe-inline'`, so an injected inline
@@ -44,13 +44,13 @@ There is no server of its own and no telemetry. These are the only connections t
 |---|---|---|
 | Google Fonts (`fonts.googleapis.com`, `fonts.gstatic.com`) | Only when you pick one of the Google fonts in Settings, or press "Preview every font" | The font's name; Google sees your IP address, as with any web request |
 | GitHub Gist (`api.github.com`) | Only after you set up [Sync](pairing-and-sync.md#sync-between-your-computers) with a Gist | Your settings, XP and Learn progress, encrypted on your computer first |
-| GitHub or Google sign-in | Only after you set up [sign-in](pairing-and-sync.md#pairing-a-browser) | That you use Hlidskjalv, at each sign-in, via an OAuth app registered under your own name |
+| GitHub or Google sign-in | Only after you set up [sign-in](pairing-and-sync.md#pairing-a-browser) | That you use Lunete, at each sign-in, via an OAuth app registered under your own name |
 
 ## Scope and limits
 
-What Hlidskjalv does not try to do, so you can plan around it:
+What Lunete does not try to do, so you can plan around it:
 
-- **A hostile local user or program running as you.** It can read `~/.hlidskjalv` like you can. Hlidskjalv is not a
+- **A hostile local user or program running as you.** It can read `~/.lunete` like you can. Lunete is not a
   sandbox and does not claim to be.
 - **Inline styles** in the CSP (see above) and the page's `style=""` attributes.
 - **Passkeys (WebAuthn).** Verifying them needs ES256 signature checks, which the standard library lacks. The choice
@@ -62,21 +62,21 @@ What Hlidskjalv does not try to do, so you can plan around it:
 
 ## Operating checklist
 
-- Pair with the one-time link (`python3 -m hlidskjalv pair`) or set a password; add two-factor if others use this
+- Pair with the one-time link (`python3 -m lunete pair`) or set a password; add two-factor if others use this
   computer.
 - Leave "Root in the terminal" off unless you need it.
-- Keep `~/.hlidskjalv` private (the program sets `0700`); do not sync it with a service you do not trust, because
+- Keep `~/.lunete` private (the program sets `0700`); do not sync it with a service you do not trust, because
   it holds the owner key and session records.
-- If a pairing link, owner key or recovery code was ever pasted anywhere, rotate it: `python3 -m hlidskjalv pair --rotate`.
+- If a pairing link, owner key or recovery code was ever pasted anywhere, rotate it: `python3 -m lunete pair --rotate`.
 
 ## Browsers and systems
 
-Hlidskjalv is one page of plain HTML, CSS and JavaScript with no build step. It needs a browser from 2023 or later:
+Lunete is one page of plain HTML, CSS and JavaScript with no build step. It needs a browser from 2023 or later:
 
 | Browser | From | Notes |
 |---|---|---|
 | Chrome, Edge, Brave, Opera | 111 | |
 | Firefox | 113 | ESR 115 and later included |
-| Safari | 16.2 (macOS 11.7, 12.6, 13.1; iOS 16.2) | `hlidskjalv.localhost` needs a line in `/etc/hosts` (see [Pairing](pairing-and-sync.md#pairing-a-browser)); SVG icons are replaced by PNG ones automatically |
+| Safari | 16.2 (macOS 11.7, 12.6, 13.1; iOS 16.2) | `lunete.localhost` needs a line in `/etc/hosts` (see [Pairing](pairing-and-sync.md#pairing-a-browser)); SVG icons are replaced by PNG ones automatically |
 
 Older browsers still show the page, only with plainer colours (the derived shades fall back to fixed ones). The server side runs on Linux, macOS and Windows 10 (1809) or later with Python 3.10+, and CI runs the whole suite on all three.

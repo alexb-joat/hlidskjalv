@@ -6,16 +6,16 @@ body:
     attributes:
       value: |
         **Security issue?** Don't open an issue: report it privately via the Security tab ("Report a vulnerability").
-        Never paste API keys, your owner key, pairing links, or the contents of `~/.hlidskjalv`.
+        Never paste API keys, your owner key, pairing links, or the contents of `~/.lunete`.
   - type: textarea
     id: what
     attributes: {label: What happened, description: And what you expected instead}
     validations: {required: true}
   - type: textarea
     id: repro
-    attributes: {label: Steps to reproduce, description: "Which view, what you clicked or typed. Include the terminal output of `python3 -m hlidskjalv watch ...` if it printed an error"}
+    attributes: {label: Steps to reproduce, description: "Which view, what you clicked or typed. Include the terminal output of `python3 -m lunete watch ...` if it printed an error"}
     validations: {required: true}
   - type: input
     id: env
-    attributes: {label: Environment, placeholder: "Kubuntu 24.04, Python 3.12, Firefox 130, Hlidskjalv 0.4.0"}
+    attributes: {label: Environment, placeholder: "Kubuntu 24.04, Python 3.12, Firefox 130, Lunete 0.4.0"}
     validations: {required: true}

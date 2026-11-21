@@ -2,18 +2,18 @@
 
 Every alert is an event {"type": "alert", "severity", "source", "title",
 "detail", "fingerprint", "expected"} published like any other event, and
-appended to ~/.hlidskjalv/alerts.jsonl so it survives restarts.
+appended to ~/.lunete/alerts.jsonl so it survives restarts.
 
 Sources (each can be switched off in Settings → Watching → Alerts, no restart needed):
 
 - persistence: something set itself up to run later. Login items (systemd
   user units, launchd agents, ~/.config/autostart, Windows Run/Startup),
   crontab, shell startup files, SSH authorized_keys, ~/.gitconfig and this
-  project's Git hooks. The baseline is taken when Hlidskjalv starts, so
+  project's Git hooks. The baseline is taken when Lunete starts, so
   only changes after that alert.
 - system_log: sudo use, SSH logins and new login sessions from the system
   journal (Linux; needs the adm or systemd-journal group).
-- refused_access: requests Hlidskjalv or Trioditis turned away (see
+- refused_access: requests Lunete or Trioditis turned away (see
   server.py and TrioditisSecurityWatcher).
 - ai_commands: risky commands an AI agent ran are flagged by the page from
   the command events (sources.ClaudeCodeWatcher).
@@ -113,7 +113,7 @@ def read_history(path: Path, limit: int = 500) -> list[dict]:
 
 
 class Acks:
-    """Which alerts you've marked as seen (~/.hlidskjalv/alerts-ack.json)."""
+    """Which alerts you've marked as seen (~/.lunete/alerts-ack.json)."""
 
     def __init__(self, path: Path):
         self.path = path
@@ -322,7 +322,7 @@ class PersistenceWatcher:
                  expected: Path | None = None):
         self.alerter, self.every = alerter, every_s
         self.targets = persistence_targets(root, home)
-        self.expected = expected  # ~/.hlidskjalv/expected.json: {path: sha256} Hlidskjalv wrote itself
+        self.expected = expected  # ~/.lunete/expected.json: {path: sha256} Lunete wrote itself
         self.state = {id(t): self._snap(t) for t in self.targets}
         self._next = time.monotonic() + every_s
 
@@ -405,7 +405,7 @@ class PersistenceWatcher:
 
 
 def remember_expected(home: Path, path: Path | str, data: bytes) -> None:
-    """Called right before Hlidskjalv writes a login item itself, so it isn't reported as foreign."""
+    """Called right before Lunete writes a login item itself, so it isn't reported as foreign."""
     f = home / "expected.json"
     try:
         known = json.loads(f.read_text(encoding="utf-8"))

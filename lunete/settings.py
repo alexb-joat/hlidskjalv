@@ -1,4 +1,4 @@
-"""Settings in ~/.hlidskjalv/settings.json: one schema, validated on every write.
+"""Settings in ~/.lunete/settings.json: one schema, validated on every write.
 
 The page reads them with GET /api/settings and changes them with POST
 /api/settings (owner key required, see auth.py). A POST carries only the

@@ -1,14 +1,14 @@
 # Contributing
 
-Thanks for helping. Hlidskjalv watches a person's computer and can open a shell, so the bar for changes is
+Thanks for helping. Lunete watches a person's computer and can open a shell, so the bar for changes is
 "small, tested, and no new attack surface without a reason".
 
 ## Workflow
 
 1. **Fork** the repo and create a branch: `git switch -c fix/short-description`.
 2. **Set up:** nothing to install. The Python side is the standard library; you need Python 3.10 or newer.
-3. **Make the change** and add tests in `tests/`. The page is `hlidskjalv/static/index.html` (markup and styles) and
-   `hlidskjalv/static/app.js` (script).
+3. **Make the change** and add tests in `tests/`. The page is `lunete/static/index.html` (markup and styles) and
+   `lunete/static/app.js` (script).
 4. **Check** before pushing:
    ```bash
    python3 -m unittest discover -s tests -t .
@@ -17,9 +17,9 @@ Thanks for helping. Hlidskjalv watches a person's computer and can open a shell,
    If the page changed, run the browser tests too (Firefox and WebKit, as CI does):
    ```bash
    pip install --require-hashes --no-deps -r requirements-e2e.txt && python -m playwright install firefox webkit
-   HLIDSKJALV_E2E=1 python -m unittest discover -s tests/e2e -t . -v
+   LUNETE_E2E=1 python -m unittest discover -s tests/e2e -t . -v
    ```
-   and look at it yourself: `HLIDSKJALV_HOME=$(mktemp -d) python3 -m hlidskjalv watch <some folder> --no-open --port 8799`.
+   and look at it yourself: `LUNETE_HOME=$(mktemp -d) python3 -m lunete watch <some folder> --no-open --port 8799`.
 5. **Open a pull request** and fill in the template. CI, CodeQL and dependency review run automatically; for
    first-time contributors a maintainer approves the run first.
 
