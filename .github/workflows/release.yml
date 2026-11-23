@@ -49,8 +49,12 @@ jobs:
           /tmp/clean/bin/lunete --version
           /tmp/clean/bin/hlidskjalv --version
           /tmp/clean/bin/python -m hlidskjalv --help > /dev/null
-          /tmp/clean/bin/lunete graph check
           /tmp/clean/bin/lunete study add-line "Release check" --week 1h --dry-run
+          test ! -e home/graph/personal.db || { echo "study add-line --dry-run wrote the store"; exit 1; }
+          # graph check exits 1 when there is no store yet, so make one first.
+          /tmp/clean/bin/lunete study add-line "Release check" --week 1h
+          /tmp/clean/bin/lunete study log "Release check" 10m
+          /tmp/clean/bin/lunete graph check
           /tmp/clean/bin/python -c "import importlib.resources as r; f = r.files('lunete') / 'static' / 'index.html'; assert f.is_file(), f"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
