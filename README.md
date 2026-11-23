@@ -11,7 +11,7 @@
 [![codeql](https://github.com/alexb-joat/hlidskjalv/actions/workflows/codeql.yml/badge.svg)](https://github.com/alexb-joat/hlidskjalv/actions/workflows/codeql.yml)
 ![python](https://img.shields.io/badge/python-3.10%2B-3776AB)
 ![dependencies](https://img.shields.io/badge/dependencies-0-5fd6ae)
-[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![license](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 
 <sub><i>Lunete: in Chrétien de Troyes' <i>Yvain</i>, the damsel who gets the hero out of a trap and back to where he belongs. Called Hlidskjalv until 0.4.</i></sub>
 
@@ -56,4 +56,10 @@ On Windows: `py -3 -m lunete watch C:\Users\you\projects\my-app`. Your browser o
 
 [Guide](docs/guide.md) (Study, AI steps and cost, alerts, terminal, customizing, start at login) · [Pairing and sync](docs/pairing-and-sync.md) · [Security](docs/security.md) · [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · Report a vulnerability via [SECURITY.md](SECURITY.md)
 
-[MIT](LICENSE). Not affiliated with VS Code, Cline, Anthropic, OpenAI or Ollama.
+[GNU AGPL-3.0-or-later](LICENSE). Copyright (C) 2026 Alex Bubnov.
+
+Lunete can sync over a network, so the AGPL's network clause applies: a modified version offered to others remotely must ship its modified source under the same licence. The earlier Hlidskjalv releases (v0.3.0, v0.4.0) remain under their original MIT terms.
+
+**Name:** "Lunete" is the project name, not part of the code licence. A fork must use a different name and must not imply endorsement by or affiliation with this project.
+
+Not affiliated with VS Code, Cline, Anthropic, OpenAI or Ollama.

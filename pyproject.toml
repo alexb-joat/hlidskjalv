@@ -7,7 +7,7 @@ name = "lunete"
 version = "0.5.0"
 description = "A game-like, local-only live map of your coding workflow: files, commands, Git and AI steps, with hover explanations."
 readme = "README.md"
-license = "MIT"
+license = "AGPL-3.0-or-later"
 requires-python = ">=3.10"
 dependencies = []          # standard library only, on purpose
 
