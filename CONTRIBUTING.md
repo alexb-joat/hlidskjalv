@@ -42,3 +42,12 @@ Thanks for helping. Lunete watches a person's computer and can open a shell, so 
 ## Style
 
 Small functions, plain names, comments that say why. Match the code around you.
+
+## Releasing (maintainer)
+
+1. Set the version in both `lunete/__init__.py` and `pyproject.toml`, and add a `## X.Y.Z (date)` section to `CHANGELOG.md`.
+2. Merge through a PR with CI green, then `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`.
+3. `.github/workflows/release.yml` checks that the tag, both version fields and the changelog agree. It builds the sdist and
+   wheel with hash-pinned tools, installs the wheel in a clean venv and runs `--version`, `graph check` and a `study`
+   dry run. Then it creates the GitHub release from the changelog section and attaches the files. To dry-run it (build
+   and check only), run it by hand from the Actions tab. PyPI publishing is off for now.
