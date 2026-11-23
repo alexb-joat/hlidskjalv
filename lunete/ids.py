@@ -5,7 +5,10 @@
   in the order they were made, even within one millisecond and when the wall clock steps back.
 - Hlc: the hybrid logical clock of Kulkarni et al. (2014). Stamps are strings that sort as
   they compare, "<13-digit ms>.<6-digit counter>.<device>". They order changes for display;
-  they never decide a conflict (the store's seq does).
+  they never decide a conflict (the store's seq does). A stamp from elsewhere may be at most
+  10 minutes ahead of the wall clock, so one bad clock can't drag every later stamp into the future.
+- item_uuid5(): the derived id of a connector item (architecture.md section 8), so two devices
+  that see the same commit make the same id.
 """
 from __future__ import annotations
 
@@ -16,6 +19,7 @@ import time
 import uuid
 
 _COUNTER_MAX = 0xFFF
+MAX_AHEAD_MS = 10 * 60 * 1000  # a stamp from elsewhere may be this far ahead of the wall clock
 
 
 class _Uuid7:
@@ -59,6 +63,26 @@ def is_uuid7(text: str) -> bool:
     return str(u) == text and u.version == 7 and u.variant == uuid.RFC_4122
 
 
+def item_uuid5(org: str, source: str, external_id: str) -> uuid.UUID:
+    """A connector item's id: UUIDv5, namespace = the store's org id, name = UTF-8 "source\nexternal_id"."""
+    if not is_uuid7(org):
+        raise ValueError(f"org id {org!r}: expected the store's lowercase UUIDv7 (meta.org)")
+    if not source or "\n" in source:
+        raise ValueError(f"connector name {source!r}: must be non-empty and on one line")
+    if not external_id:
+        raise ValueError(f"{source}: external_id is empty; a connector item needs its source's own id")
+    return uuid.uuid5(uuid.UUID(org), f"{source}\n{external_id}")
+
+
+def is_item_id(text: str) -> bool:
+    """True for an id an item may have: a canonical UUIDv7 (typed) or UUIDv5 (derived, connector)."""
+    try:
+        u = uuid.UUID(text)
+    except (ValueError, TypeError, AttributeError):
+        return False
+    return str(u) == text and u.version in (5, 7) and u.variant == uuid.RFC_4122
+
+
 _STAMP = re.compile(r"^(\d{13})\.(\d{6})\.([A-Za-z0-9_-]{1,64})$")
 
 
@@ -90,10 +114,18 @@ class Hlc:
                 self._c += 1
             return self._stamp()
 
-    def seen(self, stamp: str) -> None:
+    def seen(self, stamp: str, max_ahead_ms: int | None = MAX_AHEAD_MS) -> None:
+        """Fold in a stamp from elsewhere. Raises ValueError ("clock ahead") when it is more than
+        `max_ahead_ms` ahead of the wall clock; pass None only to seed from stamps the store already
+        accepted (the highest hlc in the file, on open)."""
         l_m, c_m, _ = parse_stamp(stamp)
         with self._lock:
             pt = self._now_ms()
+            if max_ahead_ms is not None and l_m > pt + max_ahead_ms:
+                raise ValueError(
+                    f"clock ahead: stamp {stamp} is {(l_m - pt) / 60000:.1f} min ahead of this machine's clock "
+                    f"(the limit is {max_ahead_ms / 60000:g} min); check the sending device's clock"
+                )
             l_new = max(self._l, l_m, pt)
             if l_new == self._l and l_new == l_m:
                 self._c = max(self._c, c_m) + 1

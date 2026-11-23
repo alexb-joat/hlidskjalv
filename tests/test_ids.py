@@ -2,7 +2,7 @@ import threading
 import unittest
 import uuid
 
-from lunete.ids import Hlc, _Uuid7, is_uuid7, parse_stamp, uuid7, uuid7_ms
+from lunete.ids import MAX_AHEAD_MS, Hlc, _Uuid7, is_item_id, is_uuid7, item_uuid5, parse_stamp, uuid7, uuid7_ms
 
 
 class Clock:
@@ -83,6 +83,23 @@ class HlcTest(unittest.TestCase):
         nxt = h.now()
         self.assertGreater(nxt, "1795000009999.000004.desktop")
 
+    def test_a_stamp_too_far_ahead_is_refused_and_leaves_the_clock_alone(self):
+        clock = Clock(1_795_000_000_000)
+        h = Hlc("laptop", clock)
+        before = h.now()
+        far = f"{1_795_000_000_000 + MAX_AHEAD_MS + 1:013d}.000000.desktop"
+        with self.assertRaisesRegex(ValueError, "clock ahead"):
+            h.seen(far)
+        self.assertLess(h.now(), far)
+        self.assertGreater(h.now(), before)
+        h.seen(f"{1_795_000_000_000 + MAX_AHEAD_MS:013d}.000000.desktop")  # exactly at the limit: accepted
+
+    def test_seeding_from_the_store_skips_the_cap(self):
+        h = Hlc("laptop", Clock(1_795_000_000_000))
+        stored = "1795999999999.000007.laptop"
+        h.seen(stored, max_ahead_ms=None)
+        self.assertGreater(h.now(), stored)
+
     def test_stamps_sort_as_numbers(self):
         self.assertLess("0000000000009.000000.a", "0000000000010.000000.a")
 
@@ -91,6 +108,34 @@ class HlcTest(unittest.TestCase):
             parse_stamp("12.3.x")
         with self.assertRaisesRegex(ValueError, "letters, digits"):
             Hlc("my laptop")
+
+
+class ItemIdTest(unittest.TestCase):
+    ORG = "019a8f3e-1c2b-7d4e-8f00-0123456789ab"
+
+    def test_derived_id_is_stable_v5_and_depends_on_every_part(self):
+        a = item_uuid5(self.ORG, "git", "github.com/x/y@" + "a" * 40)
+        self.assertEqual(a, item_uuid5(self.ORG, "git", "github.com/x/y@" + "a" * 40))
+        self.assertEqual(a.version, 5)
+        self.assertEqual(a, uuid.uuid5(uuid.UUID(self.ORG), "git\ngithub.com/x/y@" + "a" * 40))
+        self.assertNotEqual(a, item_uuid5(self.ORG, "ics", "github.com/x/y@" + "a" * 40))
+        other_org = "019a8f3e-1c2b-7d4e-8f00-0123456789ac"
+        self.assertNotEqual(a, item_uuid5(other_org, "git", "github.com/x/y@" + "a" * 40))
+        self.assertTrue(is_item_id(str(a)))
+
+    def test_derived_id_refuses_bad_parts(self):
+        with self.assertRaisesRegex(ValueError, "UUIDv7"):
+            item_uuid5("local", "git", "x")
+        with self.assertRaisesRegex(ValueError, "one line"):
+            item_uuid5(self.ORG, "gi\nt", "x")
+        with self.assertRaisesRegex(ValueError, "external_id is empty"):
+            item_uuid5(self.ORG, "git", "")
+
+    def test_item_ids_are_v7_or_v5_only(self):
+        self.assertTrue(is_item_id(str(uuid7())))
+        self.assertFalse(is_item_id(str(uuid.uuid4())))
+        self.assertFalse(is_item_id(str(uuid7()).upper()))
+        self.assertFalse(is_item_id("local"))
 
 
 if __name__ == "__main__":
