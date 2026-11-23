@@ -403,6 +403,95 @@ def pair(args) -> None:
         webbrowser.open(url)
 
 
+def _store_path(choice: str) -> Path:
+    from . import personal
+    return personal.path(data_home()) if choice == "personal" else Path(choice).expanduser()
+
+
+def graph_cli(args) -> int:
+    from . import graph
+    path = _store_path(args.store)
+    if not path.exists():
+        print(f"lunete graph check: no store at {path} yet; it is made the first time you log something", file=sys.stderr)
+        return 1
+    try:
+        store = graph.Store.open(path)
+    except graph.GraphError as e:
+        print(f"lunete graph check: {e}", file=sys.stderr)
+        return 1
+    if args.action == "rebuild":
+        try:
+            n = graph.rebuild(store)
+        except graph.GraphError as e:
+            print(f"lunete graph rebuild: {e}", file=sys.stderr)
+            return 1
+        print(f"{path}: view rebuilt from {n} accepted changes")
+    report = graph.check(store)
+    c = report["counts"]
+    print(f"{path}")
+    print(f"  {c['changes']} changes: {c['accepted']} accepted, {c['refusals']} refused")
+    print(f"  view: {c['items']} items, {c['links']} live links")
+    print(f"  payloads: {c['payloads']} present, {c['erased']} erased, {c['lost']} lost")
+    if report["ok"]:
+        print("  ok: the chain verifies and replaying the log gives the same view")
+        return 0
+    for p in report["problems"]:
+        print(f"  problem: {p}", file=sys.stderr)
+    if all(p.startswith(("view table", "meta.applied_seq")) for p in report["problems"]):
+        print("  Only the view differs from the log. The log is the record: `lunete graph rebuild` remakes the view from it.",
+              file=sys.stderr)
+    else:
+        print("  The log itself doesn't verify. Keep a copy of the file before changing anything, and report it.",
+              file=sys.stderr)
+    return 1
+
+
+def study_cli(args) -> int:
+    import datetime as dt
+
+    from . import personal, study
+    try:
+        if args.action == "add-line":
+            pieces = [study.piece_spec(p) for p in args.piece]
+            plan = study.plan_line(args.name, study.minutes(args.week), pieces, args.check)
+            if args.dry_run:
+                print(f"would add study line {plan['name']!r}, {plan['fields']['week_min']} min a week")
+                for c in plan["fields"].get("checks", []):
+                    print(f"  check date {c}")
+                for p in plan["pieces"]:
+                    lo, hi = p["est_min"]
+                    print(f"  piece {p['title']!r}, estimate {lo // 60}-{hi // 60} h" if lo != hi
+                          else f"  piece {p['title']!r}, estimate {lo} min")
+                print("nothing written (--dry-run)")
+                return 0
+            store = personal.open_store(data_home())
+            study.add_line(store, args.name, plan["fields"]["week_min"], pieces, args.check)
+            print(f"added study line {plan['name']!r} ({plan['fields']['week_min']} min a week, {len(pieces)} pieces)")
+        elif args.action == "log":
+            store = personal.open_store(data_home())
+            day = args.day or dt.date.today().isoformat()
+            study.log(store, args.line, day, args.time, note=args.note, score=args.score, channel="cli")
+            print(f"logged {study.minutes(args.time)} min on {args.line} for {day}")
+        elif args.action == "target":
+            store = personal.open_store(data_home())
+            study.set_target(store, args.line, study.minutes(args.week), channel="cli")
+            print(f"{args.line}: weekly target is now {study.minutes(args.week)} min")
+        else:  # list
+            store = personal.open_store(data_home())
+            s = study.summary(store)
+            if not s["lines"]:
+                print('no study lines yet; add one: lunete study add-line "Serbian" --week 6h')
+            for li in s["lines"]:
+                mark = "  done for this week" if li["done_for_week"] else ""
+                print(f"{li['name']}: {li['this_week']} of {li['week_min']} min this week{mark}")
+                for p in li["pieces"]:
+                    print(f"  {'[x]' if p['done'] else '[ ]'} {p['title']}: {p['minutes']} min logged")
+    except study.StudyError as e:
+        print(f"lunete study {args.action}: {e}", file=sys.stderr)
+        return 2
+    return 0
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="lunete", description="A game-like live view of your coding workflow.")
     ap.add_argument("--version", action="version", version=__version__)
@@ -449,6 +538,36 @@ def main(argv: list[str] | None = None) -> None:
 
     sub.add_parser("sessions", help="list saved sessions")
 
+    g = sub.add_parser("graph", help="the change log behind Lunete's items: check (read-only) | rebuild",
+                       description="check: verify the hash chain and that replaying the log gives the view (read-only). "
+                                   "rebuild: drop the view and rebuild it from the log, which is the record.")
+    g.add_argument("action", choices=["check", "rebuild"])
+    g.add_argument("--store", default="personal", help="'personal' (the default) or the path of a store file")
+
+    st = sub.add_parser("study", help="study lines and their weekly time: list | add-line | log | target",
+                        description="Study lines: what you're learning and how much time it got this week. "
+                                    "The page shows them under Study.")
+    ss = st.add_subparsers(dest="action", required=True)
+    ss.add_parser("list", help="each line with this week's minutes against its target")
+    al = ss.add_parser("add-line", help="add a study line with a weekly target",
+                       epilog='example: lunete study add-line "Eval sprint" --week 3h --piece "S1 stats toolkit=3-5h"')
+    al.add_argument("name")
+    al.add_argument("--week", required=True, help="weekly target, like 6h, 90m or 1h30m")
+    al.add_argument("--piece", action="append", default=[], metavar="NAME=ESTIMATE",
+                    help='a part of the line with its time estimate, like "S1 stats toolkit=3-5h" (repeatable)')
+    al.add_argument("--check", action="append", default=[], metavar="YYYY-MM-DD",
+                    help="a check date shown on the line's score chart (repeatable)")
+    al.add_argument("--dry-run", action="store_true", help="print what would be written and write nothing")
+    lg = ss.add_parser("log", help="log a session on a line")
+    lg.add_argument("line", help="the line's name")
+    lg.add_argument("time", help="how long, like 25m or 1h")
+    lg.add_argument("--note", default="")
+    lg.add_argument("--score", help="0 to 10, for a listening check or a quiz")
+    lg.add_argument("--day", default=None, help="YYYY-MM-DD (default: today)")
+    tg = ss.add_parser("target", help="change a line's weekly target")
+    tg.add_argument("line")
+    tg.add_argument("week", help="like 6h")
+
     args = ap.parse_args(argv)
     if args.cmd == "watch":
         watch(args, list(argv if argv is not None else sys.argv[1:]))
@@ -480,6 +599,10 @@ def main(argv: list[str] | None = None) -> None:
             print(autostart.format_status(autostart.status(home)))
     elif args.cmd == "hook":
         print(HOOKS[args.shell].strip())
+    elif args.cmd == "graph":
+        sys.exit(graph_cli(args))
+    elif args.cmd == "study":
+        sys.exit(study_cli(args))
     elif args.cmd == "sessions":
         for s in list_sessions(data_home() / "sessions"):
             print(f"{s['id']}  {s['bytes']:>8} bytes")

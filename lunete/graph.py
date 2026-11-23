@@ -495,7 +495,9 @@ def replay(texts, conn: sqlite3.Connection) -> int:
 
 
 def rebuild(store: Store) -> int:
-    """Drop the view tables and rebuild them from the log (the migration path, section 2 item 10)."""
+    """Drop the view tables and rebuild them from the log (the migration path, section 2 item 10).
+    This is also the repair for a store that opened read-only because its view lagged the log."""
+    store.problem = None
     with store.transaction() as conn:
         for t in VIEW_TABLES:
             conn.execute(f"DROP TABLE IF EXISTS {t}")
