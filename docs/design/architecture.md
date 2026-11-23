@@ -355,10 +355,10 @@ A connector reads one source and never writes to it.
 | To build on `build/core` | Waits |
 |---|---|
 | `ids.py` (done): UUIDv7, the HLC with the 10-minute cap on stamps from elsewhere, UUIDv5 for connector ids and an item-id check (v7 or derived v5) | `/api/ops` and any route that writes the graph (B1) |
-| `graph.py`: store creation (random org id, `meta`), strict parsing and `canon`, hashes, envelope checks, view, `field_prov`, payloads, replay | the Today view and the stop panel (after the ten stills) |
+| `graph.py` (done): store creation (random org id, `meta`), strict parsing and `canon`, hashes, envelope checks, view, `field_prov`, payloads, replay | the Today view and the stop panel (after the ten stills) |
 | the module that opens `personal.db`, and the test that the sync code never imports it | connectors (B2) |
-| `ops.py`: `apply(envelope, channel)`, duplicates, compare-and-set, cycle check, ledger and argv rules, refusals as ops | the team server, grants and sync (B3) |
-| tests: replay equals the live view on 500 seeded random changes, and a golden log that replays to a fixed view | proposals, approvals, grants and agent writes (B4) |
+| `ops.py` (done; `ledger.*` refused until the ledger step): `apply(envelope, channel)`, duplicates, compare-and-set, cycle check, ledger and argv rules, refusals as ops | the team server, grants and sync (B3) |
+| tests (done): replay equals the live view on 500 seeded random changes, and a golden log that replays to a fixed view | proposals, approvals, grants and agent writes (B4) |
 | `lunete graph check` (read-only), wired into `__main__.py` | sealing, pay entries and the `[team]` extra |
 | `/shell` with the look settings (step 5) | |
 
