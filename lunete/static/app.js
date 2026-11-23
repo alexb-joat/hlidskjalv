@@ -1328,7 +1328,7 @@ function termConnect(fresh) {
 
 /* =========================================================== settings: defaults, look, background */
 // Same as settings.defaults() on the server; a test keeps the two identical.
-const DEFAULT_PREFS = /*DEFAULTS*/{"setup_done":false,"look":{"mode":"system","palette":"neutral","accent":null,"surface":null,"text":null,"font":"system","font_size":15,"brightness":0,"density":"comfortable","radius":12,"animations":true,"background":{"type":"solid","colors":[],"angle":135,"particles":{"density":60,"speed":1.0,"size":2.0,"color":null,"links":true}}},"layout":{"nav_position":"top","nav_labels":false,"views":["live","replay","learn","details","terminal","alerts"],"hidden":[],"default_view":"live"},"features":{"terminal":false,"terminal_root":false,"xp":true},"alerts":{"ai_commands":true,"refused_access":true,"persistence":true,"system_log":true,"cost":true,"view":"grouped","toast_min":"high","notify":false,"sound":false,"colors":{"info":null,"medium":null,"high":null,"critical":null}},"sources":{"trioditis_log":null,"claude_code":true,"skip_dirs":[]},"security":{"session_minutes":240},"usage":{"fresh_threshold":150000,"week_anchor":null}}/*END*/;
+const DEFAULT_PREFS = /*DEFAULTS*/{"setup_done":false,"look":{"mode":"system","palette":"neutral","accent":null,"surface":null,"text":null,"font":"system","font_size":15,"brightness":0,"density":"comfortable","radius":12,"animations":true,"background":{"type":"solid","colors":[],"angle":135,"particles":{"density":60,"speed":1.0,"size":2.0,"color":null,"links":true}}},"layout":{"nav_position":"top","nav_labels":false,"views":["live","replay","learn","study","details","terminal","alerts"],"hidden":[],"default_view":"live"},"features":{"terminal":false,"terminal_root":false,"xp":true},"alerts":{"ai_commands":true,"refused_access":true,"persistence":true,"system_log":true,"cost":true,"view":"grouped","toast_min":"high","notify":false,"sound":false,"colors":{"info":null,"medium":null,"high":null,"critical":null}},"sources":{"trioditis_log":null,"claude_code":true,"skip_dirs":[]},"security":{"session_minutes":240},"usage":{"fresh_threshold":150000,"week_anchor":null}}/*END*/;
 const clone = o => JSON.parse(JSON.stringify(o));
 function deepMerge(base, change) {
   const out = clone(base);
@@ -1460,6 +1460,7 @@ Object.assign(ICONS, {
   "v-live": '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
   "v-replay": '<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 8v4l3 2"/>',
   "v-learn": '<path d="M2 8.5L12 4l10 4.5L12 13z"/><path d="M6 10.5V16c0 1.4 2.7 3 6 3s6-1.6 6-3v-5.5"/>',
+  "v-study": '<path d="M3 5.5c2.7-1 5.7-.8 9 1.2 3.3-2 6.3-2.2 9-1.2V19c-2.7-1-5.7-.8-9 1.2-3.3-2-6.3-2.2-9-1.2z"/><path d="M12 6.7v13.5"/>',
   "v-details": '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6M11 8v6"/>',
   "v-terminal": '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/>',
   "v-alerts": '<path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/>',
@@ -2224,7 +2225,7 @@ if (store.get("hint-x", false)) $("#hint").hidden = true;
 $("#hint-x").addEventListener("click", () => { $("#hint").hidden = true; store.set("hint-x", true); });
 decode();
 applyPrefs();  // last-known settings first, so the page doesn't flash
-const startTab = (/^#(live|replay|learn|details|terminal|alerts)(\/[a-z]+)?$/.exec(location.hash) || [])[1] || null;
+const startTab = (/^#(live|replay|learn|study|details|terminal|alerts)(\/[a-z]+)?$/.exec(location.hash) || [])[1] || null;
 boot().then(async () => {
   await loadPrefs(); await loadAlerts();
   showTab(startTab || PREFS.layout.default_view);

@@ -20,7 +20,7 @@ from .auth import write_private
 VERSION = 1
 COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 NAME = re.compile(r"^[^/\\\0]{1,100}$")  # one folder name, not a path
-VIEWS = ["live", "replay", "learn", "details", "terminal", "alerts"]
+VIEWS = ["live", "replay", "learn", "study", "details", "terminal", "alerts"]  # study: new in 0.5
 SEVERITIES = ["info", "medium", "high", "critical"]
 
 # Leaf specs: (kind, default, *args). Dicts nest.
@@ -200,6 +200,14 @@ class Settings:
         src = raw.get("sources")
         if isinstance(src, dict) and "switchboard_log" in src and "trioditis_log" not in src:
             src["trioditis_log"] = src.pop("switchboard_log")  # renamed in 0.3
+        lay = raw.get("layout")
+        if isinstance(lay, dict) and isinstance(lay.get("views"), list):  # views added since the file was saved go in their default place
+            saved = [v for v in lay["views"] if v in VIEWS]
+            for i, v in enumerate(VIEWS):
+                if v not in saved:  # right after the view that comes before it by default, wherever the owner moved that
+                    before = next((saved.index(b) + 1 for b in reversed(VIEWS[:i]) if b in saved), 0)
+                    saved.insert(before, v)
+            lay["views"] = saved
 
         def keep(cur, change, schema):
             for k, v in change.items():

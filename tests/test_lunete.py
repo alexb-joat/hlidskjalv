@@ -19,7 +19,7 @@ from lunete.__main__ import HOOKS, check_folder
 from lunete.auth import Owner, issue_pair_code, rotate_key, totp_code, write_private
 from lunete.redact import redact
 from lunete.server import XP_RULES, Hub, Progress, load_history, read_session, serve, xp_of
-from lunete.settings import Settings, SettingsError, defaults, merge
+from lunete.settings import VIEWS, Settings, SettingsError, defaults, merge
 from lunete.sources import (
     ClaudeCodeWatcher,
     CommandWatcher,
@@ -743,7 +743,7 @@ class SettingsTest(unittest.TestCase):
         cases = [
             {"nope": 1}, {"look": {"mode": "neon"}}, {"look": {"font_size": 99}}, {"look": {"accent": "red"}},
             {"look": {"accent": "#12345g"}}, {"layout": {"views": ["live"]}},
-            {"layout": {"hidden": ["live", "replay", "learn", "details", "terminal", "alerts"]}},
+            {"layout": {"hidden": list(VIEWS)}},
             {"look": {"animations": "yes"}}, {"look": "dark"}, {"look": {"radius": True}},
             {"look": {"background": {"colors": ["#000000"] * 4}}},
             {"look": {"brightness": 90}}, {"look": {"font": "papyrus"}},

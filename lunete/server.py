@@ -38,7 +38,7 @@ MAX_EVENTS = 20_000
 MAX_POST = 64 * 1024
 
 # Static files served: the page's scripts (read once at start) and these vendored terminal files (see static/vendor/README.md).
-SCRIPTS = ("app.js", "learn.js", "tour.js")
+SCRIPTS = ("app.js", "learn.js", "study.js", "tour.js")
 VENDOR = {"xterm.js": "text/javascript; charset=utf-8", "addon-fit.js": "text/javascript; charset=utf-8",
           "xterm.css": "text/css; charset=utf-8", "qrcode.js": "text/javascript; charset=utf-8"}
 
@@ -256,7 +256,8 @@ class AlertsContext:
 
 def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None = None,
                  owner: Owner | None = None, settings: Settings | None = None, restart=None,
-                 alerts: AlertsContext | None = None, usage: UsageContext | None = None, syncer=None, sso=None):
+                 alerts: AlertsContext | None = None, usage: UsageContext | None = None, syncer=None, sso=None,
+                 study_home: Path | None = None):
     def refused(severity: str, title: str, detail: str, fp: str):
         if alerts:
             alerts.alerter.raise_(severity, "refused_access", title, detail[:300], fingerprint=fp)
@@ -326,6 +327,78 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
             self._json({"error": "forbidden origin"}, HTTPStatus.FORBIDDEN)
             return True
 
+        def _study_store(self):
+            """The personal store for the paired owner, or None after answering why not."""
+            if study_home is None or owner is None:
+                self._json({"error": "study lines aren't available in this Lunete"}, HTTPStatus.NOT_FOUND)
+                return None
+            if not owner.check(self.headers.get("X-Hlidskjalv-Key")):  # personal data: paired browsers only, even to read
+                self._json({"error": "this browser isn't paired, or its session ended"}, HTTPStatus.UNAUTHORIZED)
+                return None
+            from . import personal
+            try:
+                return personal.open_store(study_home)
+            except Exception as e:  # noqa: BLE001 (any store problem is answered, never a crash)
+                self._json({"error": str(e)}, HTTPStatus.SERVICE_UNAVAILABLE)
+                return None
+
+        def _study_get(self, path):
+            from . import study
+            store = self._study_store()
+            if store is None:
+                return
+            try:
+                if path == "/api/study":
+                    self._json(study.summary(store))
+                else:
+                    data = study.csv_text(store).encode("utf-8")
+                    self._headers(200, "text/csv; charset=utf-8", len(data))
+                    self.wfile.write(data)
+            finally:
+                store.close()
+
+        def _study_post(self, body):
+            from . import study
+            store = self._study_store()
+            if store is None:
+                return
+            a = body.get("action")
+            s = lambda k: body.get(k) if isinstance(body.get(k), (str, int)) and not isinstance(body.get(k), bool) else None  # noqa: E731
+            try:
+                if a == "log":
+                    entry = study.log(store, str(s("line") or ""), s("day") or "", s("minutes") or "", note=s("note") or "",
+                                      score=s("score"), url=s("url"), piece=s("piece"), channel="page")
+                    out = {"entry": entry}
+                elif a == "edit":
+                    kw = {k: s(k) for k in ("day", "note") if k in body}
+                    if "minutes" in body:
+                        kw["mins"] = s("minutes")
+                    for k in ("score", "url"):
+                        if k in body:
+                            kw[k] = s(k) if body[k] not in (None, "") else None
+                    study.edit(store, str(s("entry") or ""), channel="page", **kw)
+                    out = {}
+                elif a in ("delete", "restore"):
+                    getattr(study, a)(store, str(s("entry") or ""), channel="page")
+                    out = {}
+                elif a == "line":
+                    out = {"line": study.add_line(store, str(s("name") or ""), study.minutes(s("week") or ""), channel="page")}
+                elif a == "target":
+                    study.set_target(store, str(s("line") or ""), study.minutes(s("week") or ""), channel="page")
+                    out = {}
+                elif a == "piece":
+                    study.set_piece_done(store, str(s("piece") or ""), body.get("done") is True, channel="page")
+                    out = {}
+                else:
+                    return self._json({"error": "action must be log, edit, delete, restore, line, target or piece"},
+                                      HTTPStatus.BAD_REQUEST)
+                out["summary"] = study.summary(store)
+                self._json(out)
+            except study.StudyError as e:
+                self._json({"error": str(e)}, HTTPStatus.BAD_REQUEST)
+            finally:
+                store.close()
+
         def do_GET(self):
             if self._foreign_host():
                 return
@@ -358,6 +431,8 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                 data = resources.files("lunete").joinpath("static/vendor/" + url.path[15:]).read_bytes()
                 self._headers(200, VENDOR[url.path[15:]], len(data))
                 self.wfile.write(data)
+            elif url.path in ("/api/study", "/api/study.csv"):
+                self._study_get(url.path)
             elif url.path == "/api/term":
                 self._terminal()
             elif url.path in ("/api/budget", "/api/hardware", "/api/claude-usage", "/api/accounts"):
@@ -461,7 +536,7 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
             if path not in ("/api/pair", "/api/ping", "/api/logout", "/api/password", "/api/settings", "/api/restart",
                             "/api/autostart", "/api/alerts/ack", "/api/2fa/begin", "/api/2fa/confirm", "/api/2fa/disable",
                             "/api/2fa/verify", "/api/sync/setup", "/api/sync/now", "/api/sync/off", "/api/progress",
-                            "/api/sso/start", "/api/sso/configure", "/api/sso/unlink", "/api/sso/info") or owner is None:
+                            "/api/sso/start", "/api/sso/configure", "/api/sso/unlink", "/api/sso/info", "/api/study") or owner is None:
                 return self._json({"error": "read-only"}, HTTPStatus.METHOD_NOT_ALLOWED)
             if self._foreign_origin("change Lunete"):
                 return
@@ -513,6 +588,8 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
                             f"{path}. A browser whose session ran out, or paired before `pair --rotate`, does this once; "
                             "anything else is someone guessing.", "key")
                 return self._json({"error": "this browser isn't paired, or its session ended"}, HTTPStatus.UNAUTHORIZED)
+            if path == "/api/study":
+                return self._study_post(body)
             if path == "/api/ping":
                 info = owner.session_info(given) or {}
                 return self._json({"ok": True, "expires_in": info.get("expires_in"), "password_set": owner.has_password(),
@@ -671,10 +748,11 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
 
 def serve(hub: Hub, sessions: Path, port: int, terminal: Terminal | None = None,
           owner: Owner | None = None, settings: Settings | None = None, restart=None,
-          alerts: AlertsContext | None = None, usage: UsageContext | None = None, syncer=None, sso=None) -> ThreadingHTTPServer:
+          alerts: AlertsContext | None = None, usage: UsageContext | None = None, syncer=None, sso=None,
+          study_home: Path | None = None) -> ThreadingHTTPServer:
     if owner is not None and settings is not None:
         owner.ttl_provider = lambda: settings.data["security"]["session_minutes"] * 60
     httpd = ThreadingHTTPServer(("127.0.0.1", port),
-                                make_handler(hub, sessions, port, terminal, owner, settings, restart, alerts, usage, syncer, sso))
+                                make_handler(hub, sessions, port, terminal, owner, settings, restart, alerts, usage, syncer, sso, study_home))
     httpd.daemon_threads = True
     return httpd

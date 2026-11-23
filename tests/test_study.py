@@ -1,17 +1,24 @@
 import contextlib
 import datetime as dt
+import http.client
 import io
+import json
 import os
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
 
 from lunete import __main__ as M
 from lunete import graph, personal, study
+from lunete.auth import Owner
+from lunete.server import Hub, serve
+from lunete.settings import VIEWS, Settings
 from lunete.study import StudyError
 
 from .test_graph import new_store
+from .test_lunete import free_port
 
 MON = dt.date(2026, 11, 23)  # a Monday
 
@@ -165,6 +172,92 @@ class Cli(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("--dry-run", out)
         self.assertIn("example:", out)
+
+
+class Api(unittest.TestCase):
+    """The Study tab's routes: personal data, so the owner key is needed even to read."""
+
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp())
+        self.port = free_port()
+        self.owner = Owner(self.home)
+        self.httpd = serve(Hub("demo", [], None, {}), self.home, self.port, None, self.owner,
+                           Settings(self.home / "settings.json"), study_home=self.home)
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        self.key = self.owner.start_session()
+
+    def tearDown(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+
+    def call(self, method, path, body=None, key=None):
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        data = json.dumps(body).encode() if body is not None else None
+        hdr = {"Host": f"127.0.0.1:{self.port}", "Origin": f"http://127.0.0.1:{self.port}"}
+        if data is not None:
+            hdr |= {"Content-Type": "application/json", "Content-Length": str(len(data))}
+        if key:
+            hdr["X-Hlidskjalv-Key"] = key
+        c.request(method, path, body=data, headers=hdr)
+        r = c.getresponse()
+        raw, ctype = r.read(), r.getheader("Content-Type", "")
+        c.close()
+        return r.status, (json.loads(raw or b"{}") if "json" in ctype else raw.decode())
+
+    def act(self, **body):
+        return self.call("POST", "/api/study", body, key=self.key)
+
+    def test_unpaired_browsers_get_nothing(self):
+        for method, path, body in (("GET", "/api/study", None), ("GET", "/api/study.csv", None),
+                                   ("POST", "/api/study", {"action": "line", "name": "Serbian", "week": "6h"})):
+            for key in (None, "not-a-session"):
+                status, out = self.call(method, path, body, key=key)
+                self.assertEqual(status, 401, (method, path, key))
+                self.assertNotIn("lines", out)
+        self.assertFalse(personal.path(self.home).exists())
+
+    def test_every_action_round_trips(self):
+        status, out = self.call("GET", "/api/study", key=self.key)
+        self.assertEqual((status, out["lines"]), (200, []))
+        status, out = self.act(action="line", name="Serbian", week="6h")
+        self.assertEqual(status, 200, out)
+        line = out["line"]
+        status, out = self.act(action="log", line=line, minutes="25m", day=dt.date.today().isoformat(), note="podcast", score="6")
+        self.assertEqual(status, 200, out)
+        entry = out["entry"]
+        self.assertEqual((out["summary"]["lines"][0]["today"], out["summary"]["entries"][0]["score"]), (25, 6))
+        status, out = self.act(action="edit", entry=entry, minutes="40", score=None)
+        self.assertEqual((status, out["summary"]["entries"][0]["minutes"], out["summary"]["entries"][0]["score"]), (200, 40, None))
+        self.assertEqual(self.act(action="target", line=line, week="5h")[1]["summary"]["lines"][0]["week_min"], 300)
+        self.assertEqual(self.act(action="delete", entry=entry)[1]["summary"]["entries"], [])
+        self.assertEqual(len(self.act(action="restore", entry=entry)[1]["summary"]["entries"]), 1)
+        status, text = self.call("GET", "/api/study.csv", key=self.key)
+        self.assertEqual(status, 200)
+        self.assertEqual(text.splitlines()[0], "day,line,minutes,score,piece,note,link")
+        self.assertIn("Serbian,40", text)
+
+    def test_bad_requests_are_named(self):
+        self.act(action="line", name="Serbian", week="6h")
+        for body, word in (({"action": "fly"}, "action must be"), ({"action": "log", "line": "Music", "minutes": "5m"}, "add-line"),
+                           ({"action": "log", "line": "Serbian", "minutes": "0m"}, "between 1"),
+                           ({"action": "line", "name": "serbian", "week": "1h"}, "exists")):
+            status, out = self.act(**body)
+            self.assertEqual(status, 400, body)
+            self.assertIn(word, out["error"])
+        status, page = self.call("GET", "/")
+        self.assertIn('id="view-study"', page)
+        self.assertIn("/static/study.js", page)
+
+
+class SavedLayouts(unittest.TestCase):
+    def test_a_layout_saved_before_study_gains_the_tab(self):
+        path = Path(tempfile.mkdtemp()) / "settings.json"
+        old = ["alerts", "live", "replay", "learn", "details", "terminal"]
+        path.write_text(json.dumps({"version": 1, "layout": {"views": old, "default_view": "alerts"}}))
+        views = Settings(path).data["layout"]["views"]
+        self.assertEqual(sorted(views), sorted(VIEWS))
+        self.assertEqual(views[:5], ["alerts", "live", "replay", "learn", "study"])  # after Learn; the owner's order kept
+        self.assertEqual(Settings(path).data["layout"]["default_view"], "alerts")
 
 
 if __name__ == "__main__":

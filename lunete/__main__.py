@@ -206,7 +206,8 @@ def watch(args, argv: list[str]) -> None:
     syncer = Syncer(home, settings, progress, alerter)  # settings, XP and Learn progress between your computers (opt-in)
     start_worker(syncer)
     sso = Sso(home, alerter)  # sign in with GitHub or Google to pair (opt-in)
-    httpd = serve(hub, sessions, args.port, shell, owner, settings, restart, alerts_ctx, usage_ctx, syncer, sso)
+    httpd = serve(hub, sessions, args.port, shell, owner, settings, restart, alerts_ctx, usage_ctx, syncer, sso,
+                  study_home=home)
     write_private(home / "server.json", json.dumps({
         "port": args.port, "pid": os.getpid(), "folder": str(root), "version": __version__,
         "started": time.time()}))

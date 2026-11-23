@@ -536,6 +536,65 @@ code { font: calc(12.5px * var(--fz))/1.45 var(--mono); overflow-wrap: anywhere;
   .stats { grid-template-columns: 1fr 1fr; }
   .stat:last-child:nth-child(odd) { grid-column: 1 / -1; }
 }
+
+/* ---------- study */
+.study-body { display: grid; gap: 12px; }
+.study-log, .study-start { padding: calc(16px * var(--pad)); display: grid; gap: 10px; }
+.study-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.study-field { display: grid; gap: 4px; font-size: calc(12px * var(--fz)); font-weight: 700; color: var(--muted); min-width: 0; }
+.study-field.grow { flex: 1 1 200px; }
+.study-field.time { flex: 0 0 96px; } .study-field.score { flex: 0 0 76px; }
+.study-body input:not([type=checkbox]), .study-body select { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: calc(var(--r) * .6); padding: 0 10px; height: 2.75em; box-sizing: border-box; min-width: 0; width: 100%; font-weight: 400; font-size: calc(14px * var(--fz)); font-variant-numeric: tabular-nums; }
+.study-inline input:not([type=checkbox]) { width: auto; }
+.linkish { border: 0; background: none; padding: 4px 2px; color: var(--accent); font-weight: 700; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.linkish:hover { text-decoration-thickness: 2px; }
+.study-status { margin: 0; min-height: 1.3em; font-size: calc(13px * var(--fz)); color: var(--ok); }
+.study-status.bad { color: var(--danger); }
+.study-status:empty { min-height: 0; }
+.study-small { font-size: calc(12.5px * var(--fz)); margin: 0; }
+.study-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 12px; }
+.study-card { padding: calc(16px * var(--pad)); display: grid; gap: 8px; align-content: start; }
+.study-card header, .study-entries header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.study-card header h3 { flex: 1; }
+.study-card footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.study-big { margin: 0; font-variant-numeric: tabular-nums; }
+.study-big b { font-size: calc(24px * var(--fz)); }
+.study-weeks { position: relative; display: grid; grid-template-columns: repeat(8, 1fr); align-items: end; gap: 4px; height: 44px; margin-top: 4px; }
+.study-weeks b { display: block; background: color-mix(in srgb, var(--accent) 40%, var(--raised)); border-radius: 3px 3px 0 0; min-height: 1px; }
+.study-weeks b.now { background: var(--accent); }
+.study-weeks .target { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--muted); pointer-events: none; }
+.study-chart svg { width: 100%; height: auto; display: block; }
+.study-scores .mid { stroke: var(--line); stroke-width: 1; }
+.study-scores .check { stroke: var(--muted); stroke-dasharray: 3 3; stroke-width: 1; }
+.study-scores .path { fill: none; stroke: var(--accent); stroke-width: 2; }
+.study-scores .dot { fill: var(--accent); stroke: var(--surface); stroke-width: 1.5; }
+.study-pieces { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.study-pieces li { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; font-variant-numeric: tabular-nums; }
+.study-pieces li .bar { grid-column: 1 / -1; margin-top: 0; }
+.study-pieces label { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+.study-pieces li.done .t { text-decoration: line-through; color: var(--muted); }
+.study-pieces .n { font-size: calc(12.5px * var(--fz)); }
+.study-entries { padding: calc(16px * var(--pad)); display: grid; gap: 8px; }
+.study-entries header h3 { flex: 1; }
+.study-entries ul { list-style: none; margin: 0; padding: 0; display: grid; }
+.study-entry { display: grid; grid-template-columns: 110px auto 80px 1fr auto auto; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.study-entry > .chip { justify-self: start; }
+.study-entry .d { color: var(--muted); font-size: calc(13px * var(--fz)); }
+.study-entry .m { font-weight: 700; text-align: right; }
+.study-entry .note { min-width: 0; overflow-wrap: anywhere; }
+.study-entry .acts { display: flex; gap: 6px; }
+.study-entry.editing { grid-template-columns: 150px 70px 1fr 70px auto auto; border-top: 0; }
+.study-foot { display: flex; }
+.study-add { display: grid; gap: 8px; width: 100%; }
+.study-toast { display: flex; gap: 12px; align-items: center; }
+.study-toast .btn { padding: 4px 10px; }
+@media (max-width: 640px) {
+  .study-entry { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+  .study-entry .note { flex: 1 0 100%; }
+  .study-entry .acts { margin-left: auto; }
+  .study-entry.editing { grid-template-columns: 1fr 1fr; }
+  .study-entry.editing input { grid-column: auto; }
+}
 </style>
 
 <header class="hud">
@@ -599,6 +658,17 @@ code { font: calc(12.5px * var(--fz))/1.45 var(--mono); overflow-wrap: anywhere;
     <div id="replay-slot"></div>
   </section>
 
+  <section class="view" id="view-study" role="tabpanel" aria-labelledby="tab-study" hidden>
+    <div class="intro">
+      <div class="title">
+        <div class="eyebrow">Study</div>
+        <h2>What you're learning</h2>
+        <p>Log the time you give each subject, see this week against your target, and track test scores. It stays on this computer. No streaks: a missed day costs nothing.</p>
+      </div>
+    </div>
+    <div class="study-body" id="study-body"></div>
+  </section>
+
   <section class="view" id="view-learn" role="tabpanel" aria-labelledby="tab-learn" hidden>
     <div class="intro">
       <div class="title">
@@ -657,4 +727,5 @@ code { font: calc(12.5px * var(--fz))/1.45 var(--mono); overflow-wrap: anywhere;
 
 <script src="/static/app.js"></script>
 <script src="/static/learn.js"></script>
+<script src="/static/study.js"></script>
 <script src="/static/tour.js"></script>
