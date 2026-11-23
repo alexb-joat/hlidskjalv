@@ -20,6 +20,8 @@ Thanks for helping. Lunete watches a person's computer and can open a shell, so 
    LUNETE_E2E=1 python -m unittest discover -s tests/e2e -t . -v
    ```
    and look at it yourself: `LUNETE_HOME=$(mktemp -d) python3 -m lunete watch <some folder> --no-open --port 8799`.
+   If it changed what the README or guide pictures show, re-shoot them from sample data with
+   `python tests/e2e/screenshots.py` (writes `docs/img/*.png`; pass a folder to compare first).
 5. **Open a pull request** and fill in the template. CI, CodeQL and dependency review run automatically; for
    first-time contributors a maintainer approves the run first.
 

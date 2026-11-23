@@ -29,6 +29,7 @@
 | **Live** | Your project as a map that lights up as files change, and a log of every edit, command, save point and AI step |
 | **Replay** | Every session is saved on your computer; scrub through it step by step |
 | **Learn** | Four short games (approve or deny, save point rescue, treasure hunt, token budget), a command decoder and badges |
+| **Study** | Log the time you give what you're learning and see this week against your target, with scores and course pieces; it stays on your computer |
 | **Details** | Click anything for the whole story: why a model was picked, tokens, cost, what each part of a command does |
 | **Alerts** | Things you didn't do yourself: risky commands an AI ran, startup files that changed, refused requests, spending caps |
 
@@ -53,6 +54,6 @@ On Windows: `py -3 -m lunete watch C:\Users\you\projects\my-app`. Your browser o
 
 ## More
 
-[Guide](docs/guide.md) (AI steps and cost, alerts, terminal, customizing, start at login) · [Pairing and sync](docs/pairing-and-sync.md) · [Security](docs/security.md) · [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · Report a vulnerability via [SECURITY.md](SECURITY.md)
+[Guide](docs/guide.md) (Study, AI steps and cost, alerts, terminal, customizing, start at login) · [Pairing and sync](docs/pairing-and-sync.md) · [Security](docs/security.md) · [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · Report a vulnerability via [SECURITY.md](SECURITY.md)
 
 [MIT](LICENSE). Not affiliated with VS Code, Cline, Anthropic, OpenAI or Ollama.

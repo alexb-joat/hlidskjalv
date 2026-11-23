@@ -4,7 +4,7 @@ Everything Lunete shows and how to tune it. Pairing and sync have [their own pag
 
 [← Back to the README](../README.md)
 
-[The views](#the-views) · [AI steps and cost](#ai-steps-and-cost) · [Alerts](#alerts) · [Your terminal commands](#your-terminal-commands) · [Terminal in the page](#terminal-in-the-page) · [Make it yours](#make-it-yours) · [Start at login](#start-at-login)
+[The views](#the-views) · [Study](#study) · [AI steps and cost](#ai-steps-and-cost) · [Alerts](#alerts) · [Your terminal commands](#your-terminal-commands) · [Terminal in the page](#terminal-in-the-page) · [Make it yours](#make-it-yours) · [Start at login](#start-at-login)
 
 ---
 
@@ -15,11 +15,44 @@ Everything Lunete shows and how to tune it. Pairing and sync have [their own pag
 | **Live** | A live map of the project and an activity log of everything that happens, with "Careful" badges on risky commands |
 | **Replay** | Every session is saved on your computer (`~/.lunete/sessions`, the last 50; `--keep` to change); scrub through it step by step |
 | **Learn** | Hover over or click the Learn icon for its sub-tabs. **Approve or deny**: your AI helper asks to run commands, and you say yes or no before a timer runs out. **Save point rescue**: fix a project's history in a few Git moves. **Treasure hunt**: find a hidden note with `ls`, `cd`, `cat`, `grep`, `find` and `head` in pretend files. **Token budget**: give each task the cheapest model that can do it. Plus the command decoder and badges. A cleared level is worth 25 XP once; nothing in the games touches your files or the network |
+| **Study** | Log the time you give what you're learning and see this week against your target (see [Study](#study)) |
 | **Details** | Click anything for every detail: why a model was picked, tokens, cost, what each piece of a command does. Plus where your tokens and money go |
 | **Alerts** | Things you didn't do yourself (see [Alerts](#alerts)) |
 | **Terminal** | Optional: a real shell in the project folder (see [Terminal in the page](#terminal-in-the-page)) |
 
 Hover over anything for an explanation. **Help** (the question mark next to Settings) has the tour again, the keyboard shortcuts, what each view does and the command decoder. Open the page without a running Lunete and it shows a demo session with example data, so you can try every view and the customization (kept in your browser).
+
+## Study
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/study-dark.png">
+  <img alt="The Study view: a form to log a session, two study lines with this week's time against a weekly target, eight weeks of small bars, a score chart and a course's pieces, and the list of logged sessions." src="img/study-light.png" width="640">
+</picture>
+
+Log the time you give whatever you're learning (a language, a course, a stretch of practice) and see this week against a target you set. Example data in the picture.
+
+- **A line** is one thing you're learning, with a weekly target such as `5h`. Add one on the page (*Add a study line*) or from the command line.
+- **Log a session:** pick the line, type the time (`25m`, `1h30m` or plain minutes), change the day if it wasn't today, add a note if you like, and press Enter. A line with check dates also takes a score from 0 to 10; a line with pieces lets you say which piece the time went to; a link is optional.
+- **Each line shows** this week's time against its target ("done for this week" once it's met), today's time, the last eight weeks as small bars, scores over time with the check dates as dashed lines, and each piece's hours against its estimate with a done tick.
+- **Change anything:** edit or delete a session (Undo brings a deleted one back), or change a target with *change* under the line.
+- **Your data in a file:** *Download CSV* saves every session with its day, line, minutes, score, piece, note and link.
+
+There are no streaks and no points: a missed day costs nothing.
+
+Sessions stay on this computer, in `~/.lunete/graph/personal.db`. Sync never sends them: the sync code can't open that file, and a test fails if it ever could. Seeing and changing them needs a paired browser (see [Pairing](pairing-and-sync.md)).
+
+From the command line:
+
+```bash
+python3 -m lunete study add-line Spanish --week 5h --check 2026-12-18
+python3 -m lunete study add-line "Statistics course" --week 3h --piece "Distributions=3-5h" --piece "Regression=8-10h"
+python3 -m lunete study log Spanish 25m --note "podcast on a walk"
+python3 -m lunete study list
+python3 -m lunete study target Spanish 6h
+python3 -m lunete graph check
+```
+
+`add-line --dry-run` prints what it would write and writes nothing. Every change, from the page or the command line, goes into a change log; `graph check` replays that log and checks that it gives exactly what the page shows (read-only).
 
 ## AI steps and cost
 
@@ -139,7 +172,7 @@ python3 -m lunete password                             # then pair any browser b
 **Autostart policy.** What it does, exactly:
 
 - Nothing starts at login unless you ran `autostart enable` yourself. Only that command line installs or removes the login item; the page can show it (Settings → This computer: the command, its safety settings, since when it runs, its recent log) but never changes it.
-- Linux: a systemd *user* unit, `~/.config/systemd/user/lunete.service`. No root. It runs as you with: files only you can read (`UMask=0077`), no privilege gain for it or anything it starts (`NoNewPrivileges`, so `sudo` doesn't work in the in-page terminal), a 2 GB memory cap, and a restart after crashes but not after you stop it. macOS: a launchd agent in `~/Library/LaunchAgents`. Windows: a hidden Scheduled Task for your user, no admin rights.
+- Linux: a systemd *user* unit, `~/.config/systemd/user/hlidskjalv.service` (the 0.4 name, kept so a login item installed before keeps working). No root. It runs as you with: files only you can read (`UMask=0077`), no privilege gain for it or anything it starts (`NoNewPrivileges`, so `sudo` doesn't work in the in-page terminal), a 2 GB memory cap, and a restart after crashes but not after you stop it. macOS: a launchd agent in `~/Library/LaunchAgents`. Windows: a hidden Scheduled Task for your user, no admin rights.
 - It uses your system Python (Lunete needs nothing else), listens on `127.0.0.1` only, and starts with `--no-open`: no browser pops up at login.
 - The in-page terminal stays off at login unless you switched it on in Settings.
-- Logs: `journalctl --user -u lunete -f` (Linux), `~/.lunete/lunete.log` (macOS).
+- Logs: `journalctl --user -u hlidskjalv -f` (Linux), `~/.lunete/lunete.log` (macOS).

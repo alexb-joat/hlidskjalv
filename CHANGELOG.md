@@ -1,9 +1,16 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 (2026-11-23)
+
+**Study: what you're learning, against a weekly target**
+- A **Study** tab next to Learn. Log a session in a few seconds: the line, the time (`25m`, `1h30m`), the day, a note; a 0–10 score on lines with check dates, the piece it went to on lines with pieces, and an optional link. Enter saves.
+- Each line shows this week against its target ("done for this week" once it's met), the last eight weeks, scores with the check dates marked, and each piece's hours against its estimate. Edit or delete a session (with Undo), change a target, download everything as CSV. No streaks and no points: a missed day costs nothing.
+- From the command line: `lunete study add-line` (with `--dry-run`), `log`, `list` and `target`. See [Study](docs/guide.md#study) in the guide.
+- Sessions stay on this computer, in `~/.lunete/graph/personal.db`, and are never synced.
+- Every change, from the page or the command line, goes into a change log. `lunete graph check` replays it and checks it gives what the page shows; `lunete graph rebuild` rebuilds the view from the log.
 
 **Hlidskjalv is now Lunete**
-- The program, the command and the Python package are called `lunete` (`python3 -m lunete watch <folder>`). The `hlidskjalv` command still works for this release.
+- The program, the command and the Python package are called `lunete` (`python3 -m lunete watch <folder>`). The `hlidskjalv` command and `python3 -m hlidskjalv` still start Lunete for this release (the second with a one-line note), so login items installed by 0.4 keep running.
 - Settings and history move once from `~/.hlidskjalv` to `~/.lunete`, and a link is left at the old path, so shell hooks you installed before keep recording. If no link can be made (Windows without symlink rights), nothing moves and the old folder is used.
 - Environment variables are `LUNETE_HOME`, `LUNETE_PORT` and `LUNETE_TRIODITIS_LOG`; the `HLIDSKJALV_*` and `ARCADE_*` names still work for this release.
 - Unchanged, so nothing has to be set up again: paired browsers, the sync copy (`hlidskjalv-sync.json`), and the login item Autostart installed (`hlidskjalv.service`, `io.github.hlidskjalv.watch`, the `Hlidskjalv` scheduled task).
