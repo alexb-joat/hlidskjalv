@@ -20,7 +20,7 @@ lunete = "lunete.__main__:main"
 hlidskjalv = "lunete.__main__:main"  # the 0.4 name, kept for one release
 
 [tool.setuptools]
-packages = ["lunete"]
+packages = ["lunete", "hlidskjalv"]  # hlidskjalv: the 0.4 module name, kept for one release
 
 [tool.setuptools.package-data]
 lunete = ["static/*.html", "static/*.js", "static/vendor/*"]

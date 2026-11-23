@@ -130,3 +130,16 @@ class NameTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OldModuleName(unittest.TestCase):
+    """0.4 login items and services run `python -m hlidskjalv`; they must keep starting on 0.5."""
+
+    def test_python_m_hlidskjalv_runs_lunete(self):
+        import subprocess
+        import sys
+        root = Path(__file__).resolve().parent.parent
+        out = subprocess.run([sys.executable, "-m", "hlidskjalv", "--help"], cwd=root, capture_output=True, text=True, timeout=60)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("lunete", out.stdout.lower())
+        self.assertIn("python -m lunete", out.stderr)
