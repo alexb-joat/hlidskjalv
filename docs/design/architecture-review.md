@@ -2,7 +2,7 @@
 
 - **Who reviewed:** an independent Sonnet agent. It got the doc, the plan's decisions (enchanted-gadget lines 73-246) and the code (server.py, `__main__.py`, sync.py), not my conclusions.
 - **Labels:** CONFIRMED means it checked the doc, plan or code text. PLAUSIBLE means it did not.
-- **Status:** none of the fixes below is in `architecture.md` yet. Folding them in is the first step of the next session, before `graph.py`.
+- **Status:** folded into `architecture.md` draft 2 on 23 Nov 2026, with Alex's calls A, B and C taken as recommended.
 
 ## Findings, most severe first, with the fix to adopt
 
