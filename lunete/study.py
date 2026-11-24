@@ -23,7 +23,7 @@ from .ids import uuid7
 MAX_MINUTES = 24 * 60
 MAX_WEEK_MIN = 7 * 24 * 60
 WEEKS_SHOWN = 8
-_DUR = re.compile(r"^\s*(?:(\d{1,3})\s*h)?\s*(?:(\d{1,4})\s*m(?:in)?)?\s*$", re.I)
+_DUR = re.compile(r"^(?:(\d{1,3})h)?(?:(\d{1,4})m(?:in)?)?$", re.I)  # matched with spaces taken out
 
 
 class StudyError(ValueError):
@@ -35,9 +35,9 @@ def minutes(text: str | int) -> int:
     if isinstance(text, int) and not isinstance(text, bool):
         return text
     t = str(text).strip()
-    if t.isdigit():
+    if t.isdigit() and len(t) <= 6:
         return int(t)
-    m = _DUR.match(t)
+    m = _DUR.match("".join(t.split())) if len(t) <= 20 else None
     if not t or not m or not (m.group(1) or m.group(2)):
         raise StudyError(f"time {text!r}: write it like 6h, 90m or 1h30m")
     return int(m.group(1) or 0) * 60 + int(m.group(2) or 0)

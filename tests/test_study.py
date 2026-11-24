@@ -6,6 +6,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -30,6 +31,16 @@ class Durations(unittest.TestCase):
         for bad in ("", "h", "six hours", "1.5h"):
             with self.assertRaises(StudyError):
                 study.minutes(bad)
+
+    def test_minutes_with_many_spaces_fails_fast(self):
+        # CodeQL py/polynomial-redos: the old pattern backtracked over runs of spaces (4,000 took 0.1 s, growing
+        # with the square); a long input is now refused before any pattern runs
+        self.assertEqual(study.minutes(" 1 h 30 m "), 90)
+        t0 = time.perf_counter()
+        for bad in ("1h" + " " * 60000 + "x", "1" * 60000, " " * 60000 + "m"):
+            with self.assertRaises(StudyError):
+                study.minutes(bad)
+        self.assertLess(time.perf_counter() - t0, 0.5)
 
     def test_ranges_and_pieces(self):
         self.assertEqual(study.minutes_range("3-5h"), [180, 300])
