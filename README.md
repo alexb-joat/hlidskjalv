@@ -52,6 +52,14 @@ On Windows: `py -3 -m lunete watch C:\Users\you\projects\my-app`. Your browser o
 - **File contents never leave:** only names and line counts; secret-looking files aren't read and secrets in commands are masked.
 - **Read-only:** it never runs anything from your project; Git runs with hooks off.
 
+## Known limits
+
+- **One folder per run,** and up to 5,000 files in it (build and library folders are skipped first; past that the page says how many were left out).
+- **AI steps come from two places only:** [Trioditis](https://github.com/alexb-joat/trioditis)'s log and Claude Code's own transcripts. A helper that talks to a model provider directly shows its edits and commands, but not its AI steps or cost.
+- **Study stays on one computer:** sessions are never synced, so a second computer starts empty.
+- **Not on PyPI yet:** install from a clone, as above.
+- **Windows without symlink rights:** settings and history stay in `~/.hlidskjalv` instead of moving to `~/.lunete`. Everything still works.
+
 ## More
 
 [Guide](docs/guide.md) (Study, AI steps and cost, alerts, terminal, customizing, start at login) · [Pairing and sync](docs/pairing-and-sync.md) · [Security](docs/security.md) · [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · Report a vulnerability via [SECURITY.md](SECURITY.md)
