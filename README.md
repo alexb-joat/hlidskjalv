@@ -7,8 +7,10 @@
 
 **A live, plain-English map of your project and everything your AI coding helper does in it.** Hlidskjalv watches one folder: every edit, command, Git save point and AI step lights up and lands in an activity log, and anything you did not do yourself raises an alert. Hover over anything for an explanation.
 
-[![ci](https://github.com/alexb-joat/hlidskjalv/actions/workflows/ci.yml/badge.svg)](https://github.com/alexb-joat/hlidskjalv/actions/workflows/ci.yml)
-[![codeql](https://github.com/alexb-joat/hlidskjalv/actions/workflows/codeql.yml/badge.svg)](https://github.com/alexb-joat/hlidskjalv/actions/workflows/codeql.yml)
+> Hlidskjalv is being renamed **Lunete**; the rename ships with 0.5. Until then the program and its commands are still called `hlidskjalv`, as below.
+
+[![ci](https://github.com/alexb-joat/lunete/actions/workflows/ci.yml/badge.svg)](https://github.com/alexb-joat/lunete/actions/workflows/ci.yml)
+[![codeql](https://github.com/alexb-joat/lunete/actions/workflows/codeql.yml/badge.svg)](https://github.com/alexb-joat/lunete/actions/workflows/codeql.yml)
 ![python](https://img.shields.io/badge/python-3.10%2B-3776AB)
 ![dependencies](https://img.shields.io/badge/dependencies-0-5fd6ae)
 ![network](https://img.shields.io/badge/outbound%20requests-0%20by%20default-5fd6ae)
@@ -54,7 +56,7 @@ Hlidskjalv only **watches**: it never changes your files and never runs anything
 You need Python 3.10 or newer (on Windows, install it from [python.org](https://www.python.org/downloads/) and tick "Add python.exe to PATH").
 
 ```bash
-git clone https://github.com/alexb-joat/hlidskjalv.git && cd hlidskjalv
+git clone https://github.com/alexb-joat/lunete.git && cd lunete
 python3 -m hlidskjalv watch ~/projects/my-app
 ```
 
