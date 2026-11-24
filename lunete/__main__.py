@@ -389,15 +389,33 @@ def sync_cmd(args) -> None:
         print(f"  other computer '{name}': {d['xp']} XP")
 
 
+def _answers(port: int) -> bool:
+    """True if an HTTP server replies on 127.0.0.1:port; a bare TCP connect can lie, a reply can't."""
+    import http.client
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+    try:
+        conn.request("GET", "/api/sso")
+        conn.getresponse().read()
+        return True
+    except (OSError, http.client.HTTPException):
+        return False
+    finally:
+        conn.close()
+
+
 def pair(args) -> None:
     home = data_home()
     if args.rotate:
         rotate_key(home)
         print("New owner key: every browser is un-paired.")
     try:
-        port = int(json.loads((home / "server.json").read_text(encoding="utf-8"))["port"])
-    except (OSError, ValueError, KeyError, TypeError):
-        port = int(env("PORT") or "8788")
+        last = json.loads((home / "server.json").read_text(encoding="utf-8"))
+        port, folder = int(last["port"]), str(last.get("folder") or "~/projects/my-app")
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        port, folder = int(env("PORT") or "8788"), "~/projects/my-app"
+    if not _answers(port):  # server.json outlives a stopped server; a link to it opens an error page
+        sys.exit(f"Lunete isn't running on port {port}, so the link would open an error page.\n"
+                 f"Start it with `python3 -m lunete watch {folder}`, then run `python3 -m lunete pair` again.")
     url = f"http://127.0.0.1:{port}/#pair={issue_pair_code(home)}"
     print(f"Open this once, within 10 minutes, in the browser to pair:\n  {url}")
     if args.open:

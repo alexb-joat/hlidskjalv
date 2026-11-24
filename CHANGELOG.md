@@ -27,6 +27,7 @@
 - Settings has five sections instead of ten: Appearance, Watching, Pairing, Sync and This computer. Same controls, regrouped; the old section names still open the right one.
 
 **Fixed**
+- `lunete pair` checks that Lunete is running before it prints or opens a link. Before, after a stop it opened an "Unable to connect" page; now it says how to start Lunete.
 - Two saves of the same file at the same moment (for example two password changes) could make one of them fail. Each save now has its own temporary file, and saves take turns.
 
 ## 0.4.0 (2026-10-30)

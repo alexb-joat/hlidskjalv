@@ -132,6 +132,42 @@ class Cli(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
+    def write_server_json(self, port):
+        Path(self.home, "server.json").write_text(json.dumps({"port": port, "folder": "/tmp/proj"}), encoding="utf-8")
+
+    def test_pair_refuses_when_lunete_is_stopped(self):
+        import socket
+        with socket.socket() as sock:  # a port nothing listens on once closed
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+        self.write_server_json(port)  # left behind by a server that has since stopped
+        code, out, _ = self.run_cli("pair", "--open")
+        self.assertIn(f"isn't running on port {port}", str(code))
+        self.assertIn("python3 -m lunete watch /tmp/proj", str(code))
+        self.assertNotIn("#pair=", out)
+        self.assertFalse(Path(self.home, "pair").exists())  # no code issued for a dead link
+
+    def test_pair_prints_the_link_when_lunete_answers(self):
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        class Ok(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+
+            def log_message(self, *a):
+                pass
+
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), Ok)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        self.addCleanup(httpd.server_close)
+        self.addCleanup(httpd.shutdown)
+        port = httpd.server_address[1]
+        self.write_server_json(port)
+        code, out, _ = self.run_cli("pair")
+        self.assertEqual(code, 0)
+        self.assertIn(f"http://127.0.0.1:{port}/#pair=", out)
+
     def test_dry_run_writes_nothing(self):
         code, out, _ = self.run_cli("study", "add-line", "Eval sprint", "--week", "3h", "--piece", "S1=3-5h", "--dry-run")
         self.assertEqual(code, 0)
