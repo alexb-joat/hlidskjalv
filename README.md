@@ -7,8 +7,8 @@
 
 **A live, plain-English map of your project and everything your AI coding helper does in it.**
 
-[![ci](https://github.com/alexb-joat/hlidskjalv/actions/workflows/ci.yml/badge.svg)](https://github.com/alexb-joat/hlidskjalv/actions/workflows/ci.yml)
-[![codeql](https://github.com/alexb-joat/hlidskjalv/actions/workflows/codeql.yml/badge.svg)](https://github.com/alexb-joat/hlidskjalv/actions/workflows/codeql.yml)
+[![ci](https://github.com/alexb-joat/lunete/actions/workflows/ci.yml/badge.svg)](https://github.com/alexb-joat/lunete/actions/workflows/ci.yml)
+[![codeql](https://github.com/alexb-joat/lunete/actions/workflows/codeql.yml/badge.svg)](https://github.com/alexb-joat/lunete/actions/workflows/codeql.yml)
 ![python](https://img.shields.io/badge/python-3.10%2B-3776AB)
 ![dependencies](https://img.shields.io/badge/dependencies-0-5fd6ae)
 [![license](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
@@ -40,7 +40,7 @@ Made for people who are new to coding and work with an AI helper in VS Code. Lun
 You need Python 3.10 or newer, and nothing else.
 
 ```bash
-git clone https://github.com/alexb-joat/hlidskjalv.git && cd hlidskjalv
+git clone https://github.com/alexb-joat/lunete.git && cd lunete
 python3 -m lunete watch ~/projects/my-app
 ```
 

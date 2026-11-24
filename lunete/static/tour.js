@@ -3,7 +3,7 @@
    showTab, showShortcuts, openModal). The tour puts a spotlight on one control at a time with a cloud that
    says what it is for; it runs once, after the first-start setup, and again from Help. */
 
-const REPO = "https://github.com/alexb-joat/hlidskjalv";
+const REPO = "https://github.com/alexb-joat/lunete";
 ICONS["v-help"] = '<circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 1 1 3.4 2.6c-.6.3-1 .8-1 1.5v.6"/><path d="M12 17.2v.1"/>';
 
 const TOUR = [

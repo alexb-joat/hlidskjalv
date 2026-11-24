@@ -12,8 +12,8 @@ requires-python = ">=3.10"
 dependencies = []          # standard library only, on purpose
 
 [project.urls]
-Homepage = "https://github.com/alexb-joat/hlidskjalv"
-Issues = "https://github.com/alexb-joat/hlidskjalv/issues"
+Homepage = "https://github.com/alexb-joat/lunete"
+Issues = "https://github.com/alexb-joat/lunete/issues"
 
 [project.scripts]
 lunete = "lunete.__main__:main"

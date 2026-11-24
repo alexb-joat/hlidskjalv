@@ -127,6 +127,15 @@ class NameTest(unittest.TestCase):
         self.assertIn("ws://lunete.localhost:8788", policy)
         self.assertIn("ws://hlidskjalv.localhost:8788", policy)
 
+    def test_links_point_at_the_renamed_repo(self):
+        """GitHub redirects the old repo URL only until someone takes the name; link the new one."""
+        import subprocess
+        out = subprocess.run(["git", "grep", "-n", "-I", "alexb-joat/" + "hlidskjalv"], cwd=ROOT,
+                             capture_output=True, text=True)
+        if out.returncode == 128:
+            self.skipTest("not a git checkout")
+        self.assertEqual(out.stdout, "", "old repo URL still linked:\n" + out.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

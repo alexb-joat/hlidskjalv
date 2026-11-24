@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please report it **privately**: open the repository's **Security** tab and choose **Report a vulnerability**
-([direct link](https://github.com/alexb-joat/hlidskjalv/security/advisories/new)). Please do not open a public issue.
+([direct link](https://github.com/alexb-joat/lunete/security/advisories/new)). Please do not open a public issue.
 
 Include the version (`python3 -m lunete --version`), your system and browser, what you expected and what happened,
 and the smallest steps that reproduce it. Never include your owner key, pairing links or anything from `~/.lunete`.

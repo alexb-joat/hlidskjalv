@@ -10,6 +10,7 @@
 - Every change, from the page or the command line, goes into a change log. `lunete graph check` replays it and checks it gives what the page shows; `lunete graph rebuild` rebuilds the view from the log.
 
 **Hlidskjalv is now Lunete**
+- The repository moved to [github.com/alexb-joat/lunete](https://github.com/alexb-joat/lunete); the old address redirects there, and the Help menu's links point at the new one.
 - The program, the command and the Python package are called `lunete` (`python3 -m lunete watch <folder>`). The `hlidskjalv` command and `python3 -m hlidskjalv` still start Lunete for this release (the second with a one-line note), so login items installed by 0.4 keep running.
 - Settings and history move once from `~/.hlidskjalv` to `~/.lunete`, and a link is left at the old path, so shell hooks you installed before keep recording. If no link can be made (Windows without symlink rights), nothing moves and the old folder is used.
 - Environment variables are `LUNETE_HOME`, `LUNETE_PORT` and `LUNETE_TRIODITIS_LOG`; the `HLIDSKJALV_*` and `ARCADE_*` names still work for this release.
