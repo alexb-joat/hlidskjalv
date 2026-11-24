@@ -1,14 +1,14 @@
 # Contributing
 
-Thanks for helping. Hlidskjalv watches a person's computer and can open a shell, so the bar for changes is
+Thanks for helping. Lunete watches a person's computer and can open a shell, so the bar for changes is
 "small, tested, and no new attack surface without a reason".
 
 ## Workflow
 
 1. **Fork** the repo and create a branch: `git switch -c fix/short-description`.
 2. **Set up:** nothing to install. The Python side is the standard library; you need Python 3.10 or newer.
-3. **Make the change** and add tests in `tests/`. The page is `hlidskjalv/static/index.html` (markup and styles) and
-   `hlidskjalv/static/app.js` (script).
+3. **Make the change** and add tests in `tests/`. The page is `lunete/static/index.html` (markup and styles) and
+   `lunete/static/app.js` (script).
 4. **Check** before pushing:
    ```bash
    python3 -m unittest discover -s tests -t .
@@ -17,9 +17,11 @@ Thanks for helping. Hlidskjalv watches a person's computer and can open a shell,
    If the page changed, run the browser tests too (Firefox and WebKit, as CI does):
    ```bash
    pip install --require-hashes --no-deps -r requirements-e2e.txt && python -m playwright install firefox webkit
-   HLIDSKJALV_E2E=1 python -m unittest discover -s tests/e2e -t . -v
+   LUNETE_E2E=1 python -m unittest discover -s tests/e2e -t . -v
    ```
-   and look at it yourself: `HLIDSKJALV_HOME=$(mktemp -d) python3 -m hlidskjalv watch <some folder> --no-open --port 8799`.
+   and look at it yourself: `LUNETE_HOME=$(mktemp -d) python3 -m lunete watch <some folder> --no-open --port 8799`.
+   If it changed what the README or guide pictures show, re-shoot them from sample data with
+   `python tests/e2e/screenshots.py` (writes `docs/img/*.png`; pass a folder to compare first).
 5. **Open a pull request** and fill in the template. CI, CodeQL and dependency review run automatically; for
    first-time contributors a maintainer approves the run first.
 
@@ -40,3 +42,12 @@ Thanks for helping. Hlidskjalv watches a person's computer and can open a shell,
 ## Style
 
 Small functions, plain names, comments that say why. Match the code around you.
+
+## Releasing (maintainer)
+
+1. Set the version in both `lunete/__init__.py` and `pyproject.toml`, and add a `## X.Y.Z (date)` section to `CHANGELOG.md`.
+2. Merge through a PR with CI green, then `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`.
+3. `.github/workflows/release.yml` checks that the tag, both version fields and the changelog agree. It builds the sdist and
+   wheel with hash-pinned tools, installs the wheel in a clean venv and runs `--version`, `graph check` and a `study`
+   dry run. Then it creates the GitHub release from the changelog section and attaches the files. To dry-run it (build
+   and check only), run it by hand from the Actions tab. PyPI publishing is off for now.

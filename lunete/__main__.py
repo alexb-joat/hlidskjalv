@@ -1,0 +1,631 @@
+"""python -m lunete [watch|hook|sessions]"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import platform
+import re
+import sys
+import time
+import webbrowser
+from pathlib import Path
+
+from . import __version__, env
+from . import terminal as term
+from .alerts import Acks, Alerter, PersistenceWatcher, SystemLogWatcher, TrioditisSecurityWatcher
+from .auth import Owner, issue_pair_code, rotate_key, write_private
+from .cost_alerts import CostWatcher
+from .poller import health_of, start_all
+from .server import NICE_HOST, AlertsContext, Hub, Progress, UsageContext, list_sessions, load_history, serve
+from .settings import Settings
+from .sources import ClaudeCodeWatcher, CommandWatcher, FileWatcher, GitWatcher, TrioditisWatcher, load_prices
+from .sso import PROVIDERS, Sso, SsoError
+from .sync import Syncer, start_worker
+from .usage import ClaudeUsage
+
+HOOKS = {
+    "bash": r'''
+# --- Lunete: record terminal commands (local file, owner-only) ---
+# Commands that start with a space are not recorded (Ubuntu's default HISTCONTROL).
+__arcade_last=$(HISTTIMEFORMAT= builtin history 1 | awk '{print $1}')
+__arcade_log() {
+  local h n c f="${LUNETE_HOME:-${HLIDSKJALV_HOME:-${ARCADE_HOME:-$HOME/.lunete}}}/commands.log"
+  h=$(HISTTIMEFORMAT= builtin history 1) || return
+  read -r n c <<<"$h"
+  { [ -z "$c" ] || [ "$n" = "$__arcade_last" ]; } && return
+  __arcade_last=$n
+  [ -f "$f" ] || ( umask 077; mkdir -p "${f%/*}"; : >> "$f" )
+  printf '%s\t%s\t%s\n' "$(date +%s)" "$PWD" "$c" >> "$f"
+}
+case ";$PROMPT_COMMAND;" in *";__arcade_log;"*) ;; *) PROMPT_COMMAND="__arcade_log${PROMPT_COMMAND:+;$PROMPT_COMMAND}";; esac
+# --- end Lunete ---
+''',
+    "zsh": r'''
+# --- Lunete: record terminal commands (local file, owner-only) ---
+setopt HIST_IGNORE_SPACE   # commands starting with a space are not recorded
+__arcade_last=$(fc -l -1 2>/dev/null | awk '{print $1}')
+__arcade_log() {
+  local h n c f="${LUNETE_HOME:-${HLIDSKJALV_HOME:-${ARCADE_HOME:-$HOME/.lunete}}}/commands.log"
+  h=$(fc -l -1 2>/dev/null) || return
+  read -r n c <<<"$h"
+  [[ -z "$c" || "$n" == "$__arcade_last" ]] && return
+  __arcade_last=$n
+  [[ -f "$f" ]] || ( umask 077; mkdir -p "${f:h}"; : >> "$f" )
+  printf '%s\t%s\t%s\n' "$(date +%s)" "$PWD" "$c" >> "$f"
+}
+autoload -Uz add-zsh-hook && add-zsh-hook precmd __arcade_log
+# --- end Lunete ---
+''',
+    "powershell": r'''
+# --- Lunete: record terminal commands (local file in your profile folder) ---
+# Commands that start with a space are not recorded.
+$global:__LuneteLastId = -1
+$global:__LuneteOriginalPrompt = $function:prompt
+function global:prompt {
+  $h = Get-History -Count 1
+  if ($h -and $h.Id -ne $global:__LuneteLastId -and -not $h.CommandLine.StartsWith(' ')) {
+    $global:__LuneteLastId = $h.Id
+    $dir = $env:LUNETE_HOME; if (-not $dir) { $dir = $env:HLIDSKJALV_HOME }; if (-not $dir) { $dir = $env:ARCADE_HOME }
+    if (-not $dir) { $dir = Join-Path $HOME '.lunete' }
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
+    $ts = [DateTimeOffset]::Now.ToUnixTimeSeconds()
+    $line = "$ts`t$($PWD.Path)`t$($h.CommandLine -replace "`r?`n", ' ')"
+    Add-Content -Path (Join-Path $dir 'commands.log') -Value $line -Encoding utf8
+  }
+  & $global:__LuneteOriginalPrompt
+}
+# --- end Lunete ---
+''',
+}
+
+
+def _move_leaving_link(old: Path, new: Path) -> Path:
+    """Move `old` to `new` and leave a symlink at `old`; returns the folder to use. Without the
+    link, old shell hooks would make a fresh `old` and their commands would go missing, so a
+    move whose link fails is undone."""
+    try:
+        os.rename(old, new)
+    except OSError:
+        return old
+    try:
+        os.symlink(new, old, target_is_directory=True)
+    except OSError:
+        try:
+            os.rename(new, old)
+            return old
+        except OSError:
+            return new  # moved and can't be moved back: the new folder is the one that holds the data
+    return new
+
+
+def data_home() -> Path:
+    """$LUNETE_HOME (or the older $HLIDSKJALV_HOME or $ARCADE_HOME), else ~/.lunete.
+
+    An existing ~/.hlidskjalv (0.4) or ~/.arcade (0.2) folder is moved to ~/.lunete once, with a
+    symlink left at the old path, so installed shell hooks and the programs that write there
+    (Trioditis's metrics and adopted values, for one) keep working. If the folder can't be moved,
+    or no link can be left behind (Windows without symlink rights), the old folder is used."""
+    given = env("HOME")
+    if given:
+        home = Path(given)
+    else:
+        home = Path.home() / ".lunete"
+        for old in (Path.home() / ".hlidskjalv", Path.home() / ".arcade"):
+            if not home.exists() and old.is_dir() and not old.is_symlink():
+                home = _move_leaving_link(old, home)
+                break
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "sessions").mkdir(exist_ok=True)
+    if os.name == "posix":
+        os.chmod(home, 0o700)
+        os.chmod(home / "sessions", 0o700)
+    return home
+
+
+def prune(sessions: Path, keep: int) -> None:
+    for old in [s["id"] for s in list_sessions(sessions)][keep:]:
+        try:
+            (sessions / old).unlink()
+        except OSError:
+            pass
+
+
+def check_folder(folder: Path) -> None:
+    home = Path.home().resolve()
+    if folder == home or folder == Path(folder.anchor) or not folder.is_dir():
+        sys.exit(f"Pick a project folder (not your whole home folder or drive): {folder}")
+
+
+def watch(args, argv: list[str]) -> None:
+    root = Path(args.folder).expanduser().resolve()
+    check_folder(root)
+    home = data_home()
+    sessions = home / "sessions"
+    prune(sessions, max(args.keep - 1, 0))
+    owner = Owner(home)
+    settings = Settings(home / "settings.json")
+    prefs = settings.data
+
+    # Command-line flags win; otherwise Settings decide.
+    sb_log = (args.trioditis_log or (env("TRIODITIS_LOG"))
+              or prefs["sources"]["trioditis_log"])
+    sb_path = Path(sb_log).expanduser().resolve() if sb_log else None
+    files = FileWatcher(root, skip_dirs=set(prefs["sources"]["skip_dirs"]))
+    git = GitWatcher(root)
+    cmds = CommandWatcher(root, home / "commands.log")
+    ai = TrioditisWatcher(sb_path, load_prices(home / "prices.json"))
+    claude_code = ClaudeCodeWatcher(root) if prefs["sources"]["claude_code"] else None
+
+    snapshot = files.snapshot()
+    git.prime()
+    name = re.sub(r"[^A-Za-z0-9._-]+", "-", root.name)[:60] or "project"
+    meta = {
+        "git": git.available(), "branch": git.branch,
+        "commands_hook": (home / "commands.log").exists(),
+        "trioditis": bool(sb_path and sb_path.exists()),
+        "claude_code": bool(claude_code and claude_code.available()),
+        "terminal": bool((args.terminal or prefs["features"]["terminal"]) and term.supported()),
+        "truncated": files.truncated, "files_total": files.total, "version": __version__,
+    }
+    session_path = sessions / f"{time.strftime('%Y%m%d-%H%M%S')}-{name}.jsonl"
+    # The live view continues from recent sessions, and lifetime XP survives pruning.
+    progress = Progress(home, sessions)
+    hub = Hub(root.name, snapshot, session_path, meta, history=load_history(sessions), progress=progress)
+
+    # Alerts: things you didn't do yourself (see alerts.py). Each source can be switched off in Settings.
+    alerter = Alerter(hub.publish, settings, home / "alerts.jsonl")
+    if claude_code is not None:
+        claude_code.alerter = alerter  # a risky command Claude Code runs is an alert, counted by `status`
+    persistence = PersistenceWatcher(root, alerter, expected=home / "expected.json")
+    syslog = SystemLogWatcher(alerter)
+    sb_security = TrioditisSecurityWatcher(sb_path.parent / "security.jsonl" if sb_path else None, alerter)
+    cost = CostWatcher(home, alerter)
+    alerts_ctx = AlertsContext(alerter, home / "alerts.jsonl", Acks(home / "alerts-ack.json"),
+                               lambda: {"available": syslog.available, "why": syslog.why})
+
+    # One thread per source, each on its own cadence; a slow one never holds the others back.
+    pollers = start_all({
+        "files": files, "git": git, "commands": cmds, "trioditis": ai, "claude_code": claude_code,
+        "persistence": persistence, "system_log": syslog, "security": sb_security, "cost": cost,
+    }, args.interval, hub.publish)
+    hub.health = lambda: health_of(pollers)
+
+    def restart():
+        """Start over with the same command line (new settings apply); same PID under systemd."""
+        again = [a for a in argv if a != "--no-open"] + ["--no-open"]
+        os.execv(sys.executable, [sys.executable, "-m", "lunete", *again])
+
+    shell = term.Terminal(root, owner, lambda sev, title, detail, fp: alerter.raise_(sev, "refused_access", title, detail, fingerprint=fp),
+                          lambda sev, source, title, detail, fp, expected: alerter.raise_(sev, source, title, detail, fingerprint=fp, expected=expected),
+                          lambda: bool(settings.data["features"]["terminal_root"])) if meta["terminal"] else None
+    usage_ctx = UsageContext(home, ClaudeUsage(claude_code.dir) if claude_code else None)
+    if usage_ctx.claude:
+        usage_ctx.claude.plan = ClaudeUsage(claude_code.dir, all_projects=True)  # account-wide windows, cached separately
+    syncer = Syncer(home, settings, progress, alerter)  # settings, XP and Learn progress between your computers (opt-in)
+    start_worker(syncer)
+    sso = Sso(home, alerter)  # sign in with GitHub or Google to pair (opt-in)
+    httpd = serve(hub, sessions, args.port, shell, owner, settings, restart, alerts_ctx, usage_ctx, syncer, sso,
+                  study_home=home)
+    write_private(home / "server.json", json.dumps({
+        "port": args.port, "pid": os.getpid(), "folder": str(root), "version": __version__,
+        "started": time.time()}))
+    url = f"http://127.0.0.1:{args.port}/"
+    print(f"Lunete is watching {root}")
+    print(f"  open {url}   (Ctrl+C to stop)")
+    print(f"  same page, friendlier address in Chrome, Edge or Firefox: http://{NICE_HOST}:{args.port}/")
+    if not args.no_open:
+        url += f"#pair={owner.launch_code()}"  # one use: pairs this browser for settings and the terminal
+    else:
+        print("  to pair a browser (needed for settings and the terminal): your password in Settings > Pairing,"
+              " or: python3 -m lunete pair")
+    if shell:
+        print("  terminal: ON (a real shell in this folder, in the Terminal tab)"
+              + (" · root allowed" if prefs["features"]["terminal_root"] else " · no root") * (platform.system() == "Linux"))
+    elif args.terminal or prefs["features"]["terminal"]:
+        print("  note: the in-browser terminal needs Linux, macOS or Windows 10 (1809+); it stays off on this system")
+    if files.truncated:
+        print(f"  note: {files.total:,} files; showing the first {len(snapshot):,}. Leave folders out in Settings > Watching > Skip folders")
+    if not meta["commands_hook"]:
+        print("  tip: terminal commands aren't recorded yet; see docs/guide.md > Your terminal commands")
+    if sb_log and not meta["trioditis"]:
+        print(f"  note: Trioditis log not found yet at {sb_path}; it appears after the first AI call")
+    if claude_code and not meta["claude_code"]:
+        print("  tip: no Claude Code session transcripts found for this folder yet; run `claude` here to see its AI steps too")
+    if not args.no_open:
+        webbrowser.open(url)
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\nSaved this session for Replay.")
+
+
+def status_text(home: Path) -> str:
+    """The usage panel, for the terminal: plan windows, spend, alerts, services."""
+    from . import usage as u
+    from .alerts import Acks, read_history
+    from .autostart import status as auto_status
+    from .cost_alerts import u_money
+    from .sources import claude_code_project_dir
+    lines = []
+    cc = claude_code_project_dir(Path.cwd())
+    w = u.ClaudeUsage(cc, all_projects=True).windows()
+    prefs = Settings(home / "settings.json").data
+    anchor = prefs.get("usage", {}).get("week_anchor")
+    if anchor:
+        w = u.ClaudeUsage(cc, all_projects=True).windows(week_anchor=u._epoch(anchor))
+    lines.append("Claude plan (estimate from Claude Code transcripts on this computer)")
+    for key, label in (("session", "Session (5h)"), ("week", "Weekly (7d)")):
+        x = w.get(key) or {}
+        if x.get("active"):
+            left = x["resets_at"] - time.time()
+            fam = ", ".join(f"{k} {v / 1e6:.1f}M" for k, v in (x.get("by_family") or {}).items())
+            lines.append(f"  {label:<13} {x['turns']:>4} turns  {(x['in'] + x['out']) / 1e6:6.1f}M tokens  "
+                         f"resets in {left / 3600:.1f} h   [{fam}]")
+        else:
+            lines.append(f"  {label:<13} no active window")
+    b = u.budget(home)
+    if b.get("available"):
+        lines.append("Trioditis spend")
+        lines.append(f"  today      {u_money(b['today']):>8} of {u_money(b['caps']['daily_usd'])}")
+        lines.append(f"  this month {u_money(b['month']):>8} of {u_money(b['caps']['monthly_usd'])}")
+        for name, p in sorted((b.get("providers") or {}).items()):
+            caps = p.get("caps") or {}
+            cap = f" of {u_money(caps['monthly_usd'])}" if "monthly_usd" in caps else ""
+            lines.append(f"  {name:<10} {u_money(p['month']):>8}{cap} this month, {p['calls_month']} calls")
+        for lim in b.get("limits") or []:
+            if lim.get("remaining") is not None:
+                lines.append(f"  {lim['provider']} {lim['name'].replace('_', ' ')}: {lim['remaining']:,} left"
+                             + (f" of {lim['limit']:,}" if lim.get("limit") else ""))
+    acct = u.accounts(home)
+    for name, a in sorted((acct.get("providers") or {}).items()):
+        if not a.get("error") and a.get("limit") is not None:
+            lines.append(f"  {name}: {a.get('label', 'account')} {u_money(a['used'])} of {u_money(a['limit'])}")
+    acks = set(Acks(home / "alerts-ack.json").ids)
+    unread = [a for a in read_history(home / "alerts.jsonl") if not a.get("expected") and a.get("uid") not in acks]
+    worst = max((a["severity"] for a in unread), default=None, key=lambda s: ["info", "medium", "high", "critical"].index(s))
+    lines.append(f"Alerts: {len(unread)} unread" + (f", highest {worst}" if worst else ""))
+    for a in unread[-3:]:
+        lines.append(f"  [{a['severity']}] {a['title']}")
+    st = auto_status(home, logs=0)
+    for s in st.get("services", []):
+        lines.append(f"{s['app']}: " + ("running" if s.get("active") else "on, not running" if s.get("enabled") else "not set to start at login"))
+    return "\n".join(lines)
+
+
+def password(args) -> None:
+    """Set or remove the pairing password (asked for twice, never shown)."""
+    import getpass
+    owner = Owner(data_home())
+    if args.clear:
+        owner.set_password(None)
+        print("Password removed. Browsers now pair with a one-time link only (python3 -m lunete pair).")
+        return
+    pw = getpass.getpass("New password (at least 8 characters): ")
+    if pw != getpass.getpass("Again: "):
+        sys.exit("They differ; nothing changed.")
+    try:
+        owner.set_password(pw)
+    except ValueError as e:
+        sys.exit(f"Nothing changed: {e}")
+    print("Password set. In the browser: Settings > Pairing > enter it. Already paired browsers stay paired.")
+
+
+def two_factor(args) -> None:
+    """Authenticator-app codes for pairing: setup, status, or the emergency off switch."""
+    owner = Owner(data_home())
+    if args.action == "status":
+        print("two-factor: " + ("ON (authenticator app)" if owner.totp_enabled() else "off"))
+    elif args.action == "off":
+        owner.totp_disable()
+        print("Two-factor authentication is off. Pairing with the password alone works again.")
+    else:
+        import getpass
+        import socket
+        if owner.totp_enabled():
+            sys.exit("Already set up. Run `python3 -m lunete 2fa off` first to start over.")
+        d = owner.totp_begin(f"{getpass.getuser()}@{socket.gethostname()}")
+        print("In your authenticator app, add an account by entering this key (or scan the QR code in Settings > Pairing):")
+        print(f"  {d['secret']}\n  {d['uri']}")
+        codes = owner.totp_confirm(input("Code the app shows now: ").strip())
+        if codes is None:
+            sys.exit("That code didn't match; nothing changed.")
+        print("Two-factor authentication is on. Recovery codes (each works once; keep them somewhere safe):")
+        print("  " + "  ".join(codes))
+
+
+def sso_cmd(args) -> None:
+    """Sign in with GitHub or Google: status | configure | link | unlink."""
+    sso = Sso(data_home())
+    if args.action == "status":
+        for st in sso.status().values():
+            print(f"{st['name']}: " + ("not set up" if not st["configured"] else f"linked as {st['linked']}" if st["linked"] else "set up, nothing linked"))
+        return
+    provider = (args.provider or "").lower()
+    if provider not in PROVIDERS:
+        sys.exit("Which provider? github or google")
+    try:
+        if args.action == "configure":
+            secret = None
+            if PROVIDERS[provider]["secret"]:
+                import getpass
+                secret = getpass.getpass(f"{PROVIDERS[provider]['name']} client secret (shown nowhere): ")
+            sso.configure(provider, args.client_id or input("Client id: "), secret)
+            print(f"{PROVIDERS[provider]['name']} is set up. Link your account: python3 -m lunete sso link {provider}")
+        elif args.action == "unlink":
+            sso.unlink(provider)
+            print("Unlinked.")
+        else:
+            flow = sso.start(provider, "link")
+            print(f"Open {flow['uri']} and enter this code: {flow['user_code']}   (valid {flow['expires_in'] // 60} min)")
+            while (st := sso.poll(flow["id"]))["status"] == "pending":
+                time.sleep(2)
+            if st["status"] != "ok":
+                sys.exit(f"Not linked: {st['why']}")
+            print(f"Linked as {st['identity']}. Any browser on this computer can now pair by signing in with {PROVIDERS[provider]['name']}.")
+    except SsoError as e:
+        sys.exit(f"Not done: {e}")
+
+
+def sync_cmd(args) -> None:
+    """Sync between computers: status, or push and pull now."""
+    home = data_home()
+    syncer = Syncer(home, Settings(home / "settings.json"), Progress(home, home / "sessions"))
+    if not syncer.configured:
+        print("sync: off (set it up in Settings > Sync)")
+        return
+    if args.action == "now":
+        try:
+            syncer.sync_now()
+        except Exception as e:
+            sys.exit(f"sync failed: {e}")
+    st = syncer.status()
+    def when(t):
+        return time.strftime("%Y-%m-%d %H:%M", time.localtime(t)) if t else "never"
+    print(f"sync: {st['where']} as '{st['device']}'")
+    print(f"  last push {when(st['last_push'])}, last pull {when(st['last_pull'])}" + (f", error: {st['last_error']}" if st["last_error"] else ""))
+    for name, d in st["devices"].items():
+        print(f"  other computer '{name}': {d['xp']} XP")
+
+
+def _answers(port: int) -> bool:
+    """True if an HTTP server replies on 127.0.0.1:port; a bare TCP connect can lie, a reply can't."""
+    import http.client
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+    try:
+        conn.request("GET", "/api/sso")
+        conn.getresponse().read()
+        return True
+    except (OSError, http.client.HTTPException):
+        return False
+    finally:
+        conn.close()
+
+
+def pair(args) -> None:
+    home = data_home()
+    if args.rotate:
+        rotate_key(home)
+        print("New owner key: every browser is un-paired.")
+    try:
+        last = json.loads((home / "server.json").read_text(encoding="utf-8"))
+        port, folder = int(last["port"]), str(last.get("folder") or "~/projects/my-app")
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        port, folder = int(env("PORT") or "8788"), "~/projects/my-app"
+    if not _answers(port):  # server.json outlives a stopped server; a link to it opens an error page
+        sys.exit(f"Lunete isn't running on port {port}, so the link would open an error page.\n"
+                 f"Start it with `python3 -m lunete watch {folder}`, then run `python3 -m lunete pair` again.")
+    url = f"http://127.0.0.1:{port}/#pair={issue_pair_code(home)}"
+    print(f"Open this once, within 10 minutes, in the browser to pair:\n  {url}")
+    if args.open:
+        webbrowser.open(url)
+
+
+def _store_path(choice: str) -> Path:
+    from . import personal
+    return personal.path(data_home()) if choice == "personal" else Path(choice).expanduser()
+
+
+def graph_cli(args) -> int:
+    from . import graph
+    path = _store_path(args.store)
+    if not path.exists():
+        print(f"lunete graph check: no store at {path} yet; it is made the first time you log something", file=sys.stderr)
+        return 1
+    try:
+        store = graph.Store.open(path)
+    except graph.GraphError as e:
+        print(f"lunete graph check: {e}", file=sys.stderr)
+        return 1
+    if args.action == "rebuild":
+        try:
+            n = graph.rebuild(store)
+        except graph.GraphError as e:
+            print(f"lunete graph rebuild: {e}", file=sys.stderr)
+            return 1
+        print(f"{path}: view rebuilt from {n} accepted changes")
+    report = graph.check(store)
+    c = report["counts"]
+    print(f"{path}")
+    print(f"  {c['changes']} changes: {c['accepted']} accepted, {c['refusals']} refused")
+    print(f"  view: {c['items']} items, {c['links']} live links")
+    print(f"  payloads: {c['payloads']} present, {c['erased']} erased, {c['lost']} lost")
+    if report["ok"]:
+        print("  ok: the chain verifies and replaying the log gives the same view")
+        return 0
+    for p in report["problems"]:
+        print(f"  problem: {p}", file=sys.stderr)
+    if all(p.startswith(("view table", "meta.applied_seq")) for p in report["problems"]):
+        print("  Only the view differs from the log. The log is the record: `lunete graph rebuild` remakes the view from it.",
+              file=sys.stderr)
+    else:
+        print("  The log itself doesn't verify. Keep a copy of the file before changing anything, and report it.",
+              file=sys.stderr)
+    return 1
+
+
+def study_cli(args) -> int:
+    import datetime as dt
+
+    from . import personal, study
+    try:
+        if args.action == "add-line":
+            pieces = [study.piece_spec(p) for p in args.piece]
+            plan = study.plan_line(args.name, study.minutes(args.week), pieces, args.check)
+            if args.dry_run:
+                print(f"would add study line {plan['name']!r}, {plan['fields']['week_min']} min a week")
+                for c in plan["fields"].get("checks", []):
+                    print(f"  check date {c}")
+                for p in plan["pieces"]:
+                    lo, hi = p["est_min"]
+                    print(f"  piece {p['title']!r}, estimate {lo // 60}-{hi // 60} h" if lo != hi
+                          else f"  piece {p['title']!r}, estimate {lo} min")
+                print("nothing written (--dry-run)")
+                return 0
+            store = personal.open_store(data_home())
+            study.add_line(store, args.name, plan["fields"]["week_min"], pieces, args.check)
+            print(f"added study line {plan['name']!r} ({plan['fields']['week_min']} min a week, {len(pieces)} pieces)")
+        elif args.action == "log":
+            store = personal.open_store(data_home())
+            day = args.day or dt.date.today().isoformat()
+            study.log(store, args.line, day, args.time, note=args.note, score=args.score, channel="cli")
+            print(f"logged {study.minutes(args.time)} min on {args.line} for {day}")
+        elif args.action == "target":
+            store = personal.open_store(data_home())
+            study.set_target(store, args.line, study.minutes(args.week), channel="cli")
+            print(f"{args.line}: weekly target is now {study.minutes(args.week)} min")
+        else:  # list
+            store = personal.open_store(data_home())
+            s = study.summary(store)
+            if not s["lines"]:
+                print('no study lines yet; add one: lunete study add-line "Serbian" --week 6h')
+            for li in s["lines"]:
+                mark = "  done for this week" if li["done_for_week"] else ""
+                print(f"{li['name']}: {li['this_week']} of {li['week_min']} min this week{mark}")
+                for p in li["pieces"]:
+                    print(f"  {'[x]' if p['done'] else '[ ]'} {p['title']}: {p['minutes']} min logged")
+    except study.StudyError as e:
+        print(f"lunete study {args.action}: {e}", file=sys.stderr)
+        return 2
+    return 0
+
+
+def main(argv: list[str] | None = None) -> None:
+    ap = argparse.ArgumentParser(prog="lunete", description="A game-like live view of your coding workflow.")
+    ap.add_argument("--version", action="version", version=__version__)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    w = sub.add_parser("watch", help="watch a project folder and open Lunete")
+    w.add_argument("folder", nargs="?", default=".")
+    w.add_argument("--port", type=int, default=int(env("PORT") or "8788"))
+    w.add_argument("--trioditis-log", "--switchboard-log", dest="trioditis_log",  # old name: one more version
+                   help="path to Trioditis' logs/decisions.jsonl")
+    w.add_argument("--interval", type=float, default=1.0, help="seconds between checks")
+    w.add_argument("--keep", type=int, default=50, help="how many past sessions to keep for Replay")
+    w.add_argument("--no-open", action="store_true", help="don't open the browser")
+    w.add_argument("--terminal", action="store_true",
+                   help="also allow a real shell in the browser (Terminal tab); off by default")
+
+    sub.add_parser("status", help="plan windows, spend against caps, unread alerts and services, in the terminal")
+
+    pr = sub.add_parser("pair", help="print a one-time link that pairs a browser with the running Lunete")
+    pr.add_argument("--open", action="store_true", help="also open it in the browser")
+    pr.add_argument("--rotate", action="store_true", help="new owner key first: un-pairs every browser")
+
+    pw = sub.add_parser("password", help="set the password that pairs a browser (Settings > Pairing)")
+    pw.add_argument("--clear", action="store_true", help="remove the password; the one-time link still works")
+
+    tf = sub.add_parser("2fa", help="authenticator-app codes for pairing: setup | status | off")
+    tf.add_argument("action", choices=["setup", "status", "off"])
+
+    sy = sub.add_parser("sync", help="settings, XP and Learn progress between your computers: status | now")
+    sy.add_argument("action", choices=["status", "now"])
+
+    so = sub.add_parser("sso", help="sign in with GitHub or Google to pair: status | configure | link | unlink")
+    so.add_argument("action", choices=["status", "configure", "link", "unlink"])
+    so.add_argument("provider", nargs="?", help="github or google")
+    so.add_argument("client_id", nargs="?", help="for configure: the OAuth app's client id")
+
+    a = sub.add_parser("autostart", help="start Lunete at login: enable <folder> | disable | status")
+    a.add_argument("action", choices=["enable", "disable", "status"])
+    a.add_argument("folder", nargs="?", help="project folder to watch (for enable)")
+    a.add_argument("--port", type=int, default=int(env("PORT") or "8788"))
+
+    h = sub.add_parser("hook", help="print the shell snippet that records terminal commands")
+    h.add_argument("shell", choices=sorted(HOOKS))
+
+    sub.add_parser("sessions", help="list saved sessions")
+
+    g = sub.add_parser("graph", help="the change log behind Lunete's items: check (read-only) | rebuild",
+                       description="check: verify the hash chain and that replaying the log gives the view (read-only). "
+                                   "rebuild: drop the view and rebuild it from the log, which is the record.")
+    g.add_argument("action", choices=["check", "rebuild"])
+    g.add_argument("--store", default="personal", help="'personal' (the default) or the path of a store file")
+
+    st = sub.add_parser("study", help="study lines and their weekly time: list | add-line | log | target",
+                        description="Study lines: what you're learning and how much time it got this week. "
+                                    "The page shows them under Study.")
+    ss = st.add_subparsers(dest="action", required=True)
+    ss.add_parser("list", help="each line with this week's minutes against its target")
+    al = ss.add_parser("add-line", help="add a study line with a weekly target",
+                       epilog='example: lunete study add-line "Eval sprint" --week 3h --piece "S1 stats toolkit=3-5h"')
+    al.add_argument("name")
+    al.add_argument("--week", required=True, help="weekly target, like 6h, 90m or 1h30m")
+    al.add_argument("--piece", action="append", default=[], metavar="NAME=ESTIMATE",
+                    help='a part of the line with its time estimate, like "S1 stats toolkit=3-5h" (repeatable)')
+    al.add_argument("--check", action="append", default=[], metavar="YYYY-MM-DD",
+                    help="a check date shown on the line's score chart (repeatable)")
+    al.add_argument("--dry-run", action="store_true", help="print what would be written and write nothing")
+    lg = ss.add_parser("log", help="log a session on a line")
+    lg.add_argument("line", help="the line's name")
+    lg.add_argument("time", help="how long, like 25m or 1h")
+    lg.add_argument("--note", default="")
+    lg.add_argument("--score", help="0 to 10, for a listening check or a quiz")
+    lg.add_argument("--day", default=None, help="YYYY-MM-DD (default: today)")
+    tg = ss.add_parser("target", help="change a line's weekly target")
+    tg.add_argument("line")
+    tg.add_argument("week", help="like 6h")
+
+    args = ap.parse_args(argv)
+    if args.cmd == "watch":
+        watch(args, list(argv if argv is not None else sys.argv[1:]))
+    elif args.cmd == "pair":
+        pair(args)
+    elif args.cmd == "password":
+        password(args)
+    elif args.cmd == "2fa":
+        two_factor(args)
+    elif args.cmd == "sync":
+        sync_cmd(args)
+    elif args.cmd == "sso":
+        sso_cmd(args)
+    elif args.cmd == "status":
+        print(status_text(data_home()))
+    elif args.cmd == "autostart":
+        from . import autostart
+        home = data_home()
+        if args.action == "enable":
+            if not args.folder:
+                sys.exit("Which folder? python3 -m lunete autostart enable ~/projects/my-app")
+            folder = Path(args.folder).expanduser().resolve()
+            check_folder(folder)
+            print(autostart.enable(folder, args.port, home))
+            print("Pair a browser: python3 -m lunete pair --open")
+        elif args.action == "disable":
+            print(autostart.disable())
+        else:
+            print(autostart.format_status(autostart.status(home)))
+    elif args.cmd == "hook":
+        print(HOOKS[args.shell].strip())
+    elif args.cmd == "graph":
+        sys.exit(graph_cli(args))
+    elif args.cmd == "study":
+        sys.exit(study_cli(args))
+    elif args.cmd == "sessions":
+        for s in list_sessions(data_home() / "sessions"):
+            print(f"{s['id']}  {s['bytes']:>8} bytes")
+
+
+if __name__ == "__main__":
+    main()

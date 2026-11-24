@@ -1,28 +1,29 @@
 [build-system]
-requires = ["setuptools>=69"]
+requires = ["setuptools>=77"]  # 77: the first to read `license = "MIT"` (PEP 639)
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "hlidskjalv"
-version = "0.4.0"
+name = "lunete"
+version = "0.5.0"
 description = "A game-like, local-only live map of your coding workflow: files, commands, Git and AI steps, with hover explanations."
 readme = "README.md"
-license = "MIT"
+license = "AGPL-3.0-or-later"
 requires-python = ">=3.10"
 dependencies = []          # standard library only, on purpose
 
 [project.urls]
-Homepage = "https://github.com/alexb-joat/hlidskjalv"
-Issues = "https://github.com/alexb-joat/hlidskjalv/issues"
+Homepage = "https://github.com/alexb-joat/lunete"
+Issues = "https://github.com/alexb-joat/lunete/issues"
 
 [project.scripts]
-hlidskjalv = "hlidskjalv.__main__:main"
+lunete = "lunete.__main__:main"
+hlidskjalv = "lunete.__main__:main"  # the 0.4 name, kept for one release
 
 [tool.setuptools]
-packages = ["hlidskjalv"]
+packages = ["lunete", "hlidskjalv"]  # hlidskjalv: the 0.4 module name, kept for one release
 
 [tool.setuptools.package-data]
-hlidskjalv = ["static/*.html", "static/*.js", "static/vendor/*"]
+lunete = ["static/*.html", "static/*.js", "static/vendor/*"]
 
 [tool.ruff]
 line-length = 160          # the code's own width: long lines here are messages and tables, not deep nesting
@@ -31,7 +32,7 @@ line-length = 160          # the code's own width: long lines here are messages 
 # pyflakes, pycodestyle, import order, bugbear, pyupgrade and the bandit security rules.
 select = ["E", "F", "W", "I", "B", "UP", "S"]
 # S603/S606 flag every subprocess call and exec; the checks that matter stay on: shell=True
-# (S602, S605) and a program found through PATH (S607). Hlidskjalv runs fixed argument lists.
+# (S602, S605) and a program found through PATH (S607). Lunete runs fixed argument lists.
 ignore = ["S603", "S606"]
 
 [tool.ruff.lint.per-file-ignores]

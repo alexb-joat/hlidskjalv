@@ -1,0 +1,109 @@
+name: release
+
+# A v* tag builds the sdist and wheel, checks them in a clean venv and attaches them to a GitHub
+# release whose notes come from CHANGELOG.md. Run by hand (workflow_dispatch) it only builds and
+# checks: a dry run. The PyPI job is off (see its comment).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Build tools (hash-verified)
+        run: pip install --require-hashes --no-deps -r requirements-release.txt
+      - name: The tag names this version (lunete.__version__ and pyproject.toml)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          v=$(python -c "import lunete; print(lunete.__version__)")
+          p=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME but lunete.__version__ is $v"; exit 1; }
+          [ "$p" = "$v" ] || { echo "pyproject.toml says $p but lunete.__version__ is $v: make them match"; exit 1; }
+      - name: The changelog has an entry for this version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          grep -q "^## ${GITHUB_REF_NAME#v} " CHANGELOG.md || { echo "CHANGELOG.md has no '## ${GITHUB_REF_NAME#v} (date)' heading"; exit 1; }
+      - name: "Build sdist and wheel (no build isolation, so nothing is fetched unpinned)"
+        run: python -m build --no-isolation
+      - name: Install the wheel in a clean venv and start from nothing
+        # Standard library only: the wheel is the whole install. Both 0.4 entry points must still
+        # start Lunete, and the page's files must be inside the wheel.
+        run: |
+          python -m venv /tmp/clean
+          /tmp/clean/bin/pip install --no-deps dist/*.whl
+          cd "$(mktemp -d)"
+          export LUNETE_HOME="$PWD/home"
+          /tmp/clean/bin/lunete --version
+          /tmp/clean/bin/hlidskjalv --version
+          /tmp/clean/bin/python -m hlidskjalv --help > /dev/null
+          /tmp/clean/bin/lunete study add-line "Release check" --week 1h --dry-run
+          test ! -e home/graph/personal.db || { echo "study add-line --dry-run wrote the store"; exit 1; }
+          # graph check exits 1 when there is no store yet, so make one first.
+          /tmp/clean/bin/lunete study add-line "Release check" --week 1h
+          /tmp/clean/bin/lunete study log "Release check" 10m
+          /tmp/clean/bin/lunete graph check
+          /tmp/clean/bin/python -c "import importlib.resources as r; f = r.files('lunete') / 'static' / 'index.html'; assert f.is_file(), f"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  pypi:
+    needs: build
+    # Off: Lunete isn't on PyPI yet. To turn it on, add a pending publisher for this workflow on
+    # pypi.org, set the repository variable PYPI_PUBLISH=true and run this workflow on the tag.
+    if: startsWith(github.ref, 'refs/tags/v') && vars.PYPI_PUBLISH == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/project/lunete/
+    permissions:
+      id-token: write   # trusted publishing: PyPI trusts this workflow, no API token exists
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+
+  github-release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write   # create the release and attach the files
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist/
+      - name: Create the release from the changelog if it doesn't exist, then attach the files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            awk -v v="${TAG#v}" 'index($0, "## " v " ") == 1 {f=1; next} /^## / {f=0} f' CHANGELOG.md > notes.md
+            [ -s notes.md ] || { echo "no notes for $TAG in CHANGELOG.md"; exit 1; }
+            gh release create "$TAG" --verify-tag --title "$TAG" --notes-file notes.md
+          fi
+          gh release upload "$TAG" dist/* --clobber
