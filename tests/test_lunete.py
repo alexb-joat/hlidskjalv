@@ -891,6 +891,8 @@ class WriteApiTest(unittest.TestCase):
             link = self.post("/api/pair", {"code": self.owner.launch_code()})[1]["token"]  # not fresh: no code proved
             status, body = self.post("/api/password", {"new": "another pass 1", "current": "open sesame 42"}, key=link)
             self.assertEqual((status, body.get("step_up")), (403, True))
+            time.sleep(0.3)  # a refused change must not also run: the 403 is the whole answer
+            self.assertTrue(self.owner.check_password("open sesame 42"))
             clock["t"] = base + 60
             self.assertEqual(self.post("/api/2fa/verify", {"code": code(1)}, key=link)[0], 403)  # spent
             self.assertEqual(self.post("/api/2fa/verify", {"code": code(2)}, key=link)[0], 200)

@@ -598,7 +598,8 @@ def make_handler(hub: Hub, sessions: Path, port: int, terminal: Terminal | None 
             def step_up_needed():  # security changes and root shells want a code from the app within STEP_UP_S
                 if owner.fresh_factor(given):
                     return None
-                return self._json({"error": "second-factor code needed", "step_up": True}, HTTPStatus.FORBIDDEN)
+                self._json({"error": "second-factor code needed", "step_up": True}, HTTPStatus.FORBIDDEN)
+                return True  # answered: the caller stops here (_json returns nothing, so None would let the change run too)
 
             if path.startswith("/api/sso/"):
                 if sso is None:
