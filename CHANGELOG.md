@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1 (2026-11-27)
+
+- **Fixed:** with an authenticator app switched on, a change refused for a missing second-factor code (the password, sign-in links, turning sync on or off, the root toggle) went ahead anyway: the refusal was sent, but the change still ran. It now stops at the refusal. The change still needed a paired browser, so only the second check failed, not the first. Upgrade if you use a second factor.
+
 ## 0.5.0 (2026-11-23)
 
 **Study: what you're learning, against a weekly target**
